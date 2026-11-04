@@ -1,0 +1,17 @@
+[project]
+name = "mlops-fraud-prediction-ca1"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "spiralsky", email = "shianastrophysics@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.scripts]
+mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
+
+[build-system]
+requires = ["uv_build>=0.12.4,<0.13.0"]
+build-backend = "uv_build"
