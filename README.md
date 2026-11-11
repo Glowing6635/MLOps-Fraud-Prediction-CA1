@@ -1,5 +1,9 @@
 # MLOps-Fraud-Prediction-CA1
 
+### Documentation
+[Project documentation](docs/MAIN.md)
+[Contributor guide](docs/contributors/README.md)
+
 ### Setup  
 `uv` is used as the package manager for this environment.
 
