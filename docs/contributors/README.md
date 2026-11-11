@@ -69,6 +69,47 @@ GitHub's “Create a merge commit” corresponds to `git merge --no-ff`.
 Changes to main and dev should be made through pull requests.
 Direct pushes to these branches should not be used.
 
+### Commit Messages
+Commit messages should use the format `type(scope): summary`.
+The scope is optional; omit it and its parentheses when unnecessary.
+
+| Type | Use |
+|---|---|
+| feat | Add functionality |
+| fix | Correct a defect |
+| docs | Change documentation |
+| refactor | Restructure code without changing its behaviour |
+| test | Add or update tests |
+| build | Change dependencies or build configuration |
+| ci | Change automated integration workflows |
+| chore | Other maintenance |
+
+The summary should describe the change clearly, using an action verb
+such as "add", "fix" or "update". Avoid vague messages such as "changes".
+Add a body when the reason for the change needs further explanation.
+Reference the relevant task or PBI issue number when applicable.
+
+Squash commit messages should describe the combined change rather than
+list its intermediate work-in-progress messages.
+Automatically generated merge commits may retain their default messages.
+
+#### Feature-Branch Commits (Guidelines)
+This section simply serves as guidelines for contributors on intermediate
+commits on feature branches. The commit-message format above is recommended,
+not required, for these commits.
+
+Small, frequent commits may be used to record development checkpoints.
+Each commit should focus on one understandable change where practical.
+Messages should describe what changed, even when the work is incomplete.
+Incomplete checkpoints should be identified clearly in the message.
+
+Intermediate commits do not need to represent a finished feature or
+pass every check. The completed change must satisfy the review and
+validation requirements before its pull request is merged.
+
+Before squash-merging, the final commit message should be written to
+describe the completed change and follow the commit-message format above.
+
 ### Keeping Branches Up to Date
 
 #### User Branches
