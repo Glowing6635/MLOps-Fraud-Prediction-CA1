@@ -26,8 +26,9 @@ The branch for development.
 Only pull requests from user branches are accepted.
 
 #### User
-A branch belonging to each contributor within the project. User branches exist
-to record and track progress of each contributor during sprints.
+A continuing branch for each contributor, used across sprints to track
+individual progress. Link pull requests to their PBI and sprint so
+contributions can be traced.
 
 **Accepted PR source branches**:
 Only pull requests from feature branches are accepted.
@@ -36,6 +37,9 @@ under Keeping Branches Up to Date.
 
 #### Feature
 Optional branches for implementing individual features for merging into user branches.
+Start from the updated user branch unless the feature depends on unfinished
+work in another feature branch. For dependent features, merge the prerequisite
+first, then update the dependent branch so its PR contains only its own changes.
 
 ### Pull Requests
 
@@ -43,10 +47,13 @@ Optional branches for implementing individual features for merging into user bra
 Each PBI should be merged individually into dev once complete.
 Its pull request should not include unfinished work or changes belonging
 to other PBIs.
+Keep each user branch focused on one PBI until it is merged into dev;
+other work can proceed in separate feature branches.
 
 #### Review and Validation
 Every pull request should be approved by at least one team member
 other than its author before merging.
+This includes feature-to-user, user-to-dev and dev-to-main pull requests.
 The pull request should describe the changes, reference the relevant
 task or PBI, and record the checks performed and their results.
 Relevant checks should pass, review discussions should be resolved,
