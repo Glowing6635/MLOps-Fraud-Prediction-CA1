@@ -11,6 +11,7 @@
 2. Copy `.env.example` to `.env` and fill in the database and MLflow settings. `.env` is git-ignored: never commit it. Variables set in the environment override it.
 3. Put the three base CSV files in `data/`. They are git-ignored.
 4. `uv run pytest` runs the tests.
+5. `uv run log-test-run` logs a test run to the MLflow server in `.env`, to check your laptop can reach it. `mlflow-server/README.md` says how to deploy the server.
 
 ### Checks
 CI (`.github/workflows/ci.yml`) runs on every pull request: `ruff check`, `ruff format --check`, `pytest`, a licence and vulnerability check of the dependencies, a gitleaks scan of the full history, and a check that the pull request's source and target branches follow `docs/contributors/README.md`. Run the first three locally with `uv run`.
