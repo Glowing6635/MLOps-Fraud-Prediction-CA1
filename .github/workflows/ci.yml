@@ -27,21 +27,25 @@ jobs:
         run: uv run ruff format --check
       - name: Tests
         run: uv run pytest
+      - name: MLflow server and client versions match
+        run: grep -qwF "mlflow==$(uv run python -c 'import mlflow; print(mlflow.__version__)')" mlflow-server/Dockerfile
       - name: Licences
         # Exact names as the locked packages report them, so a look-alike licence
         # cannot pass by containing an allowed name. Windows-only packages' names are
         # included so the step also passes on laptops. Notebook/EDA dependencies
         # report the additional exact names below (including NumPy's bundled licences).
+        # huey and skops publish no licence metadata; their LICENSE files are MIT.
         run: >-
           uv run --with pip-licenses==5.5.5 pip-licenses
-          --ignore-packages mlops-fraud-prediction-ca1
-          --allow-only "MIT;MIT License;MIT-0;
-          BSD License;BSD-2-Clause;BSD-3-Clause;
+          --ignore-packages mlops-fraud-prediction-ca1 huey skops
+          --allow-only "MIT;MIT License;MIT-0;MIT-CMU;
+          BSD License;BSD-2-Clause;BSD-3-Clause;3-Clause BSD License;
+          Apache-2.0;Apache Software License;Apache-2.0 AND MIT;
           Apache-2.0 OR BSD-2-Clause;Apache-2.0 OR BSD-3-Clause;
-          Apache-2.0;Apache 2.0;Apache Software License;
-          ISC License (ISCL);MIT-CMU;
+          Apache 2.0;ISC License (ISCL);
           BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0;
-          PSF-2.0;Python Software Foundation License"
+          Mozilla Public License 2.0 (MPL 2.0);
+          PSF-2.0;Python Software Foundation License;Zope Public License"
       - name: Advisories
         run: |
           uv export --locked --no-emit-project --format requirements-txt > "$RUNNER_TEMP/requirements.txt"
