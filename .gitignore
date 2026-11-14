@@ -4,3 +4,22 @@
 AGENTS.md
 CLAUDE.md
 
+
+# Secrets: copy .env.example to .env
+.env
+
+# Course data and run outputs stay on each laptop
+*.csv
+data/*
+!data/.gitkeep
+output/*
+!output/.gitkeep
+mlruns/
+mlartifacts/
+
+# Python and tool caches
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/

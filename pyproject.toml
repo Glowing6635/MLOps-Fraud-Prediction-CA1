@@ -7,7 +7,11 @@ authors = [
     { name = "spiralsky", email = "shianastrophysics@gmail.com" }
 ]
 requires-python = "~=3.12.0"
-dependencies = []
+dependencies = [
+    "pymysql[rsa]>=1.2.4",
+    "python-dotenv>=1.2.4",
+    "sqlalchemy>=2.1.8",
+]
 
 [project.scripts]
 mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
@@ -15,3 +19,8 @@ mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
