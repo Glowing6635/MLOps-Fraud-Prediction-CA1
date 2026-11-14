@@ -23,4 +23,15 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "ruff>=0.17.5",
 ]
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "UP", "T20"]
+
+[tool.ruff.lint.per-file-ignores]
+# main() is the command's entry point, where printing is its output.
+"src/mlops_fraud_prediction_ca1/__init__.py" = ["T201"]
+
+[tool.pytest.ini_options]
+testpaths = ["src"]

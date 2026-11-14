@@ -12,6 +12,11 @@
 3. Put the three base CSV files in `data/`. They are git-ignored.
 4. `uv run pytest` runs the tests.
 
+### Checks
+CI (`.github/workflows/ci.yml`) runs on every pull request: `ruff check`, `ruff format --check`, `pytest`, a licence and vulnerability check of the dependencies, and a gitleaks scan of the full history. Run the first three locally with `uv run`.
+
+GitHub's free plan cannot enforce branch protection on a private repository, so the team enforces it by hand: nobody pushes to `main` or `dev` directly, and a pull request is merged only when every check passes and someone other than its author has approved it. This is checked at each scrum.
+
 ### Secret scan
 `gitleaks git --log-opts="--all"` scans the full history of every branch for secrets.
 
