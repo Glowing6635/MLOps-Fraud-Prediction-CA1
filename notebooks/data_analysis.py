@@ -36,8 +36,16 @@
 #   cleaning and modelling choices can be traced to the findings, while
 #   preserving the original source data.
 #
+#
+# ## Contents
+#
+# - [1. Load and inspect the datasets](#1-load-and-inspect-the-datasets)
+# - [2. Assess data quality](#2-assess-data-quality)
+#   - [Missing values](#missing-values)
+#   - [Exact duplicates](#exact-duplicates)
+# - [Glossary](#glossary)
 # %% [markdown]
-# ## Load the source data
+# ## 1. Load and inspect the datasets
 #
 # Select the directory containing the three base CSVs. Loading uses pandas'
 # default type and missing-value inference; source files remain unchanged.
@@ -130,7 +138,9 @@ with pd.option_context("display.max_rows", None, "display.max_columns", None):
 
 
 # %% [markdown]
-# ### Check missing values by dataset and column
+# ## 2. Assess data quality
+#
+# ### Missing values
 #
 # The table below shows the missing-value count and percentage for every column
 # in each dataset. Percentages use the number of rows in that dataset, so we can
@@ -168,7 +178,24 @@ with pd.option_context(
 
 
 # %% [markdown]
-# ### Check exact duplicate rows
+# #### Findings
+#
+# Checks against the current source CSVs found pandas-recognised missing values
+# in three columns:
+#
+# - `customers.first_order_datetime`: 712 missing values (0.08% of customer rows).
+# - `orders.payment_method`: 21,501 missing values (2.26% of order rows).
+# - `orders.num_items_ordered`: 1 missing value (less than 0.01%; displayed as 0.00%).
+#
+# All other columns, including every column in `labels`, had zero missing values
+# under this definition. Placeholder strings still need investigation. No values
+# have been filled or rows removed; handling decisions remain open.
+#
+# These findings describe the current CSVs and should be reviewed if the inputs
+# or missing-value rules change.
+
+# %% [markdown]
+# ### Exact duplicates
 #
 # The summary below shows how many rows are repeated across all columns in each
 # dataset.
@@ -217,3 +244,26 @@ with pd.option_context(
             print(f"{name}: up to five rows from exact duplicate groups")
             display(examples)
 
+
+# %% [markdown]
+# #### Findings
+#
+# No exact duplicate rows were found in `customers` (901,312 rows), `orders`
+# (949,889 rows), or `labels` (950,318 rows). No rows need removal on this basis.
+# Repeated keys and conflicting records remain to be checked.
+#
+# These findings describe the current CSVs and should be reviewed if the inputs
+# or comparison rules change.
+
+# %% [markdown]
+# ## Glossary
+#
+# | Term | Meaning in this notebook |
+# | --- | --- |
+# | Column / field | A named attribute in a dataset. |
+# | Row / record | One entry containing values for the dataset's columns. |
+# | Feature | A variable used as an input to a prediction model. |
+# | Target | The outcome to predict; here, `is_fraud`. |
+# | Key / composite key | One column, or a combination of columns, intended to identify a record. Uniqueness must be checked. |
+# | Missing value | A value pandas recognises as absent; placeholder strings may require additional checks. |
+# | Exact duplicate | A row matching another row across all columns. |
