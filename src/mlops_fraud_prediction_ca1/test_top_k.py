@@ -182,11 +182,19 @@ def test_fraud_caught_at_k_outranks_average_precision():
     assert rank_models(reports) == ["catches_more", "ranks_better"]
 
 
-def test_models_evaluated_with_different_k_are_not_ranked():
+@pytest.mark.parametrize(
+    ("other_rows", "other_k"),
+    [
+        ([("d1", "SG", "o1", 1, 0.9), ("d1", "SG", "o2", 0, 0.1)], 2),
+        ([("d1", "SG", "o1", 1, 0.9)], 1),  # Fewer orders.
+        ([("d1", "SG", "o1", 1, 0.9), ("d1", "SG", "o2", 1, 0.1)], 1),  # More fraud.
+    ],
+)
+def test_models_evaluated_differently_are_not_ranked(other_rows, other_k):
     orders, scores = _orders(("d1", "SG", "o1", 1, 0.9), ("d1", "SG", "o2", 0, 0.1))
     reports = {
         "a": evaluate_top_k(orders, scores, k=1),
-        "b": evaluate_top_k(orders, scores, k=2),
+        "b": evaluate_top_k(*_orders(*other_rows), k=other_k),
     }
     with pytest.raises(ValueError, match="same K"):
         rank_models(reports)
@@ -224,6 +232,9 @@ ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
         (ORDER, [0.5, 0.4], 1, "same length"),
         (_orders(("d1", "SG", "o1", 2, 0.5))[0], [0.5], 1, "is_fraud must be 0 or 1"),
         (ORDER, [math.nan], 1, "not finite"),
+        (_orders((math.nan, "SG", "o1", 1, 0.5))[0], [0.5], 1, "is missing one"),
+        (_orders(("d1", None, "o1", 1, 0.5))[0], [0.5], 1, "is missing one"),
+        (_orders(("d1", "SG", None, 1, 0.5))[0], [0.5], 1, "is missing one"),
         (
             _orders(("d1", "SG", "o1", 1, 0.5), ("d2", "SG", "o1", 0, 0.4))[0],
             [0.5, 0.4],
