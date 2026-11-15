@@ -5,6 +5,8 @@
 ### Workflow Overview
 Changes move from optional feature branches into user branches,
 then into dev, and finally into main for a release.
+Shared contributor documentation may instead use temporary documentation
+branches with approved pull requests directly to dev, as described below.
 The source branch supplies the changes in a pull request;
 the target branch receives them.
 
@@ -23,7 +25,9 @@ Only pull requests from the dev branch are accepted.
 The branch for development.
 
 **Accepted PR source branches**:
-Only pull requests from user branches are accepted.
+Pull requests from user branches are accepted for development work.
+Pull requests from documentation branches are also accepted when limited
+to shared contributor documentation, as described under Contributor Documentation.
 
 #### User
 A continuing branch for each contributor, used across sprints to track
@@ -41,6 +45,11 @@ Start from the updated user branch unless the feature depends on unfinished
 work in another feature branch. For dependent features, merge the prerequisite
 first, then update the dependent branch so its PR contains only its own changes.
 
+#### Documentation
+Temporary branches named `documentation/<description>` hold one coherent
+update to shared contributor guidance. Create them from the latest dev
+and open pull requests targeting dev.
+
 ### Pull Requests
 
 #### Scope
@@ -50,10 +59,35 @@ to other PBIs.
 Keep each user branch focused on one PBI until it is merged into dev;
 other work can proceed in separate feature branches.
 
+#### Contributor Documentation
+Shared contributor guidance, such as `docs/contributors/**`, may be updated
+through a temporary `documentation/<description>` branch created from the
+latest dev, with a pull request targeting dev. Supporting documentation
+index entries and README navigation links may be included.
+This is an exception to the usual feature-to-user-to-dev route.
+Contributor-documentation updates reach main through the normal
+dev-to-main release process.
+Feature-specific documentation should follow the feature through dev.
+
+Each documentation pull request must contain only the intended documentation
+changes and must be approved by at least one team member other than its author.
+All other review and validation requirements still apply. Keep each branch
+focused on one coherent update.
+
+To separate documentation from unfinished feature work, create the documentation
+branch in a separate worktree based on dev and apply only the intended
+changes. Review the diff against dev to confirm that implementation changes
+and unrelated configuration or dependency changes are excluded.
+
+After the documentation pull request is merged into dev, contributors should
+merge dev into their user branches to receive the updated guidance.
+Completed documentation branches should follow the archiving and retention rules below.
+
 #### Review and Validation
 Every pull request should be approved by at least one team member
 other than its author before merging.
-This includes feature-to-user, user-to-dev and dev-to-main pull requests.
+This includes feature-to-user, documentation-to-dev, user-to-dev
+and dev-to-main pull requests.
 The pull request should describe the changes, reference the relevant
 task or PBI, and record the checks performed and their results.
 Relevant checks should pass, review discussions should be resolved,
@@ -65,6 +99,7 @@ Changes made after approval should be reviewed before merging.
 | Source | Target | Method |
 |---|---|---|
 | Completed feature branch | Its user branch | Squash and merge |
+| Documentation branch | dev | Squash and merge |
 | User branch | dev | Create a merge commit |
 | dev | main | Create a merge commit |
 
@@ -134,12 +169,27 @@ with the latest changes from the target branch before merging.
 Resolve any conflicts and rerun relevant checks. Keep the existing pull
 request so its discussion and review history are preserved.
 
-### Feature Branch Cleanup
-After squash-merging, the feature branch should no longer be used.
-Further work should start on a new branch from the updated user branch.
+### Completed Branches
+After squash-merging, completed feature and documentation branches should
+be renamed by prefixing their full original names with `archived/` and
+should no longer be used for further work. Preserve the branch type,
+contributor name where present, and descriptive part of the name:
+
+- `feature/spiralsky/add-jupytext` becomes
+  `archived/feature/spiralsky/add-jupytext`.
+- `documentation/contributor-guide` becomes
+  `archived/documentation/contributor-guide`.
+
+Further feature work should start on a new branch from the updated user branch.
+Further shared contributor-documentation work should start on a new branch
+from the updated dev branch.
+Retain archived branches until assessment is complete so their commits
+remain available as evidence of individual contributions.
 
 ### Releases and Naming
-Merges into main should happen per working, production-ready release.
+Merges from dev into main should happen per working, production-ready release.
+Approved shared contributor-documentation updates may merge into dev
+independently of feature work and do not require a release tag.
 All sprint and production releases should be tagged.
 Consistent naming should be used throughout this project.
 Release tags should follow the format `v<MAJOR>.<MINOR>.<RELEASE>`.
