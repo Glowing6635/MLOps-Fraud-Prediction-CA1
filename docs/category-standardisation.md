@@ -1,4 +1,4 @@
-# Category standardisation preview
+# Category standardization preview
 
 `standardise_categories` in `mlops_fraud_prediction_ca1.categories` returns
 original values, proposed values, frequencies and validation status. It leaves
@@ -9,16 +9,16 @@ notebook inclusion or applying any transformation.
 
 Raw CSV inspection found case variants:
 
-| Field | Evidence | Proposed formatting |
-| --- | --- | --- |
-| Customer country | `pk` (225), `my` (165), alongside uppercase codes | Uppercase |
-| Label country | `ph` (180), `my` (121), alongside uppercase codes | Uppercase |
-| Collection type | `delivery` (85), alongside `Delivery` | Lowercase |
-| Payment method | `Online Banking` (103), `payment on delivery` (20), alongside differently capitalised equivalents | Lowercase |
+| Field            | Evidence                                                                                          | Proposed formatting |
+| ---------------- | ------------------------------------------------------------------------------------------------- | ------------------- |
+| Customer country | `pk` (225), `my` (165), alongside uppercase codes                                                 | Uppercase           |
+| Label country    | `ph` (180), `my` (121), alongside uppercase codes                                                 | Uppercase           |
+| Collection type  | `delivery` (85), alongside `Delivery`                                                             | Lowercase           |
+| Payment method   | `Online Banking` (103), `payment on delivery` (20), alongside differently capitalized equivalents | Lowercase           |
 
 Counts describe the current local base CSVs; refresh them when inputs change.
 Matching after case conversion identifies candidate equivalence, not proof of
-business validity. Case standardisation does not establish an allowed set.
+business validity. Case standardization does not establish an allowed set.
 
 ## Precautions and validation safeguards
 
@@ -44,7 +44,12 @@ Likewise, `on Delivery` (160) must not automatically become
 by this function. Alias mappings are explicit and applied once, not chained.
 
 ```python
-preview = standardise_categories(raw_country_codes, case="upper")
+import pandas as pd
+
+from mlops_fraud_prediction_ca1.categories import standardise_categories
+
+raw_country_codes: pd.Series = pd.Series(["MY", "my", " PK "], dtype="string")
+preview: pd.DataFrame = standardise_categories(raw_country_codes, case="upper")
 ```
 
 The preview documents a proposal. Source-data cleaning and notebook integration

@@ -2,10 +2,10 @@
 
 Jupytext keeps a notebook and its Python representation in sync:
 
-| File | Contents | Tracked in Git |
-| --- | --- | --- |
-| `notebooks/main.ipynb` | Cells, execution counts, and outputs | No |
-| `notebooks/main.py` | Code and Markdown cells, separated by `# %%` markers | Yes |
+| File                   | Contents                                             | Tracked in Git |
+| ---------------------- | ---------------------------------------------------- | -------------- |
+| `notebooks/main.ipynb` | Cells, execution counts, and outputs                 | No             |
+| `notebooks/main.py`    | Code and Markdown cells, separated by `# %%` markers | Yes            |
 
 The Python representation makes cell changes readable in Git diffs. Notebook
 outputs stay local because `.ipynb` files are ignored by Git.
@@ -133,16 +133,18 @@ and parse errors to the caller. Configure logging in the notebook, not in
 the package.
 
 The analysis notebook defaults to the repository's `data/` directory when
-started from either the project root or `notebooks/`. Set `data_dir` explicitly
+started from either the project root or `notebooks/`. Set `base_data_dir` explicitly
 to use another directory or start from another working directory. For example:
 
 ```python
-data_dir: Path = Path("~/datasets/fraud").expanduser()
+from pathlib import Path
+
+base_data_dir: Path = Path("~/datasets/fraud").expanduser()
 ```
 
 After loading the extension, the notebook uses the linked import form:
 
-```python
+```text
 %%load_clean
 from mlops_fraud_prediction_ca1.data import load_base_data
 ```
@@ -202,13 +204,13 @@ uv run --no-sync python -B -m unittest discover -s tests -v
 
 Load the extension in a notebook cell:
 
-```python
+```text
 %load_ext load_clean
 ```
 
-For example, this cell uses the normal Python import behaviour:
+For example, this cell uses the normal Python import behavior:
 
-```python
+```text
 %%load_clean default
 from mlops_fraud_prediction_ca1 import main
 ```
@@ -216,7 +218,7 @@ from mlops_fraud_prediction_ca1 import main
 In the locked NotebookHelpers revision, import-based line helpers require an
 explicit mode. For example:
 
-```python
+```text
 %load_clean_preview default from mlops_fraud_prediction_ca1 import main
 %load_clean_check default from mlops_fraud_prediction_ca1 import main
 ```

@@ -12,7 +12,7 @@ From the cloned project directory, run:
 
 ```bash
 uv sync --locked
-uv run python -c "import mlops_fraud_prediction_ca1; print(mlops_fraud_prediction_ca1.__file__)"
+uv run python -c "import inspect; import mlops_fraud_prediction_ca1; print(inspect.getfile(mlops_fraud_prediction_ca1))"
 ```
 
 The second command verifies installation by printing the package path.
@@ -75,16 +75,17 @@ included in the environment.
 Verify the kernel and package in a notebook cell:
 
 ```python
+import inspect
 import sys
 import mlops_fraud_prediction_ca1
 
 print(sys.executable)
-print(mlops_fraud_prediction_ca1.__file__)
+print(inspect.getfile(mlops_fraud_prediction_ca1))
 ```
 
 Load NotebookHelpers when needed:
 
-```python
+```text
 %load_ext load_clean
 ```
 
@@ -95,15 +96,16 @@ or switching between notebook and Python representations.
 
 Keep reusable code in `src/mlops_fraud_prediction_ca1/` and import it from
 notebooks and scripts using the package name, without `src.`.
-For example, **if you add** `preprocessing.py` with a `clean_data` function:
+For example, import the existing CSV loader:
 
 ```python
-from mlops_fraud_prediction_ca1.preprocessing import clean_data
+from mlops_fraud_prediction_ca1.data import load_base_data
+
+print(load_base_data.__module__)
 ```
 
-This module is an example, not an existing project file. Installing the
-package makes it importable independently of the working directory; avoid
-notebook `sys.path` edits and IDE source-root workarounds.
+Installing the package makes it importable independently of the working
+directory; avoid notebook `sys.path` edits and IDE source-root workarounds.
 See the [Python packaging guide](https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/).
 
 ## Run commands
@@ -147,7 +149,7 @@ uv sync --upgrade-package load-clean
 Review the `uv.lock` diff and test the helpers. Once the update is shared,
 teammates install the same revision with `uv sync --locked`.
 A version bump or release tag does not automatically update the locked commit.
-See [uv's dependency upgrade behaviour](https://docs.astral.sh/uv/concepts/projects/sync/#upgrading-locked-package-versions).
+See [uv's dependency upgrade behavior](https://docs.astral.sh/uv/concepts/projects/sync/#upgrading-locked-package-versions).
 
 ## Troubleshooting
 

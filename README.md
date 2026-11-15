@@ -28,15 +28,15 @@ See [Git hooks](docs/setup.md#enable-git-hooks) for setup and conflict handling.
 
 ## Directories
 
-| Path | Purpose |
-| --- | --- |
-| `src/mlops_fraud_prediction_ca1/` | Installable Python package and reusable project code |
-| `notebooks/` | Notebook work; tracked Python representations use `# %%` cell markers |
-| `data/` | Local input data |
-| `output/` | Generated results |
-| `docs/` | Project documentation |
-| `.githooks/` | Shared Git hooks, enabled once per clone |
-| `scripts/` | Repository maintenance checks |
+| Path                              | Purpose                                                               |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `src/mlops_fraud_prediction_ca1/` | Installable Python package and reusable project code                  |
+| `notebooks/`                      | Notebook work; tracked Python representations use `# %%` cell markers |
+| `data/`                           | Local input data                                                      |
+| `output/`                         | Generated results                                                     |
+| `docs/`                           | Project documentation                                                 |
+| `.githooks/`                      | Shared Git hooks, enabled once per clone                              |
+| `scripts/`                        | Repository maintenance checks                                         |
 
 ## Documentation
 

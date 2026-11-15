@@ -12,13 +12,13 @@ Feature branches are optional. User branches track each contributor's progress
 across sprints. Merging into a user branch does not mean the work has passed
 team review.
 
-| Branch | Purpose | Accepted PR sources |
-|---|---|---|
-| `main` | Working, production-ready releases | `dev` |
-| `dev` | Shared development | User branches; shared contributor-documentation branches |
-| `user/<name>` | Individual contributions | Feature branches; merges from `dev` for synchronisation |
-| `feature/<user>/<description>` | One feature or coherent change | A dependent feature may initially target its prerequisite |
-| `documentation/<description>` | One shared contributor-guide update, based on `dev` | — |
+| Branch                         | Purpose                                             | Accepted PR sources                                       |
+| ------------------------------ | --------------------------------------------------- | --------------------------------------------------------- |
+| `main`                         | Working, production-ready releases                  | `dev`                                                     |
+| `dev`                          | Shared development                                  | User branches; shared contributor-documentation branches  |
+| `user/<name>`                  | Individual contributions                            | Feature branches; merges from `dev` for synchronisation   |
+| `feature/<user>/<description>` | One feature or coherent change                      | A dependent feature may initially target its prerequisite |
+| `documentation/<description>`  | One shared contributor-guide update, based on `dev` | —                                                         |
 
 Changes to `dev` and `main` must go through PRs. Do not push directly.
 
@@ -40,12 +40,12 @@ PBI covering at least one acceptance-criteria checklist item**.
 
 ### Review Before Merging
 
-| PR route | Approval |
-|---|---|
-| Feature → user | Author may merge after self-review and relevant checks |
-| Documentation → `dev` | At least one teammate other than the author |
-| User → `dev` | At least one teammate other than the author |
-| `dev` → `main` | At least one teammate other than the author |
+| PR route              | Approval                                               |
+| --------------------- | ------------------------------------------------------ |
+| Feature → user        | Author may merge after self-review and relevant checks |
+| Documentation → `dev` | At least one teammate other than the author            |
+| User → `dev`          | At least one teammate other than the author            |
+| `dev` → `main`        | At least one teammate other than the author            |
 
 Teammates may review feature PRs early, especially when other work depends on
 them. GitHub distinguishes merging your own PR from submitting an approving
@@ -61,13 +61,13 @@ Before merging any PR:
 
 ### Choose the Merge Method
 
-| Source → target | Method |
-|---|---|
-| Feature without active dependents → user | Squash and merge |
-| Feature with active dependents → user | Create a merge commit |
-| Documentation → `dev` | Squash and merge |
-| User → `dev` | Create a merge commit |
-| `dev` → `main` | Create a merge commit |
+| Source → target                          | Method                |
+| ---------------------------------------- | --------------------- |
+| Feature without active dependents → user | Squash and merge      |
+| Feature with active dependents → user    | Create a merge commit |
+| Documentation → `dev`                    | Squash and merge      |
+| User → `dev`                             | Create a merge commit |
+| `dev` → `main`                           | Create a merge commit |
 
 Squashing combines work-in-progress commits into one logical change. Merge
 commits preserve shared history for continuing or dependent branches. GitHub's
@@ -140,16 +140,16 @@ logic and notebook analysis, see
 
 Use `type(scope): summary`; the scope and parentheses are optional.
 
-| Type | Use |
-|---|---|
-| `feat` | Add functionality |
-| `fix` | Correct a defect |
-| `docs` | Change documentation |
+| Type       | Use                                         |
+| ---------- | ------------------------------------------- |
+| `feat`     | Add functionality                           |
+| `fix`      | Correct a defect                            |
+| `docs`     | Change documentation                        |
 | `refactor` | Restructure code without changing behaviour |
-| `test` | Add or update tests |
-| `build` | Change dependencies or build configuration |
-| `ci` | Change automated integration workflows |
-| `chore` | Other maintenance |
+| `test`     | Add or update tests                         |
+| `build`    | Change dependencies or build configuration  |
+| `ci`       | Change automated integration workflows      |
+| `chore`    | Other maintenance                           |
 
 - Use a clear action verb such as “add”, “fix” or “update”; avoid “changes”.
 - Add a body when the reason needs explanation, and reference the task or PBI
@@ -177,9 +177,9 @@ change must meet the PR review and validation requirements before merging.
 After merging, prefix completed feature and documentation branch names with
 `archived/`. Preserve the full original name:
 
-| Original | Archived |
-|---|---|
-| `feature/spiralsky/add-jupytext` | `archived/feature/spiralsky/add-jupytext` |
+| Original                          | Archived                                   |
+| --------------------------------- | ------------------------------------------ |
+| `feature/spiralsky/add-jupytext`  | `archived/feature/spiralsky/add-jupytext`  |
 | `documentation/contributor-guide` | `archived/documentation/contributor-guide` |
 
 - Update and retarget dependent PRs to the user branch before archiving their
