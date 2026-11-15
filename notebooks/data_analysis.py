@@ -32,6 +32,11 @@
 #     - [3.2.1 Findings](#321-findings)
 #   - [3.3 Inspect category values](#33-inspect-category-values)
 #   - [3.4 Preview category standardization](#34-preview-category-standardization)
+#   - [3.5 Numerical outliers and skew](#35-numerical-outliers-and-skew)
+#     - [3.5.1 Distribution and screening summaries](#351-distribution-and-screening-summaries)
+#     - [3.5.2 Histograms and box plots](#352-histograms-and-box-plots)
+#     - [3.5.3 Extreme examples](#353-extreme-examples)
+#     - [3.5.4 Findings](#354-findings)
 #
 # [configure-data]: #21-configure-the-data-directory-and-logging
 #
@@ -607,7 +612,8 @@ for name, columns in category_columns.items():
 #
 # The package function returns original values, proposals, counts and statuses.
 # All distinct values are shown directly, with whitespace preserved in the
-# value cells. These are previews only: source files and the loaded datasets stay unchanged. The
+# value cells. These are previews only: source files and the loaded datasets
+# stay unchanged. The
 # [category standardization notes](../docs/category-standardisation.md) document
 # the evidence, safeguards and decisions still requiring confirmation.
 
@@ -651,3 +657,244 @@ for name, columns in category_columns.items():
                 na_rep="Missing",
             )
         )
+
+# %% [markdown]
+# ### 3.5 Numerical outliers and skew
+#
+# Inspect the eight amount/count features in customers and orders. IDs, country
+# codes, verification flags, and the fraud target are excluded.
+#
+# Potential outliers fall below Q1 − 1.5 × IQR or above Q3 + 1.5 × IQR, where
+# IQR = Q3 − Q1. These flags identify unusual values, not proven errors. When
+# IQR is zero, every value different from the shared quartile is flagged.
+#
+# Statistics use finite, nonmissing values; missing and infinite values are
+# reported separately. Positive sample skewness indicates right-tailed
+# asymmetry, and negative skewness indicates left-tailed asymmetry. Skewness is
+# undefined for constant features or fewer than three finite observations.
+# No source values are changed.
+
+# %% [markdown]
+# #### 3.5.1 Distribution and screening summaries
+#
+# Compare typical values, tails, and skewness, then inspect the IQR fences and
+# flagged proportions. Zero and flagged percentages use each feature's finite
+# observation count.
+
+# %%
+from mlops_fraud_prediction_ca1.numeric import profile_numeric_features
+
+iqr_multiplier: float = 1.5
+numeric_features: dict[str, list[str]] = {
+    "customers": [
+        "num_orders_last_50days", "num_cancelled_orders_last_50days",
+        "num_refund_orders_last_50days", "total_payment_last_50days",
+        "num_associated_customers",
+    ],
+    "orders": ["order_value", "num_items_ordered", "refund_value"],
+}
+numeric_labels: dict[str, str] = {
+    "num_orders_last_50days": "Orders in last 50 days",
+    "num_cancelled_orders_last_50days": "Canceled orders in last 50 days",
+    "num_refund_orders_last_50days": "Refunded orders in last 50 days",
+    "total_payment_last_50days": "Total payments in last 50 days",
+    "num_associated_customers": "Associated customers",
+    "order_value": "Order value",
+    "num_items_ordered": "Items ordered",
+    "refund_value": "Refund value",
+}
+numeric_summary: pd.DataFrame = profile_numeric_features(
+    datasets, numeric_features, iqr_multiplier=iqr_multiplier
+)
+distribution_columns: dict[str, str] = {
+    "finite_count": "Finite rows", "missing_count": "Missing",
+    "infinite_count": "Infinite", "zero_percent": "Zero %",
+    "minimum": "Minimum", "mean": "Mean", "median": "Median",
+    "p99": "P99", "maximum": "Maximum", "skewness": "Skewness",
+}
+screening_columns: dict[str, str] = {
+    "q1": "Q1", "q3": "Q3", "lower_fence": "Lower fence",
+    "upper_fence": "Upper fence", "flagged_count": "Flagged rows",
+    "flagged_percent": "Flagged %", "zero_iqr": "Zero IQR",
+}
+
+for dataset_name in numeric_features:
+    display(
+        numeric_summary.loc[dataset_name, list(distribution_columns)]
+        .rename(index=numeric_labels, columns=distribution_columns)
+        .rename_axis("Feature")
+        .style.pipe(apply_table_theme)
+        .set_caption(f"{dataset_name.title()} — numerical distributions")
+        .format({
+            "Finite rows": "{:,}", "Missing": "{:,}", "Infinite": "{:,}",
+            "Zero %": format_percent,
+            "Minimum": "{:,.2f}", "Mean": "{:,.2f}", "Median": "{:,.2f}",
+            "P99": "{:,.2f}", "Maximum": "{:,.2f}", "Skewness": "{:.2f}",
+        }, na_rep="—")
+    )
+    display(
+        numeric_summary.loc[dataset_name, list(screening_columns)]
+        .rename(index=numeric_labels, columns=screening_columns)
+        .rename_axis("Feature")
+        .style.pipe(apply_table_theme)
+        .set_caption(f"{dataset_name.title()} — potential outliers ({iqr_multiplier:g} × IQR)")
+        .format({
+            "Q1": "{:,.2f}", "Q3": "{:,.2f}",
+            "Lower fence": "{:,.2f}", "Upper fence": "{:,.2f}",
+            "Flagged rows": "{:,}", "Flagged %": format_percent,
+            "Zero IQR": lambda value: "Yes" if value else "No",
+        }, na_rep="—")
+    )
+
+# %% [markdown]
+# #### 3.5.2 Histograms and box plots
+#
+# Each histogram shows values through the feature's 99th percentile so the
+# main distribution remains readable. Its title reports how many values lie
+# above that view; the count axis is logarithmic. The paired boxplot includes
+# the full finite range and uses the same 1.5 × IQR screening rule.
+#
+# The tables' skewness values use the full finite data, including the tails.
+# The restricted histogram view does not remove observations from the data.
+
+# %%
+# %matplotlib inline
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+import seaborn as sns
+
+
+def plot_numeric_distributions(
+    table: pd.DataFrame,
+    selected_features: list[str],
+    feature_labels: dict[str, str],
+    table_title: str,
+    fence_multiplier: float,
+) -> Figure:
+    """Plot distribution bodies beside full-range box plots for selected features.
+
+    Args:
+        table: Source table; no values are modified.
+        selected_features: Numerical columns selected by the profiling section.
+        feature_labels: Human-readable labels for the selected columns.
+        table_title: Dataset name used in the figure title.
+        fence_multiplier: IQR multiplier matching the summary-table rule.
+
+    Returns:
+        Matplotlib figure with one histogram/boxplot pair per feature. Missing
+        and infinite values are excluded from plots. Histograms stop at P99
+        and report the number above that view; box plots retain the full finite
+        range. Count axes are logarithmic, and count features use integer bins.
+        The caller displays and closes the figure.
+    """
+    figure, axes = plt.subplots(
+        len(selected_features), 2, figsize=(14, 3.1 * len(selected_features)),
+        squeeze=False,
+    )
+    figure.suptitle(f"{table_title} — numerical feature distributions", fontweight="bold")
+    for row_number, plotted_feature in enumerate(selected_features):
+        plotted_values: pd.Series = table[plotted_feature]
+        finite_plotted_values: pd.Series = plotted_values.loc[
+            plotted_values.notna()
+            & ~plotted_values.isin([float("-inf"), float("inf")])
+        ]
+        histogram_axis, boxplot_axis = axes[row_number]
+        feature_title: str = feature_labels[plotted_feature]
+        if len(finite_plotted_values) == 0:
+            for empty_axis in (histogram_axis, boxplot_axis):
+                empty_axis.set_title(feature_title)
+                empty_axis.text(0.5, 0.5, "No finite observations", ha="center")
+            continue
+        cutoff: float = float(finite_plotted_values.quantile(0.99))
+        body: pd.Series = finite_plotted_values.loc[finite_plotted_values.le(cutoff)]
+        hidden_count: int = len(finite_plotted_values) - len(body)
+        sns.histplot(
+            x=body, bins=40, discrete=plotted_feature.startswith("num_"),
+            color="#486581", ax=histogram_axis,
+        )
+        histogram_axis.set_yscale("log")
+        histogram_axis.set_title(
+            f"{feature_title}\nThrough P99; {hidden_count:,} values above view"
+        )
+        histogram_axis.set_xlabel(feature_title)
+        histogram_axis.set_ylabel("Rows (log scale)")
+        sns.boxplot(
+            x=finite_plotted_values, whis=fence_multiplier, fliersize=2,
+            color="#9fb3c8", ax=boxplot_axis,
+        )
+        boxplot_axis.set_title(f"{feature_title}\nFull finite range")
+        boxplot_axis.set_xlabel(feature_title)
+    figure.tight_layout(rect=(0, 0, 1, 0.97))
+    return figure
+
+
+# noinspection SpellCheckingInspection
+sns.set_theme(style="whitegrid")
+for dataset_name, feature_names in numeric_features.items():
+    distribution_figure: Figure = plot_numeric_distributions(
+        datasets[dataset_name], feature_names, numeric_labels,
+        dataset_name.title(), iqr_multiplier,
+    )
+    display(distribution_figure)
+    plt.close(distribution_figure)
+
+# %% [markdown]
+# #### 3.5.3 Extreme examples
+#
+# Show up to three smallest and three largest flagged observations per feature.
+# The source row index is zero-based and refers to the loaded table. An
+# observation appearing at both ends of a short list is shown once.
+
+# %%
+outlier_examples: dict[tuple[str, str], pd.DataFrame] = {}
+
+for dataset_name, feature_names in numeric_features.items():
+    for feature_name in feature_names:
+        feature_values: pd.Series = datasets[dataset_name][feature_name]
+        feature_stats: pd.Series = numeric_summary.loc[(dataset_name, feature_name)]
+        flagged_values: pd.Series = feature_values.loc[
+            feature_values.notna()
+            & ~feature_values.isin([float("-inf"), float("inf")])
+            & (
+                feature_values.lt(feature_stats["lower_fence"])
+                | feature_values.gt(feature_stats["upper_fence"])
+            )
+        ].sort_values()
+        if len(flagged_values) == 0:
+            continue
+        extreme_values: pd.Series = pd.concat([
+            flagged_values.head(3), flagged_values.tail(3)
+        ])
+        extreme_values = extreme_values.loc[~extreme_values.index.duplicated()]
+        examples_table: pd.DataFrame = (
+            extreme_values.rename_axis("Source row index").reset_index(name="Value")
+        )
+        outlier_examples[dataset_name, feature_name] = examples_table
+        display(
+            examples_table.style.hide(axis="index")
+            .pipe(apply_table_theme)
+            .set_caption(f"{dataset_name.title()} — {numeric_labels[feature_name]}: extremes")
+            .format({"Source row index": "{:d}", "Value": "{:,.2f}"})
+        )
+
+# %% [markdown]
+# #### 3.5.4 Findings
+#
+# - All eight features are right-skewed: sample skewness ranges from **5.42 to
+#   55.00**. Canceled-order counts (55.00) and items ordered (41.04) have the
+#   strongest asymmetry.
+# - Canceled and refunded order counts are **83.14% and 85.76% zero**. Both have
+#   zero IQR, so the rule flags every nonzero count: 16.86% and 14.24% of rows,
+#   respectively. Those proportions reflect sparse distributions, not established
+#   data errors.
+# - The other six features have **4.35%–7.48%** of finite observations outside
+#   their IQR fences. These are per-feature rates; they must not be added together
+#   because the same record can be flagged in several columns.
+# - The largest item count is **1,600**, compared with a median of **2** and P99
+#   of **22**. Customer payment totals reach **42,569.35**, compared with a median
+#   of **164.58** and P99 of **1,876.68**. The examples locate these extremes for
+#   further investigation without classifying them as errors.
+# - These features contain no negative or infinite values. The one missing item
+#   count is excluded from that feature's statistics and percentage denominator.
+#
+# No capping, removal, or transformation has been applied.
