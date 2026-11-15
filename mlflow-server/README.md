@@ -29,6 +29,19 @@ eb status
 
 To deploy changes later, run `eb deploy` from this folder.
 
+## Test locally with Docker
+
+Before you deploy a change, you can run the same image on your laptop. You need Docker Desktop (on Windows it uses WSL 2, so run `wsl --update` first if Docker's engine fails to start). From this folder:
+
+```
+docker build -t mlflow-server .
+docker run --rm -m 2g -p 5000:5000 mlflow-server
+```
+
+- `-m 2g` gives the container the same 2 GB of memory as the t3.small, so a change that would use too much memory fails on your laptop first.
+- Open `http://localhost:5000/health` to check it answers OK, and `http://localhost:5000` for the web UI. The allowed-hosts and browser-origin settings above are not needed here, because MLflow accepts `localhost` by default.
+- Press Ctrl+C to stop it. Runs logged to it disappear when it stops.
+
 ## Check from each laptop
 
 Set `MLFLOW_TRACKING_URI=http://<prefix>.us-east-1.elasticbeanstalk.com` and `MLFLOW_EXPERIMENT_NAME` in `.env`, then run `uv run log-test-run`. It logs a run under your login name with a small artifact, and MLflow prints the run's address. Open it to see the run in the web UI.
