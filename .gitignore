@@ -1,6 +1,11 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+
 *.pdf
 *.txt
 
+*.ipynb
+
 AGENTS.md
 CLAUDE.md
-

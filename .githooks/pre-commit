@@ -1,0 +1,8 @@
+#!/bin/sh
+# Sync saved notebook pairs and stage their Python representations.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[notebook-sync] ERROR uv is unavailable. Install uv and run: uv sync --locked" >&2
+    exit 1
+fi
+
+exec uv run --no-sync python scripts/sync_notebooks.py

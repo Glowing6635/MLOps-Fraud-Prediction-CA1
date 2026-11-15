@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Jupytext" pattern="file:notebooks/main.ipynb||file:notebooks/main.py" />
+</component>

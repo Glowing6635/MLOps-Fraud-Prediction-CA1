@@ -1,0 +1,5 @@
+# Pair notebooks with Python scripts using # %% cell markers.
+# Automatic syncing is limited by .idea/scopes/Jupytext.xml to:
+#   notebooks/main.ipynb <-> notebooks/main.py
+# Add both paths there to enable automatic syncing for another notebook.
+formats = "ipynb,py:percent"
