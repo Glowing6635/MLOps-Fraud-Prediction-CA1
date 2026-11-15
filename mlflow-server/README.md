@@ -1,6 +1,6 @@
 # MLflow server
 
-The Docker bundle that Elastic Beanstalk builds into the team's MLflow server (issue #7). This basic design keeps runs in SQLite and artifacts in a folder inside the container, so a redeploy or a replaced instance loses them. Issue #9 moves them to RDS and S3.
+The Docker bundle that Elastic Beanstalk builds into the team's MLflow server (issue #7). This basic design keeps runs in SQLite and artifacts in a folder inside the container, so a redeploy or a replaced instance loses them, and so may the instance stopping when the sandbox session ends. Issue #9 moves them to RDS and S3.
 
 Until issue #9 adds a login, anyone who knows the server's address can read and change everything on it, and traffic is plain HTTP that others on the network can read. Never log course data, passwords or keys to it.
 
@@ -38,7 +38,7 @@ docker build -t mlflow-server .
 docker run --rm -m 2g -p 5000:5000 mlflow-server
 ```
 
-- `-m 2g` gives the container the same 2 GB of memory as the t3.small, so a change that would use too much memory fails on your laptop first.
+- `-m 2g` caps the container at the t3.small's 2 GB, so a change that needs more fails on your laptop first. On the instance, the operating system, Docker and nginx share those 2 GB, so leave headroom below it.
 - Open `http://localhost:5000/health` to check it answers OK, and `http://localhost:5000` for the web UI. The allowed-hosts and browser-origin settings above are not needed here, because MLflow accepts `localhost` by default.
 - Press Ctrl+C to stop it. Runs logged to it disappear when it stops.
 

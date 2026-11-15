@@ -5,9 +5,11 @@ FROM python:3.12-slim
 # Keep this version equal to the client's in ../pyproject.toml; CI checks that they match.
 RUN pip install --no-cache-dir mlflow==3.18.0
 
-# The job runner starts one MLflow process per server job type (GenAI evaluation and
-# the like, which the team does not use); together they fill the t3.small's 2 GB and freeze it.
+# The job runner starts one MLflow process per server job type (none of which the team
+# uses); together they fill the t3.small's 2 GB and freeze it.
 ENV MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false
+# Stop MLflow sending usage data to its developers.
+ENV MLFLOW_DISABLE_TELEMETRY=true
 
 WORKDIR /mlflow
 EXPOSE 5000
