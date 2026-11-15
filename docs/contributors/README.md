@@ -63,15 +63,16 @@ Before merging any PR:
 
 | Source → target | Method |
 |---|---|
-| Feature without active dependents → user | Squash and merge |
-| Feature with active dependents → user | Create a merge commit |
+| Feature → user, including features with active dependents | Squash and merge |
 | Documentation → `dev` | Squash and merge |
 | User → `dev` | Create a merge commit |
 | `dev` → `main` | Create a merge commit |
 
-Squashing combines work-in-progress commits into one logical change. Merge
-commits preserve shared history for continuing or dependent branches. GitHub's
-“Create a merge commit” uses `git merge --no-ff`.
+Squash each feature into one logical commit when integrating it into a user
+branch. Active dependents do not change this merge method; rebase them as
+explained below. User-to-dev and dev-to-main integrations retain merge commits;
+there is no later squash step. GitHub's “Create a merge commit” uses
+`git merge --no-ff`.
 
 ## Working on Multiple Features
 
@@ -85,14 +86,29 @@ Otherwise, use a clean starting point such as the latest `dev`.
 1. Branch from the prerequisite feature and initially target its branch with
    the dependent PR. This keeps the PR diff focused on the additional change.
 2. When the prerequisite changes, update the dependent branch and rerun checks.
-3. Keep ordinary commits while dependents are active; merge the prerequisite
-   into the user branch with a merge commit.
-4. Update the dependent branch and retarget its PR to the user branch. Confirm
-   that the diff contains only its own changes.
+3. Before squash-merging the prerequisite into the user branch, record its
+   original tip SHA. Keep that history available until all dependents are updated.
+4. After the squash merge, rebase only each dependent branch's additional
+   commits onto the updated user branch. Preserve unfinished work, including
+   untracked files, before rebasing. Run the rebase in that branch's worktree
+   if it is checked out elsewhere.
+5. Retarget the dependent PR to the user branch. Check that its diff contains
+   only its own feature changes, and rerun relevant checks.
 
-If the prerequisite was squash-merged, rebase only the dependent branch's own
-commits onto the updated user branch before retargeting. Coordinate with anyone
-using published commits before rewriting their history.
+For example, while on a dependent branch, replace `OLD_PREREQUISITE_SHA` with
+the recorded prerequisite tip and run:
+
+```bash
+git rebase --onto user/spiralsky OLD_PREREQUISITE_SHA
+git diff user/spiralsky...HEAD
+```
+
+Changing the PR target alone does not remove the original prerequisite commits.
+If the dependent branch has no additional commits, rebasing simply moves it onto
+the updated user branch. Coordinate before rewriting published dependent history;
+when updating its remote branch, use `git push --force-with-lease` rather than an
+unconditional force push. Do not force-push shared user, dev, or main branches
+as part of this procedure.
 
 ## Shared Contributor Documentation
 
