@@ -114,17 +114,23 @@ class NotebookMagicTests(unittest.TestCase):
             '    return "keep me"\n'
         )
         self.helper.write_text(source, encoding="utf-8")
-        self.run_cell("load_clean", "", "from magic_helper import double")
+        with patch("IPython.display.display") as display:
+            output: str = self.run_cell("load_clean", "", "from magic_helper import double")
+        self.assertEqual(output, "")
+        display.assert_not_called()
         self.assertEqual(self.shell.user_ns["double"](4), 8)
         generated: str = self.shell.rl_next_input
         header, body = generated.split("\n", 1)
-        self.assertTrue(header.startswith("%%load_clean --import "))
+        self.assertEqual(header, "%%load_clean")
+        self.assertEqual(body.splitlines()[0], "from magic_helper import double  # noqa: F401")
+        self.assertTrue(body.splitlines()[1].startswith("# Referenced Source: sha256:"))
+        self.assertNotIn(str(self.helper), generated)
         self.assertNotIn("def untouched", body)
 
         # Emulate editing and executing the generated cell in a notebook editor.
         edited_body: str = body.replace("return value * FACTOR", "return value * FACTOR + 1")
         self.assertNotEqual(edited_body, body)
-        self.run_cell("load_clean", header.removeprefix("%%load_clean "), edited_body)
+        self.run_cell("load_clean", header.removeprefix("%%load_clean").strip(), edited_body)
         expected_source: str = source.replace("return value * FACTOR", "return value * FACTOR + 1")
         self.assertEqual(self.helper.read_text(encoding="utf-8"), expected_source)
         self.assertEqual(self.shell.user_ns["double"](4), 9)
@@ -134,7 +140,7 @@ class NotebookMagicTests(unittest.TestCase):
         header, body = generated.split("\n", 1)
         updated_source: str = expected_source.replace("FACTOR + 1", "FACTOR + 3")
         self.helper.write_text(updated_source, encoding="utf-8")
-        self.run_cell("load_clean", header.removeprefix("%%load_clean "), body)
+        self.run_cell("load_clean", header.removeprefix("%%load_clean").strip(), body)
         self.assertEqual(self.helper.read_text(encoding="utf-8"), updated_source)
         self.assertIn("return value * FACTOR + 3", self.shell.rl_next_input)
         self.assertEqual(self.shell.user_ns["double"](4), 11)

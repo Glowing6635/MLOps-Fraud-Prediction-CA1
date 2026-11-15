@@ -249,8 +249,8 @@ wheels = [
 
 [[package]]
 name = "load-clean"
-version = "0.0.3"
-source = { git = "https://github.com/SpiralSky/NotebookHelpers.git?rev=main#cf9244deddb1d235d96b99067d3c1951d502a462" }
+version = "0.0.7"
+source = { git = "https://github.com/SpiralSky/NotebookHelpers.git?rev=main#335eb4a856094997f5b437212c62f80f5253ed2a" }
 
 [package.optional-dependencies]
 notebook = [

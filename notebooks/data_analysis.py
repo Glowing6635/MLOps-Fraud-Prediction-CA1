@@ -80,13 +80,70 @@ data_dir: Path = project_root / "data"
 # %% [markdown]
 # ### Import the reusable loader
 #
-# The linked import below uses NotebookHelpers to synchronize `load_base_data`
-# with its package definition. Data loading logic stays in the package; the
-# notebook selects the directory and displays the results.
-#
+# The linked import below uses NotebookHelpers 0.0.7 to synchronize
+# `load_base_data` with its package definition, including the module's imports.
+# On execution, NotebookHelpers refreshes the editable cell and runs the loader
+# in its package context. Keep the identifying import (marked `# noqa: F401`)
+# and generated `# Referenced Source: sha256:…` comment so the source can be
+# located and conflicting edits detected. Data loading logic stays in the
+# package; the notebook selects the directory and displays the results.
 # %%
 # %%load_clean
-from mlops_fraud_prediction_ca1.data import load_base_data
+from mlops_fraud_prediction_ca1.data import load_base_data  # noqa: F401
+# Referenced Source: sha256:d24bbcee437909f6979697f8c69229422d7128971cd1323ea73751eefd9c016b
+
+import logging
+
+from pathlib import Path
+
+import pandas as pd
+
+def load_base_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Read the three base CSVs from an explicitly selected directory.
+
+    Args:
+        data_dir: Directory containing customers_base.csv, orders_base.csv,
+            and labels_base.csv. Relative paths use the current working
+            directory. A leading `~` refers to the user's home directory,
+            so `~/datasets/fraud` can be used instead of a full absolute path.
+
+    Returns:
+        DataFrames in the order (customers, orders, labels). Pandas infers
+        types and missing values using its read_csv defaults. No cleaning,
+        date parsing, joining, or source-file modification is performed.
+
+    Raises:
+        FileNotFoundError: One or more required files are absent. All paths
+            are checked before any CSV is read.
+        OSError: An input cannot be read.
+        pandas.errors.EmptyDataError: An input has no columns to parse.
+        pandas.errors.ParserError: An input cannot be parsed as CSV.
+
+    Logs each filename and its loaded dimensions at INFO level. Logging
+    handlers and verbosity are configured by the caller.
+    """
+    # Path() does not expand "~" automatically. Expand it so callers can use
+    # home-relative directories such as "~/datasets/fraud".
+    directory: Path = Path(data_dir).expanduser()
+    paths: tuple[Path, Path, Path] = (
+        directory / "customers_base.csv",
+        directory / "orders_base.csv",
+        directory / "labels_base.csv",
+    )
+    missing_files: list[str] = [str(path) for path in paths if not path.is_file()]
+    if len(missing_files) > 0:
+        raise FileNotFoundError("Required CSV files not found: " + ", ".join(missing_files))
+
+    frames: list[pd.DataFrame] = []
+    for path in paths:
+        logger.info("Loading %s", path)
+        frame: pd.DataFrame = pd.read_csv(path)
+        logger.info("Loaded %s: %d rows, %d columns", path.name, *frame.shape)
+        frames.append(frame)
+
+    return frames[0], frames[1], frames[2]
+
+
 
 # %% [markdown]
 # ### Load the tables and check their dimensions

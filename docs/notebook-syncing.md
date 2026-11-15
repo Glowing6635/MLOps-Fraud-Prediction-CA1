@@ -147,18 +147,30 @@ After loading the extension, the notebook uses the linked import form:
 from mlops_fraud_prediction_ca1.data import load_base_data
 ```
 
-On execution, NotebookHelpers synchronizes the selected definition, executes
-it in its package module context, and requests that the editor replace the
-cell with editable source and a baseline. This is different from
-`%%load_clean default`, which performs an ordinary import. If the editor does
-not replace the cell, copy the generated cell it displays. Retain its generated
-header: later executions synchronize edits and detect conflicting changes.
+On execution, NotebookHelpers 0.0.7 synchronizes the named function and module imports,
+executes it in its package module context, and requests that the editor replace
+the cell with `%%load_clean`, the identifying import marked `# noqa: F401`, a generated
+`# Referenced Source: sha256:…` comment, and editable function source. Retain the
+import and reference comment: the import locates the source module, and the
+fingerprint detects changes made since the function was loaded. Later executions
+synchronize edits and detect conflicting changes.
+
+Linked imports no longer print a status message or a source copy in the output.
+If the editor does not replace the cell, the function still loads, but edit its
+package source until using an editor that accepts the replacement. This differs
+from `%%load_clean default`, which performs an ordinary import without creating
+an editable link.
+Linked synchronization includes imports automatically. For embedding modes,
+`--include-imports` explicitly includes dependency imports. `copy` replaces the
+cell with source without executing it; `skeleton` replaces function bodies with
+`NotImplementedError`; legacy `inline` executes embedded source. `default`
+continues to perform a normal import.
 Save the notebook and sync its Jupytext pair after accepting the replacement.
 
-Generated headers contain an absolute source path. After moving the checkout
-or sharing it with a teammate, preserve any cell-only edits and regenerate
-the link using the short import form above. Do not reuse another machine's
-generated path.
+Generated import links no longer contain an absolute source path, so they can
+be shared across checkouts where the package is installed. Older links with
+`--file` and `--base` remain readable, but regenerate them using the short import
+form above after moving the checkout. Preserve any cell-only edits first.
 
 Inspect the loader's documentation from the project environment:
 
@@ -216,7 +228,7 @@ executing its Python representation as an ordinary script.
 
 ### Pairing and syncing CLI
 
-NotebookHelpers 0.0.3 offers pairing and syncing commands. Each takes the
+NotebookHelpers 0.0.7 offers pairing and syncing commands. Each takes the
 path of one existing notebook file, not a directory:
 
 ```bash
