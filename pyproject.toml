@@ -22,7 +22,11 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "ipython>=9.18.1",
+    "jupytext>=1.19.6",
     "load-clean[notebook,tools]",
+    "nbformat>=5.11.1",
+    "traitlets>=5.16.1",
 ]
 
 [tool.uv.sources]

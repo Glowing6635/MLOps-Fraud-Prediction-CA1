@@ -354,7 +354,11 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "ipython" },
+    { name = "jupytext" },
     { name = "load-clean", extra = ["notebook", "tools"] },
+    { name = "nbformat" },
+    { name = "traitlets" },
 ]
 
 [package.metadata]
@@ -365,7 +369,13 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "load-clean", extras = ["notebook", "tools"], git = "https://github.com/SpiralSky/NotebookHelpers.git?rev=main" }]
+dev = [
+    { name = "ipython", specifier = ">=9.18.1" },
+    { name = "jupytext", specifier = ">=1.19.6" },
+    { name = "load-clean", extras = ["notebook", "tools"], git = "https://github.com/SpiralSky/NotebookHelpers.git?rev=main" },
+    { name = "nbformat", specifier = ">=5.11.1" },
+    { name = "traitlets", specifier = ">=5.16.1" },
+]
 
 [[package]]
 name = "nbclient"
