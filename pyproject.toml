@@ -23,3 +23,6 @@ dev = [
 
 [tool.uv.sources]
 load-clean = { git = "https://github.com/SpiralSky/NotebookHelpers.git", rev = "main" }
+
+[tool.jupytext]
+formats = "ipynb,py:percent"
