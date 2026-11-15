@@ -23,7 +23,7 @@ eb status
 
 - `--single` runs one instance with no load balancer.
 - `LabRole` and `LabInstanceProfile` are the sandbox account's own service role and instance profile, so nothing creates an IAM resource.
-- `MLFLOW_SERVER_ALLOWED_HOSTS` must name the environment's URL: MLflow refuses requests for any other host name, except `/health`.
+- `MLFLOW_SERVER_ALLOWED_HOSTS` must name the environment's URL: MLflow refuses requests for any other host name, except `/health` and `/version`. The setting replaces MLflow's default list, so even `localhost` is refused on the instance itself.
 - `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` must name the same URL with `http://`: otherwise MLflow refuses every change and search made in the web UI, such as listing, renaming or deleting runs, because the browser sends that address as the request's origin.
 - `eb status` shows `Health: Green` once the environment is healthy.
 
