@@ -100,3 +100,120 @@ pd.DataFrame(
         "columns": [len(customers.columns), len(orders.columns), len(labels.columns)],
     }
 )
+
+# %% [markdown]
+# ### Inspect dataset columns
+#
+# The table below lists the column names in `customers`, `orders`, and `labels`
+# side by side. Inspect these names before checking missing values to identify
+# shared fields, identifiers, and the prediction target (`is_fraud`).
+#
+# Each list retains its dataset's column order; names on the same row do not
+# imply a relationship. Blank cells pad the shorter lists and do not represent
+# missing values in the source data.
+
+# %%
+from IPython.display import display
+
+datasets: dict[str, pd.DataFrame] = {
+    "customers": customers,
+    "orders": orders,
+    "labels": labels,
+}
+
+column_names: pd.DataFrame = pd.DataFrame(
+    {name: pd.Series(frame.columns, dtype="string") for name, frame in datasets.items()}
+).fillna("")
+
+with pd.option_context("display.max_rows", None, "display.max_columns", None):
+    display(column_names)
+
+
+# %% [markdown]
+# ### Check missing values by dataset and column
+#
+# The table below shows the missing-value count and percentage for every column
+# in each dataset. Percentages use the number of rows in that dataset, so we can
+# compare missingness across datasets of different sizes and identify columns
+# that need further inspection.
+#
+# `isna()` counts missing values recognised by pandas when the CSVs were loaded.
+# Placeholder strings that pandas does not recognise as missing need a separate
+# check. Columns with no missing values are included; percentages are displayed
+# to two decimal places. For an empty dataset, the percentage is undefined.
+
+# %%
+missing_summaries: dict[str, pd.DataFrame] = {}
+
+for name, frame in datasets.items():
+    na_counts: pd.Series = frame.isna().sum()
+    missing_summaries[name] = pd.DataFrame(
+        {
+            "na_count": na_counts,
+            "na_percent": na_counts / len(frame) * 100 if len(frame) else float("nan"),
+        }
+    )
+
+missing_values: pd.DataFrame = (
+    pd.concat(missing_summaries, names=["dataset", "column"])
+    .reset_index()
+)
+
+with pd.option_context(
+    "display.max_rows", None,
+    "display.max_columns", None,
+    "display.float_format", "{:.2f}".format,
+):
+    display(missing_values)
+
+
+# %% [markdown]
+# ### Check exact duplicate rows
+#
+# The summary below shows how many rows are repeated across all columns in each
+# dataset.
+#
+# - `extra_duplicate_rows` counts copies after the first occurrence
+#   (`duplicated()`); its percentage uses the dataset's total row count.
+# - `rows_in_duplicate_groups` counts every occurrence of a repeated row
+#   (`duplicated(keep=False)`), including the first. For three identical rows,
+#   these two counts are 2 and 3 respectively.
+#
+# Up to five rows from duplicate groups are displayed per affected dataset.
+# Pandas treats matching missing values as equal for this check. A repeated ID
+# with different values is not an exact duplicate; key uniqueness and conflicting
+# records need separate checks. These cells inspect the data without removing
+# rows. Percentages are undefined for empty datasets.
+
+# %%
+from IPython.display import display
+
+duplicate_records: list[dict[str, str | int | float]] = []
+duplicate_examples: dict[str, pd.DataFrame] = {}
+
+for name, frame in {"customers": customers, "orders": orders, "labels": labels}.items():
+    extra_count: int = int(frame.duplicated().sum())
+    duplicate_group_mask: pd.Series = frame.duplicated(keep=False)
+    duplicate_records.append(
+        {
+            "dataset": name,
+            "total_rows": len(frame),
+            "extra_duplicate_rows": extra_count,
+            "extra_duplicate_percent": extra_count / len(frame) * 100 if len(frame) else float("nan"),
+            "rows_in_duplicate_groups": int(duplicate_group_mask.sum()),
+        }
+    )
+    duplicate_examples[name] = frame.loc[duplicate_group_mask].head(5)
+
+duplicate_summary: pd.DataFrame = pd.DataFrame(duplicate_records)
+
+with pd.option_context(
+    "display.max_columns", None,
+    "display.float_format", "{:.2f}".format,
+):
+    display(duplicate_summary)
+    for name, examples in duplicate_examples.items():
+        if not examples.empty:
+            print(f"{name}: up to five rows from exact duplicate groups")
+            display(examples)
+
