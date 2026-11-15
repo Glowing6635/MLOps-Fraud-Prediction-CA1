@@ -1,6 +1,7 @@
 """Explicit date parsing and descriptive fraud rates; source rows stay intact."""
 
 from collections.abc import Sequence
+from numbers import Real
 
 import pandas as pd
 
@@ -76,7 +77,7 @@ def fraud_rates(rows: pd.DataFrame, group_by: Sequence[str], *, label_column: st
     data = rows[groups].copy()
     values = rows[label_column]
     missing = values.isna()
-    valid = values.map(lambda x: not isinstance(x, bool) and isinstance(x, (str, int, float)) and x in (0, 1, "0", "1"))
+    valid = values.map(lambda x: not isinstance(x, bool) and isinstance(x, (str, Real)) and x in (0, 1, "0", "1"))
     data["rows"] = 1
     data["valid_labels"] = valid.astype(int)
     data["fraud_labels"] = (valid & values.isin([1, "1"])).astype(int)
@@ -119,7 +120,7 @@ def largest_weekly_change(rates: pd.DataFrame, *, country_column: str = "country
                "previous_fraud_labels", "fraud_labels", "previous_rate", "fraud_rate", "rate_change", "partial_week"]
     records = []
     for country, group in rates.groupby(country_column, dropna=False, sort=False):
-        group = group.sort_values("week_start").copy()
+        group = group.sort_values("week_start").reset_index(drop=True)
         if group.week_start.duplicated().any():
             raise ValueError("Provide one rate row per country and week")
         previous = group.shift()

@@ -2,6 +2,7 @@
 
 import unittest
 
+import numpy as np
 import pandas as pd
 from pandas.testing import assert_series_equal
 
@@ -53,6 +54,37 @@ class TemporalTests(unittest.TestCase):
         self.assertEqual(change.rate_change.item(), 1)
         self.assertEqual(change.previous_valid_labels.item(), 2)
         self.assertFalse(change.partial_week.item())
+
+    def test_object_numeric_labels_accept_numpy_scalars_but_reject_booleans(self) -> None:
+        """Count numeric zero/one labels consistently across scalar representations."""
+        rows = pd.DataFrame({
+            "country_code": ["MY"] * 8,
+            "order_id": range(8),
+            "is_fraud": pd.Series([
+                np.int64(1), np.int32(0), np.float32(1), np.float64(0),
+                True, np.bool_(True), np.int64(2), None,
+            ], dtype=object),
+        })
+        result = fraud_rates(rows, ["country_code"]).iloc[0]
+        self.assertEqual(result.valid_labels, 4)
+        self.assertEqual(result.fraud_labels, 2)
+        self.assertEqual(result.invalid_labels, 3)
+        self.assertEqual(result.missing_labels, 1)
+        self.assertEqual(result.fraud_rate, 0.5)
+
+    def test_largest_change_ignores_dataframe_index_labels(self) -> None:
+        """Weekly comparisons depend on dates, including when row indices repeat."""
+        rows = pd.DataFrame({
+            "country_code": ["MY"] * 3, "order_id": range(3),
+            "order_date": ["2024-01-01", "2024-01-08", "2024-01-15"],
+            "is_fraud": [0, 1, 1],
+        })
+        weekly = weekly_fraud_rates(rows)
+        weekly.index = [0, 0, 0]
+        change = largest_weekly_change(weekly)
+        self.assertEqual(change.previous_week.item(), pd.Timestamp("2024-01-01"))
+        self.assertEqual(change.week_start.item(), pd.Timestamp("2024-01-08"))
+        self.assertEqual(change.rate_change.item(), 1)
 
     def test_missing_weeks_are_not_adjacent_and_empty_is_valid(self):
         rows = pd.DataFrame({"country_code": ["MY", "MY"], "order_id": [1, 2],

@@ -14,59 +14,42 @@
 
 # %% [markdown]
 # # Data Analysis
+#
+# This notebook profiles SP-buy’s customer, order and fraud-label files to identify risks to fraud modelling and decide how to handle them. It examines data quality, safe joins, business rules and fraud patterns over time.
+#
+# ## Findings at a glance
+#
+# - [Missingness and categories](#3-assess-data-quality): three columns contain missing values; `yes` verification and `on Delivery` payments need source confirmation.
+# - [Safe linkage](#4-relationships-between-datasets): use country plus order ID, then link customers through labels. Fifteen orders have no label.
+# - [Business rules](#5-business-logic-checks): refunds exceed order values in 21.0221% of orders. Retain and flag these records for investigation.
+# - [Fraud patterns](#6-dates-and-fraud-patterns): 10.9967% of raw labels are fraud. Matched-order rates vary by country and week; the March rise is descriptive evidence.
 
 # %% [markdown]
 # ## Table of contents
 #
-# - [1. Purpose and workflow](#1-purpose-and-workflow)
+# - [1. Workflow](#1-workflow)
 # - [2. Load and inspect the datasets](#2-load-and-inspect-the-datasets)
-#   - [2.1 Configure the data directory and logging](#21-configure-the-data-directory-and-logging)
-#   - [2.2 Enable NotebookHelpers](#22-enable-notebookhelpers)
-#   - [2.3 Import the reusable loader](#23-import-the-reusable-loader)
-#   - [2.4 Load the tables and check their dimensions](#24-load-the-tables-and-check-their-dimensions)
-#   - [2.5 Inspect dataset columns](#25-inspect-dataset-columns)
 # - [3. Assess data quality](#3-assess-data-quality)
-#   - [3.1 Missing values](#31-missing-values)
-#     - [3.1.1 Findings](#311-findings)
-#   - [3.2 Exact duplicates](#32-exact-duplicates)
-#     - [3.2.1 Findings](#321-findings)
-#   - [3.3 Inspect category values](#33-inspect-category-values)
-#   - [3.4 Preview category standardization](#34-preview-category-standardization)
-#   - [3.5 Numerical outliers and skew](#35-numerical-outliers-and-skew)
-#     - [3.5.1 Distribution and screening summaries](#351-distribution-and-screening-summaries)
-#     - [3.5.2 Histograms and box plots](#352-histograms-and-box-plots)
-#     - [3.5.3 Extreme examples](#353-extreme-examples)
-#     - [3.5.4 Findings](#354-findings)
-#   - [3.6 Semantic types and numeric validity](#36-semantic-types-and-numeric-validity)
-#     - [3.6.1 Findings and handling](#361-findings-and-handling)
-#   - [3.7 Class balance](#37-class-balance)
-#     - [3.7.1 Findings and handling](#371-findings-and-handling)
+#   - [Missing values](#31-missing-values) · [Duplicates](#32-exact-duplicates)
+#   - [Categories](#33-inspect-category-values) · [Standardization preview](#34-preview-category-standardization)
+#   - [Numerical distributions](#35-numerical-outliers-and-skew) · [Types and validity](#36-semantic-types-and-numeric-validity) · [Class balance](#37-class-balance)
 # - [4. Relationships between datasets](#4-relationships-between-datasets)
-#   - [4.1 Key uniqueness](#41-key-uniqueness)
-#   - [4.2 Match rates in both directions](#42-match-rates-in-both-directions)
-#   - [4.3 Country agreement and safe customer linkage](#43-country-agreement-and-safe-customer-linkage)
-#   - [4.4 Findings and handling](#44-findings-and-handling)
 # - [5. Business logic checks](#5-business-logic-checks)
-#   - [5.1 Findings and handling](#51-findings-and-handling)
 # - [6. Dates and fraud patterns](#6-dates-and-fraud-patterns)
-#   - [6.1 Date ranges and formats](#61-date-ranges-and-formats)
-#     - [6.1.1 Findings and handling](#611-findings-and-handling)
-#   - [6.2 Fraud rates by country](#62-fraud-rates-by-country)
-#     - [6.2.1 Findings](#621-findings)
-#   - [6.3 Weekly fraud rates and dated movements](#63-weekly-fraud-rates-and-dated-movements)
-#     - [6.3.1 Findings and handling](#631-findings-and-handling)
+#   - [Date parsing](#61-date-ranges-and-formats) · [Country rates](#62-fraud-rates-by-country) · [Weekly movements](#63-weekly-fraud-rates-and-dated-movements)
+# - [7. Preparation decisions and limitations](#7-preparation-decisions-and-limitations)
 
 # %% [markdown]
-# ## 1. Purpose and workflow
+# ## 1. Workflow
 #
-# Profile the three base datasets to identify data issues and patterns that could affect fraud prediction. The analysis covers data quality, relationships between files, business logic, and fraud rates over time and by country. Each section records evidence and a handling decision while preserving source values.
+# Run all cells from top to bottom with the project's `.venv` kernel. Country normalization, date parsing and validated joins use working copies; source CSVs and loaded tables are not cleaned in place. The handling decisions guide later data preparation rather than constitute a complete cleaning pipeline. Review the written findings if the inputs change. Use the table of contents or your editor's outline to navigate.
 #
-# Run all cells from top to bottom with the project's `.venv` kernel. Country normalization and date parsing use working copies; source CSVs and loaded tables are not cleaned in place. Review the written findings if the inputs change. Use the table of contents or your editor's outline to navigate.
+# This is a full-history exploratory analysis. It chooses no train/validation/test split and exports no prepared dataset. Saved outputs preserve the evidence, not DataFrames for a later pipeline. Splitting, deterministic cleaning and training belong in reusable modules called by a later configurable workflow.
 
 # %% [markdown]
 # ## 2. Load and inspect the datasets
 #
-# Select the directory containing the three base CSVs. Loading uses pandas' default type and missing-value inference; source files remain unchanged.
+# Select the directory containing the three base CSVs. Loading uses pandas' default type and missing-value inference; values follow those loading rules.
 
 # %% [markdown]
 # ### 2.1 Configure the data directory and logging
@@ -121,7 +104,13 @@ def apply_table_theme(styler: Styler) -> Styler:
             ("font-weight", "600"), ("caption-side", "top"),
         ]},
     ]
-    return styler.set_table_styles(table_styles, overwrite=False)
+    numeric_columns = styler.data.select_dtypes(include="number").columns.tolist()
+    styler = styler.set_table_styles(table_styles, overwrite=False)
+    if numeric_columns:
+        styler = styler.set_properties(
+            subset=numeric_columns, **{"text-align": "right"},
+        )
+    return styler
 
 
 def format_percent(value: float) -> str:
@@ -139,6 +128,65 @@ def format_percent(value: float) -> str:
     if 0 < value < 0.01:
         return "<0.01%"
     return f"{value:.2f}%"
+
+
+def style_report(frame: pd.DataFrame, caption: str) -> Styler:
+    """Format audit evidence without changing values or dropping report rows.
+
+    Args:
+        frame: Report with snake-case column names, counts and fractional rates.
+        caption: Reader-facing title explaining population or denominator.
+
+    Returns:
+        A themed Styler with readable headings, aligned numbers, four-decimal
+        rates and explicit undefined values. Nullable count columns stay integral
+        in the display; other floating-point measurements use two decimals.
+    """
+    labels: dict[str, str] = {
+        column: column.replace("_", " ").capitalize()
+        for column in frame.columns
+    }
+    labels.update({key: value for key, value in {
+        "inferred_dtype": "Storage", "meaning": "Meaning / required interpretation",
+        "rate_change_pp": "Change (percentage points)",
+        "nonintegral_count": "Nonintegral count values",
+    }.items() if key in frame.columns})
+    formats: dict = {}
+    for column in frame.columns:
+        values: pd.Series = frame[column]
+        heading: str = labels[column]
+        if column.endswith("rate"):
+            formats[heading] = "{:.4%}"
+        elif column.endswith("_pp"):
+            formats[heading] = "{:+.4f}"
+        elif pd.api.types.is_bool_dtype(values):
+            formats[heading] = lambda value: "Yes" if value else "No"
+        elif pd.api.types.is_integer_dtype(values):
+            formats[heading] = "{:,}"
+        elif column == "nonintegral_count":
+            formats[heading] = "{:,.0f}"
+        elif pd.api.types.is_float_dtype(values):
+            formats[heading] = "{:,.2f}"
+        elif pd.api.types.is_datetime64_any_dtype(values):
+            formats[heading] = lambda value: value.isoformat(sep=" ")
+    return (
+        frame.rename(columns=labels).style.hide(axis="index")
+        .pipe(apply_table_theme).set_caption(caption)
+        .format(formats, escape="html", na_rep="—")
+    )
+
+
+def show_report(frame: pd.DataFrame, caption: str) -> None:
+    """Display a complete audit report using the shared formatting helper.
+
+    Args:
+        frame: Evidence rows, preserved without rounding underlying values.
+        caption: Title identifying the report and its population.
+
+    Returns:
+        None. Displays HTML in the notebook; writes no files.
+    """
+    display(style_report(frame, caption))
 
 
 info_handler = logging.StreamHandler(sys.stdout)
@@ -168,7 +216,7 @@ base_data_dir: Path = project_root / "data"
 # %% [markdown]
 # ### 2.3 Import the reusable loader
 #
-# NotebookHelpers `inline` mode imports and runs the package definition of `load_base_data`, including its dependencies. This executable import keeps the loading logic in the package and supports a fresh top-to-bottom run. Skeleton mode is intended for drafting an implementation and would leave the loader unavailable here.
+# Import `load_base_data` through NotebookHelpers `inline` mode to run the package implementation and its dependencies in the notebook. Keeping the loader in the package lets later data-processing workflows reuse the same loading logic.
 
 # %%
 # %%load_clean inline
@@ -209,66 +257,21 @@ dataset_dimensions: pd.DataFrame = pd.DataFrame(
 # %% [markdown]
 # ### 2.5 Inspect dataset columns
 #
-# The table below lists each dataset's columns, inferred pandas datatypes, and notes on their interpretation. A datatype describes storage, not whether values fit the column's meaning. In particular, `object` can hold strings or mixed Python types; it does not establish a mixture on its own.
+# The semantic-type audit pairs each column's inferred storage with its intended meaning. Storage alone does not establish validity: `object` can hold text or mixed Python types, date strings need explicit parsing, and numeric IDs must not be treated as measurements. The loading warning for `mobile_verified` is investigated in sections 3.3–3.4; section 3.6 checks numeric validity.
 
 # %%
+from mlops_fraud_prediction_ca1.quality import quality_reports
+
 datasets: dict[str, pd.DataFrame] = {
-    "customers": customers,
-    "orders": orders,
-    "labels": labels,
+    "customers": customers, "orders": orders, "labels": labels,
 }
-
-dtype_notes: dict[str, str] = {
-    "O": "May contain strings or mixed Python types; inspect values.",
-    "T": "Text storage; inspect expected categories or date formats.",
-    "U": "Text storage; inspect expected categories or date formats.",
-    "S": "Text storage; inspect expected categories or date formats.",
-    "b": "Boolean storage; confirm the intended two-state meaning.",
-    "i": "Integer storage; confirm whether values are counts, codes or IDs.",
-    "u": "Integer storage; confirm whether values are counts, codes or IDs.",
-    "f": "Numeric storage; confirm meaning and expected precision.",
-    "M": "Datetime storage; confirm parsing and expected date range.",
-}
-
-column_information: pd.DataFrame = pd.DataFrame(
-    [
-        {
-            "Dataset": name,
-            "Column": column,
-            "Datatype": str(dtype),
-            "Note": (
-                "Text storage; inspect expected categories or date formats."
-                if pd.api.types.is_string_dtype(dtype)
-                else dtype_notes.get(
-                    dtype.kind, "Inspect values against the column's meaning."
-                )
-            )
-            + (
-                " Mixed types reported during loading; inspect representations before conversion."
-                if name == "customers" and column == "mobile_verified"
-                else ""
-            ),
-        }
-        for name, frame in datasets.items()
-        for column, dtype in frame.dtypes.items()
-    ]
-)
-
-(
-    column_information.style
-    .hide(axis="index")
-    .pipe(apply_table_theme)
-    .set_caption("Column datatypes and inspection notes by dataset")
-    .set_properties(**{"text-align": "left"})
-    .set_table_styles(
-        [CSSDict(selector="th", props=[("text-align", "left")])],
-        overwrite=False,
-    )
-    .format(escape="html")
-)
+quality: dict[str, pd.DataFrame] = quality_reports(datasets)
+show_report(quality["types"], "Semantic-type audit — inferred storage and intended meaning")
 
 # %% [markdown]
 # ## 3. Assess data quality
+#
+# Identify missing, inconsistent and unusual values that could affect model inputs or evaluation. The following checks distinguish observed issues from possible fraud signals and record how to handle them during data preparation.
 
 # %% [markdown]
 # ### 3.1 Missing values
@@ -305,7 +308,8 @@ missing_values: pd.DataFrame = (
     .style
     .map(
         lambda value: (
-            "background-color: #fce8ec; color: #8a2942" if value > 0 else ""
+            "background-color: #fce8ec !important; color: #8a2942 !important"
+            if value > 0 else ""
         ),
         subset=["Missing count", "Missing %"],
     )
@@ -318,13 +322,13 @@ missing_values: pd.DataFrame = (
 )
 
 # %% [markdown]
-# #### 3.1.1 Findings
+# #### 3.1.1 Missingness findings
 #
 # Pandas-recognized missingness affects three columns:
 #
-# - `customers.first_order_datetime`: **712 rows (0.08%)**. Retain missing timestamps and exclude them from date-order comparisons; do not invent a first-order date.
-# - `orders.payment_method`: **21,501 rows (2.26%)**. Preserve missingness as an explicit unknown category in later preparation.
-# - `orders.num_items_ordered`: **1 row (<0.01%)**. Retain a nullable count and a missing flag. Fit any later imputation on training data only.
+# - `customers.first_order_datetime`: 712 rows (0.08%). Retain missing timestamps and exclude them from date-order comparisons; do not invent a first-order date.
+# - `orders.payment_method`: 21,501 rows (2.26%). Preserve missingness as an explicit unknown category in later preparation.
+# - `orders.num_items_ordered`: 1 row (<0.01%). Retain a nullable count and a missing flag. Fit any later imputation on training data only.
 #
 # All other columns have zero missing values under pandas' loading rules. Raw category inspection below preserves blank fields and original spellings separately. No values have been filled or rows removed.
 
@@ -396,28 +400,29 @@ for name, examples in duplicate_examples.items():
         )
 
 # %% [markdown]
-# #### 3.2.1 Findings
+# #### 3.2.1 Exact-duplicate findings
 #
 # No exact duplicate rows were found in customers (901,312 rows), orders (949,889 rows), or labels (950,318 rows), so no rows need removal on this basis. Section 4 checks repeated keys and conflicting records separately. If copies appear in future batches, collapse identical full rows only and audit the count; never resolve conflicting keys by selecting an arbitrary first row.
 
 # %% [markdown]
 # ### 3.3 Inspect category values
 #
-# Show the top `category_top_k` distinct values and their counts for text categories and discrete flags. Exclude identifiers, dates, amounts and numerical counts. Read only these columns as raw text so CSV inference does not merge representations or hide empty fields. Quoted values make whitespace and empty strings visible; no values are cleaned or converted.
+# The decision summary highlights observed country variants and unresolved verification/payment values. It is a focused exception list, not a closed list of valid categories. Collection and payment case variants are formatting proposals; their semantic domains remain unconfirmed.
 #
-# Each caption reports how many distinct values were omitted. Increase `category_top_k` to inspect them: frequent values alone cannot establish that rare invalid categories are absent. These tables support inspection; the next section validates the defined binary domains and records handling decisions.
+# The supporting inventories retain **every raw value and its exact count**, including blank fields and original spellings. Category columns are reread as text; quotes make empty values and whitespace visible. Dates, identifiers, amounts and numerical counts are inspected separately.
 
 # %%
-category_top_k: int = 25
+from html import escape
+
+from IPython.display import HTML
+
 category_columns: dict[str, list[str]] = {
     "customers": ["country_code", "mobile_verified"],
     "orders": ["country_code", "collect_type", "payment_method"],
     "labels": ["country_code", "is_fraud"],
 }
 category_frequencies: dict[tuple[str, str], pd.Series] = {}
-
-if category_top_k < 1:
-    raise ValueError("category_top_k must be at least 1")
+category_tables: dict[tuple[str, str], str] = {}
 
 for name, columns in category_columns.items():
     # PyCharm cannot resolve the pandas Unpack overloads for this call.
@@ -432,35 +437,87 @@ for name, columns in category_columns.items():
         frequencies: pd.Series = raw_categories[column].value_counts(dropna=False)
         category_frequencies[name, column] = frequencies
         top_values: pd.DataFrame = (
-            frequencies.head(category_top_k)
+            frequencies
             .rename_axis("Value")
             .reset_index(name="Count")
         )
         top_values["Value"] = top_values["Value"].map(repr)
-        display(
+        category_table: str = (
             top_values.style
             .hide(axis="index")
             .pipe(apply_table_theme)
+            .set_table_styles([
+                {"selector": "", "props": [
+                    ("width", "100%"), ("table-layout", "fixed"), ("margin", "0"),
+                ]},
+                {"selector": "th, td, caption", "props": [
+                    ("white-space", "normal"), ("overflow-wrap", "anywhere"),
+                ]},
+            ], overwrite=False)
             .set_caption(
-                f"{name}.{column}: {len(frequencies):,} distinct values; "
-                f"{max(len(frequencies) - category_top_k, 0):,} omitted"
+                '<span style="display: block;">'
+                f"{escape(name.title())}: {escape(column)}</span>"
+                '<span style="display: block; font-size: 0.85em; '
+                'font-weight: 400;">'
+                f"Distinct values: {len(frequencies):,} · All values shown</span>"
             )
             .format({"Value": "{}", "Count": "{:,}"}, escape="html")
+            .to_html()
         )
+        category_tables[name, column] = category_table
+
+category_layout: list[list[tuple[str, str]]] = [
+    [("customers", "country_code"), ("customers", "mobile_verified")],
+    [("orders", "country_code"), ("orders", "collect_type")],
+    [("orders", "payment_method")],
+    [("labels", "country_code"), ("labels", "is_fraud")],
+]
+category_stacks: list[str] = [
+    '<div style="display: flex; flex-direction: column; flex: 1 1 260px; '
+    'min-width: 0; max-width: 100%; gap: 20px;">'
+    + "".join(
+        '<div style="width: 100%; min-width: 0;">'
+        + category_tables[key] + '</div>' for key in stack
+    )
+    + '</div>'
+    for stack in category_layout
+]
+category_decision_records: list[dict[str, str | int]] = []
+for name, column, value, decision in [
+    ("customers", "country_code", "pk", "Uppercase to PK on working copies"),
+    ("customers", "country_code", "my", "Uppercase to MY on working copies"),
+    ("labels", "country_code", "ph", "Uppercase to PH on working copies"),
+    ("labels", "country_code", "my", "Uppercase to MY on working copies"),
+    ("customers", "mobile_verified", "yes", "Retain unresolved; confirm before mapping"),
+    ("orders", "payment_method", "", "Keep missing; explicit unknown policy later"),
+    ("orders", "payment_method", "on Delivery", "Retain separately; equivalence unconfirmed"),
+]:
+    category_decision_records.append({
+        "dataset / column": f"{name}.{column}", "raw_value": repr(value),
+        "rows": int(category_frequencies[name, column].get(value, 0)),
+        "handling_proposal": decision,
+    })
+show_report(pd.DataFrame(category_decision_records), "Category exceptions and handling proposals")
+display(HTML(
+    '<details><summary>Supporting evidence: complete raw category inventories</summary>'
+    '<div style="display: flex; flex-wrap: wrap; align-items: flex-start; '
+    'gap: 20px; width: 100%; max-width: 100%; margin: 20px 0;">'
+    + "".join(category_stacks)
+    + '</div></details>'
+))
 
 # %% [markdown]
 # ### 3.4 Preview category standardization
 #
-# Uppercase country codes and lowercase collection/payment representations on working copies to compare observed case variants. Original values remain visible. Trimming boundary whitespace is a safeguard, not evidence that whitespace defects were found.
+# This compares each original category value with its proposed formatting, frequency and validation status. The preview trims surrounding whitespace, uppercases country codes and lowercases other categories. The complete original/proposed-value tables are retained as supporting evidence.
 #
-# Validate mobile verification against the specified True/False domain and the fraud label against 0/1. The 165 raw `yes` values remain unexpected and unresolved; do not silently treat them as True. Country, collection and payment category domains are open, so their nonblank proposals remain `unchecked`. Preserve `on Delivery` (160 rows) without an unconfirmed semantic alias.
-#
-# All distinct raw values, counts, proposals and statuses are shown. This is a formatting and validation preview; no Boolean conversion or source cleaning occurs. See the [category standardization notes](../docs/category-standardisation.md) for the formatting safeguards.
+# This also checks `mobile_verified` against true/false and `is_fraud` against 0/1. Other nonblank categories show `unchecked` because no allowed values are defined. Whitespace trimming is a precaution, not a confirmed data issue. See the [standardization notes](../docs/category-standardisation.md) for details.
 
 # %%
 from mlops_fraud_prediction_ca1.categories import standardise_categories
 
 category_previews: dict[tuple[str, str], pd.DataFrame] = {}
+category_preview_tables: dict[tuple[str, str], str] = {}
 
 for name, columns in category_columns.items():
     # PyCharm cannot resolve the pandas Unpack overloads for this call.
@@ -479,7 +536,7 @@ for name, columns in category_columns.items():
                             else {"0", "1"} if column == "is_fraud" else None),
         )
         category_previews[name, column] = preview
-        display(
+        category_preview_tables[name, column] = (
             preview.rename(columns={
                 "original_value": "Original value",
                 "proposed_value": "Standardized value",
@@ -488,7 +545,15 @@ for name, columns in category_columns.items():
             }).style
             .hide(axis="index")
             .pipe(apply_table_theme)
-            .set_caption(f"{name.title()} — {column.replace('_', ' ').capitalize()}")
+            .set_table_styles([
+                {"selector": "", "props": [
+                    ("width", "100%"), ("table-layout", "fixed"), ("margin", "0"),
+                ]},
+                {"selector": "th, td, caption", "props": [
+                    ("white-space", "normal"), ("overflow-wrap", "anywhere"),
+                ]},
+            ], overwrite=False)
+            .set_caption(f"{escape(name.title())}: {escape(column)}")
             .set_properties(
                 subset=["Original value", "Standardized value"],
                 **{"white-space": "pre-wrap"},
@@ -498,21 +563,55 @@ for name, columns in category_columns.items():
                 escape="html",
                 na_rep="Missing",
             )
+            .to_html()
         )
+
+category_preview_stacks: list[str] = [
+    '<div style="display: flex; flex-direction: column; flex: 1 1 420px; '
+    'min-width: 0; max-width: 100%; gap: 20px;">'
+    + "".join(
+        '<div style="width: 100%; min-width: 0;">'
+        + category_preview_tables[key] + '</div>' for key in stack
+    )
+    + '</div>'
+    for stack in category_layout
+]
+display(HTML(
+    '<details><summary>Supporting evidence: complete category-formatting proposals</summary>'
+    '<div style="display: flex; flex-wrap: wrap; align-items: flex-start; '
+    'gap: 20px; width: 100%; max-width: 100%; margin-bottom: 20px;">'
+    + "".join(category_preview_stacks)
+    + '</div></details>'
+))
+
+# %% [markdown]
+# #### 3.4.1 Category findings and handling
+#
+# The preview brings country, collection and payment case variants into a consistent format. All fraud labels pass the 0/1 check, but 165 `mobile_verified` values contain `yes` and remain unexpected. These require confirmation before mapping to true.
+#
+# Payment methods include 21,501 blanks and 160 `on Delivery` values. The blanks need an explicit missing-value policy; `on Delivery` remains separate from `payment on delivery` until their equivalence is confirmed. Formatting alone does not establish category validity.
 
 # %% [markdown]
 # ### 3.5 Numerical outliers and skew
 #
 # Inspect the eight amount/count features in customers and orders. IDs, country codes, verification flags, and the fraud target are excluded.
 #
-# Potential outliers fall below Q1 − 1.5 × IQR or above Q3 + 1.5 × IQR, where IQR = Q3 − Q1. These flags identify unusual values, not proven errors. When IQR is zero, every value different from the shared quartile is flagged.
+# The interquartile range is $\mathrm{IQR}=Q_3-Q_1$. Flag values satisfying:
 #
-# Statistics use finite, nonmissing values; missing and infinite values are reported separately. Positive sample skewness indicates right-tailed asymmetry, and negative skewness indicates left-tailed asymmetry. Skewness is undefined for constant features or fewer than three finite observations. No source values are changed.
+# $$
+# x < Q_1 - 1.5\,\mathrm{IQR}
+# \quad \text{or} \quad
+# x > Q_3 + 1.5\,\mathrm{IQR}.
+# $$
+#
+# These flags identify unusual values, not proven errors. When IQR is zero, every value different from the shared quartile is flagged.
+#
+# Statistics use finite, nonmissing values; missing and infinite values are reported separately. Positive sample skewness indicates right-tailed asymmetry, and negative skewness indicates left-tailed asymmetry. Skewness is undefined for constant features or fewer than three finite observations.
 
 # %% [markdown]
 # #### 3.5.1 Distribution and screening summaries
 #
-# Compare typical values, tails, and skewness, then inspect the IQR fences and flagged proportions. Zero and flagged percentages use each feature's finite observation count.
+# The summaries describe typical values, tails and skewness, alongside the IQR fences and flagged proportions. They help distinguish sparse or heavily skewed features from observations needing investigation. Zero and flagged percentages use each feature's finite observation count.
 
 # %%
 from mlops_fraud_prediction_ca1.numeric import profile_numeric_features
@@ -585,11 +684,14 @@ for dataset_name in numeric_features:
 # Each histogram shows values through the feature's 99th percentile so the main distribution remains readable. Its title reports how many values lie above that view; the count axis is logarithmic. The paired boxplot includes the full finite range and uses the same 1.5 × IQR screening rule.
 #
 # The tables' skewness values use the full finite data, including the tails. The restricted histogram view does not remove observations from the data.
+#
+# Monetary axes use SGD; count axes use integer ticks. The cancelled/refunded-count boxes collapse at zero because Q1 = Q3 = 0. Their nonzero points reflect sparse distributions, not established errors.
 
 # %%
 # %matplotlib inline
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator
 import seaborn as sns
 
 
@@ -629,6 +731,8 @@ def plot_numeric_distributions(
         ]
         histogram_axis, boxplot_axis = axes[row_number]
         feature_title: str = feature_labels[plotted_feature]
+        is_count: bool = plotted_feature.startswith("num_")
+        axis_label: str = feature_title if is_count else f"{feature_title} (SGD)"
         if len(finite_plotted_values) == 0:
             for empty_axis in (histogram_axis, boxplot_axis):
                 empty_axis.set_title(feature_title)
@@ -645,14 +749,22 @@ def plot_numeric_distributions(
         histogram_axis.set_title(
             f"{feature_title}\nThrough P99; {hidden_count:,} values above view"
         )
-        histogram_axis.set_xlabel(feature_title)
+        histogram_axis.set_xlabel(axis_label)
         histogram_axis.set_ylabel("Rows (log scale)")
         sns.boxplot(
             x=finite_plotted_values, whis=fence_multiplier, fliersize=2,
             color="#9fb3c8", ax=boxplot_axis,
         )
         boxplot_axis.set_title(f"{feature_title}\nFull finite range")
-        boxplot_axis.set_xlabel(feature_title)
+        boxplot_axis.set_xlabel(axis_label)
+        if is_count:
+            for count_axis in (histogram_axis, boxplot_axis):
+                count_axis.xaxis.set_major_locator(MaxNLocator(integer=True))
+        if finite_plotted_values.quantile(0.75) == finite_plotted_values.quantile(0.25):
+            boxplot_axis.text(
+                0.98, 0.85, "Q1 = Q3: box collapses at zero", ha="right",
+                transform=boxplot_axis.transAxes, fontsize=9, color="#243b53",
+            )
     figure.tight_layout(rect=(0, 0, 1, 0.97))
     return figure
 
@@ -670,7 +782,7 @@ for dataset_name, feature_names in numeric_features.items():
 # %% [markdown]
 # #### 3.5.3 Extreme examples
 #
-# Show up to three smallest and three largest flagged observations per feature. The source row index is zero-based and refers to the loaded table. An observation appearing at both ends of a short list is shown once.
+# The examples locate up to three smallest and three largest flagged observations per feature for investigation. The source row index is zero-based and refers to the loaded table. An observation appearing at both ends of a short list is shown once.
 
 # %%
 outlier_examples: dict[tuple[str, str], pd.DataFrame] = {}
@@ -705,12 +817,12 @@ for dataset_name, feature_names in numeric_features.items():
         )
 
 # %% [markdown]
-# #### 3.5.4 Findings
+# #### 3.5.4 Distribution findings and handling
 #
-# - All eight features are right-skewed: sample skewness ranges from **5.42 to 55.00**. Canceled-order counts (55.00) and items ordered (41.04) have the strongest asymmetry.
-# - Canceled and refunded order counts are **83.14% and 85.76% zero**. Both have zero IQR, so the rule flags every nonzero count: 16.86% and 14.24% of rows, respectively. Those proportions reflect sparse distributions, not established data errors.
-# - The other six features have **4.35%–7.48%** of finite observations outside their IQR fences. These are per-feature rates; they must not be added together because the same record can be flagged in several columns.
-# - The largest item count is **1,600**, compared with a median of **2** and P99 of **22**. Customer payment totals reach **42,569.35**, compared with a median of **164.58** and P99 of **1,876.68**. The examples locate these extremes for further investigation without classifying them as errors.
+# - All eight features are right-skewed: sample skewness ranges from 5.42 to 55.00. Canceled-order counts (55.00) and items ordered (41.04) have the strongest asymmetry.
+# - Canceled and refunded order counts are 83.14% and 85.76% zero. Both have zero IQR, so the rule flags every nonzero count: 16.86% and 14.24% of rows, respectively. Those proportions reflect sparse distributions, not established data errors.
+# - The other six features have 4.35%–7.48% of finite observations outside their IQR fences. These are per-feature rates; they must not be added together because the same record can be flagged in several columns.
+# - The largest item count is 1,600, compared with a median of 2 and P99 of 22. Customer payment totals reach 42,569.35, compared with a median of 164.58 and P99 of 1,876.68. The examples locate these extremes for further investigation without classifying them as errors.
 # - These features contain no negative or infinite values. The one missing item count is excluded from that feature's statistics and percentage denominator.
 #
 # Retain raw values and use IQR flags for investigation. Do not cap or delete extremes without evidence of an error. Evaluate any learned transformation on training data only. No capping, removal, or transformation has been applied.
@@ -718,39 +830,21 @@ for dataset_name, feature_names in numeric_features.items():
 # %% [markdown]
 # ### 3.6 Semantic types and numeric validity
 #
-# Compare inferred storage types with the meaning of each column. IDs should remain text; dates require explicit parsing, amounts require numeric precision, and counts should be finite integers. The numeric audit separates source missingness, conversion failures, infinities, negative values and nonintegral counts. Counts use source rows; a missing item count is not a failed conversion.
+# The semantic-type audit in section 2.5 provides the column inventory. IDs should remain text; dates require explicit parsing, amounts require numeric precision, and counts should be finite integers. The numeric audit separates source missingness, conversion failures, infinities, negative values and nonintegral counts. Counts use source rows; a missing item count is not a failed conversion.
 
 # %%
-from mlops_fraud_prediction_ca1.quality import quality_reports
-
-quality = quality_reports(datasets)
-
-
-def show_report(frame, caption):
-    """Show every report row with the shared theme and explicit rate formatting."""
-    formats = {}
-    for column in frame.columns:
-        if column.endswith("rate"):
-            formats[column] = "{:.4%}"
-        elif column.endswith("_pp"):
-            formats[column] = "{:+.4f}"
-        elif pd.api.types.is_integer_dtype(frame[column]):
-            formats[column] = "{:,}"
-        elif pd.api.types.is_datetime64_any_dtype(frame[column]):
-            formats[column] = lambda value: value.isoformat(sep=" ")
-    display(frame.style.hide(axis="index").pipe(apply_table_theme)
-            .set_caption(caption).format(formats, escape="html", na_rep="—"))
-
-
-show_report(quality["types"], "Inferred storage and semantic types")
-show_report(quality["numeric_validity"], "Numeric validity — source-row counts")
+show_report(quality["numeric_validity"], "Numeric validity — source-row counts; — means not applicable")
 
 # %% [markdown]
-# #### 3.6.1 Findings and handling
+# #### 3.6.1 Numeric validity and category handling
 #
-# All eight selected numeric features have zero conversion failures, infinities and negative values; count features have no nonintegral observations. The item count has one source-missing value. Keep IDs as text and money as decimal-valued numbers. Convert finite integral counts to nullable integers during later preparation, preserving missing/invalid flags; quarantine failed conversions rather than substituting zero.
+# **Numeric findings:** All eight selected numeric features have zero conversion failures, infinities and negative values; count features have no nonintegral observations. The item count has one source-missing value.
 #
-# Original country case variants include customer `pk` (225) and `my` (165), and label `ph` (180) and `my` (121). Normalize country formatting only on working copies for the relationship checks. Collection and payment case variants can be compared in lowercase, but their semantic domains remain unconfirmed. The full raw inventories above expose blank values and original spellings; no missing-value alias or semantic mapping is applied.
+# **Preparation:** Keep IDs as text and money as decimal-valued numbers. Convert finite integral counts to nullable integers during later preparation, preserving missing/invalid flags; quarantine failed conversions rather than substituting zero.
+#
+# **Country formatting:** Original country case variants include customer `pk` (225) and `my` (165), and label `ph` (180) and `my` (121). Normalize country formatting only on working copies for the relationship checks.
+#
+# **Other categories:** Collection and payment case variants can be compared in lowercase, but their semantic domains remain unconfirmed. The full raw inventories above expose blank values and original spellings; no missing-value alias or semantic mapping is applied.
 
 # %% [markdown]
 # ### 3.7 Class balance
@@ -761,14 +855,16 @@ show_report(quality["numeric_validity"], "Numeric validity — source-row counts
 show_report(quality["class_balance"], "Class balance — raw label rows")
 
 # %% [markdown]
-# #### 3.7.1 Findings and handling
+# #### 3.7.1 Class balance and evaluation implications
 #
-# There are **104,504 fraud** and **845,814 nonfraud** labels: **10.9967% fraud** among 950,318 valid labels, with no missing or invalid labels. Preserve this prevalence in evaluation. Compare fraud precision, recall and PR-AUC against a baseline; apply any weighting or resampling within training folds only, leaving validation and test populations representative.
+# There are 104,504 fraud and 845,814 nonfraud labels: **10.9967% fraud** among 950,318 valid labels, with no missing or invalid labels.
+#
+# Preserve this prevalence in evaluation. Compare fraud precision, recall and PR-AUC against a baseline; apply any weighting or resampling within training folds only, leaving validation and test populations representative.
 
 # %% [markdown]
 # ## 4. Relationships between datasets
 #
-# Orders contain no customer ID. Establish key uniqueness, coverage and country agreement before linking **orders → labels → customers**. Report raw country values alongside uppercase/trimmed proposals; the original tables remain unchanged.
+# Orders contain no customer ID. Establish key uniqueness, coverage and country agreement before linking **orders → labels → customers**. Report raw country values alongside uppercase/trimmed proposals.
 #
 # ### 4.1 Key uniqueness
 #
@@ -854,18 +950,18 @@ show_report(pd.DataFrame([{
 }]), "Safe linkage — retained order coverage")
 
 # %% [markdown]
-# ### 4.4 Findings and handling
+# ### 4.4 Linkage findings and handling
 #
 # Customer IDs are globally unique. Three order IDs each occur in two countries; country plus order ID is unique in orders and labels. Customer IDs in labels repeat because one customer can have many orders. Use the validated composite-key bridge rather than an ID-only join.
 #
 # After country normalization:
 #
-# - Orders → labels: **949,874 / 949,889** matched; **15** unmatched.
-# - Labels → orders: **949,874 / 950,318** matched; **444** unmatched.
-# - Labels → customers: **950,304 / 950,318** matched; **14** unmatched.
-# - Customers → labels: **622,258 / 901,312** matched; **279,054** unmatched.
+# - Orders → labels: 949,874 / 949,889 matched; 15 unmatched.
+# - Labels → orders: 949,874 / 950,318 matched; 444 unmatched.
+# - Labels → customers: 950,304 / 950,318 matched; 14 unmatched.
+# - Customers → labels: 622,258 / 901,312 matched; 279,054 unmatched.
 #
-# Country-set differences on shared IDs fall from **303 to 2** for orders/labels and **569 to 0** for labels/customers after normalization. Multi-country IDs remain ambiguous even when their sets agree. The safe bridge retains **949,889 orders**, of which **949,874 have labels** and **949,872 also have customers**.
+# Country-set differences on shared IDs fall from 303 to 2 for orders/labels and 569 to 0 for labels/customers after normalization. Multi-country IDs remain ambiguous even when their sets agree. The safe bridge retains 949,889 orders, of which 949,874 have labels and 949,872 also have customers.
 #
 # Keep unlinked source rows visible in coverage reports. Exclude unlabelled orders from supervised targets and fraud-rate denominators; never interpret an absent label as nonfraud. Mark unavailable customer features explicitly. Quarantine conflicting keys if future data introduces them.
 
@@ -886,20 +982,20 @@ logic_evidence["flagged_rate"] = logic_evidence.flagged.div(
 show_report(logic_evidence, "Business logic — flagged counts and evaluable denominators")
 
 # %% [markdown]
-# ### 5.1 Findings and handling
+# ### 5.1 Business-rule findings and handling
 #
-# Refunds exceed order values in **199,687 / 949,889 orders (21.0221%)**. Retain and flag these records for source confirmation; exceedances are not established errors, and not all can be explained by cent rounding. Do not silently clamp refunds or remove possible fraud signals.
+# Refunds exceed order values in 199,687 / 949,889 orders (21.0221%). Retain and flag these records for source confirmation; exceedances are not established errors, and not all can be explained by cent rounding. Do not silently clamp refunds or remove possible fraud signals.
 #
-# No cancelled/refunded counts exceed total orders, and no selected numeric values are negative. The missing item count is excluded from its numeric comparison. **105 / 949,101 evaluable orders** precede the customer's first-order calendar day; **788 orders** cannot be evaluated because of missing linkage or timestamps. Retain and flag the date violations rather than correcting dates without evidence.
+# No cancelled/refunded counts exceed total orders, and no selected numeric values are negative. The missing item count is excluded from its numeric comparison. 105 / 949,101 evaluable orders precede the customer's first-order calendar day; 788 orders cannot be evaluated because of missing linkage or timestamps. Retain and flag the date violations rather than correcting dates without evidence.
 #
-# **15 orders lack a label key**, and **2 labelled orders lack a customer**. Preserve these coverage exceptions and follow the exclusions and unavailable-feature handling in section 4.
+# 15 orders lack a label key, and 2 labelled orders lack a customer. Preserve these coverage exceptions and follow the exclusions and unavailable-feature handling in section 4.
 
 # %% [markdown]
 # ## 6. Dates and fraud patterns
 #
 # ### 6.1 Date ranges and formats
 #
-# Parse only the three observed explicit order-date formats and the specified customer timestamp shape. The summaries distinguish missing, unrecognized and invalid values, and count each recognized format. Ranges use valid parsed dates; the raw date columns remain unchanged.
+# Parse only the three observed explicit order-date formats and the specified customer timestamp shape. The summaries distinguish missing, unrecognized and invalid values, and count each recognized format. Ranges use valid parsed dates.
 
 # %%
 from mlops_fraud_prediction_ca1.temporal import (
@@ -922,9 +1018,9 @@ show_report(pd.DataFrame([
 ]), "Recognized date formats — source-row counts")
 
 # %% [markdown]
-# #### 6.1.1 Findings and handling
+# #### 6.1.1 Date-parsing findings and handling
 #
-# All **949,889 order dates** parse: `%Y/%m/%d` (949,180), `%Y-%m-%d` (200) and `%Y/%b/%d` (509). They span **2022-11-12 to 2023-05-11**. Customer timestamps use `%Y-%m-%d %H:%M:%S`: **900,600 valid**, **712 missing**, and no invalid or unrecognized values, spanning **2012-03-25 12:53:43 to 2023-05-10 20:59:37**.
+# All 949,889 order dates parse: `%Y/%m/%d` (949,180), `%Y-%m-%d` (200) and `%Y/%b/%d` (509). They span 2022-11-12 to 2023-05-11. Customer timestamps use `%Y-%m-%d %H:%M:%S`: 900,600 valid, 712 missing, and no invalid or unrecognized values, spanning 2012-03-25 12:53:43 to 2023-05-10 20:59:37.
 #
 # Retain raw dates, parse these explicit formats on working copies, and leave missing timestamps missing. Isolate any invalid or unrecognized dates in later batches rather than guessing a format.
 
@@ -938,9 +1034,9 @@ country_rates = fraud_rates(linked_orders, ["country_code"])
 show_report(country_rates, "Country fraud rates — safely linked orders")
 
 # %% [markdown]
-# #### 6.2.1 Findings
+# #### 6.2.1 Country fraud-rate findings
 #
-# The matched-order fraud rates are **BD 29.2706%**, **MY 3.8950%**, **PH 8.4721%**, **PK 24.5201%** and **TH 5.9677%**. Together the groups contain **104,422 fraud labels / 949,874 valid labels**; 15 unlabelled orders are excluded. This population differs from the 950,318 raw labels in section 3.7. Preserve country counts alongside rates when comparing groups.
+# The matched-order fraud rates are BD 29.2706%, MY 3.8950%, PH 8.4721%, PK 24.5201% and TH 5.9677%. Together the groups contain 104,422 fraud labels / 949,874 valid labels; 15 unlabelled orders are excluded. This population differs from the 950,318 raw labels in section 3.7. Preserve country counts alongside rates when comparing groups.
 
 # %% [markdown]
 # ### 6.3 Weekly fraud rates and dated movements
@@ -948,6 +1044,8 @@ show_report(country_rates, "Country fraud rates — safely linked orders")
 # Weeks run Monday–Sunday. Show the aggregate series and every country/week with fraud counts, valid-label denominators, excluded labels and partial-week flags. Date exclusions are disclosed separately. The first and last observed weeks are partial; other weeks are not guaranteed to be fully sampled.
 #
 # The movement table selects the largest absolute change between consecutive calendar weeks for each country and the aggregate. Missing weeks and undefined rates are not compared. Changes are shown in percentage points. These are descriptive candidates, not statistically established change points or causal evidence.
+#
+# The chart compares the aggregate and five countries on common axes. Open markers and shaded bands identify partial boundary weeks. Expand the supporting evidence for every weekly count, denominator and exclusion; the movement summary remains visible below the chart.
 
 # %%
 weekly_country_rates = weekly_fraud_rates(linked_orders)
@@ -963,19 +1061,139 @@ weekly_overall_rates["partial_week"] = weekly_overall_rates.week_start.isin(
 weekly_overall_rates["fraud_rate"] = weekly_overall_rates.fraud_labels.div(
     weekly_overall_rates.valid_labels.where(weekly_overall_rates.valid_labels.ne(0))
 )
-show_report(weekly_overall_rates, "Weekly fraud rates — all countries")
-for country, group in weekly_country_rates.groupby("country_code", sort=True):
-    show_report(group, f"Weekly fraud rates — {country}")
-
 weekly_changes = largest_weekly_change(pd.concat(
     [weekly_country_rates, weekly_overall_rates], ignore_index=True,
 ))
 weekly_changes["rate_change_pp"] = weekly_changes.pop("rate_change") * 100
+
+
+import math
+import matplotlib.dates as mdates
+from matplotlib.ticker import PercentFormatter
+
+
+def plot_weekly_rates(
+    country_rates: pd.DataFrame,
+    overall_rates: pd.DataFrame,
+    changes: pd.DataFrame,
+    excluded_date_rows: int,
+) -> Figure:
+    """Plot aggregate and country rates on common axes with coverage caveats.
+
+    Args:
+        country_rates: One row per country/week, including counts and boundaries.
+        overall_rates: Aggregate counts and fractional rates for the same weeks.
+        changes: Largest adjacent-week movements with percentage-point changes.
+        excluded_date_rows: Orders excluded because dates are missing or invalid.
+
+    Returns:
+        Figure with gap-preserving weekly series, partial-week markers and the
+        aggregate movement annotation. Rates use only valid matched-order
+        labels. Does not modify inputs or write files; caller closes the figure.
+    """
+    rates: pd.DataFrame = pd.concat([overall_rates, country_rates], ignore_index=True)
+    weeks: pd.DatetimeIndex = pd.date_range(
+        rates.week_start.min(), rates.week_start.max(), freq="W-MON",
+    )
+    countries: list[str] = ["ALL", *sorted(country_rates.country_code.unique())]
+    panel_rows: int = math.ceil(len(countries) / 2)
+    figure, axes = plt.subplots(
+        panel_rows, 2, figsize=(14, 3.3 * panel_rows),
+        sharex=True, sharey=True, squeeze=False,
+    )
+    upper_rate: float = max(0.6, math.ceil(rates.fraud_rate.max() * 10) / 10)
+    for axis, country in zip(axes.flat, countries):
+        group: pd.DataFrame = (
+            rates.loc[rates.country_code.eq(country)]
+            .set_index("week_start").reindex(weeks)
+        )
+        axis.plot(group.index, group.fraud_rate, color="#176b87", linewidth=2,
+                  marker="o", markersize=3)
+        partial: pd.DataFrame = group.loc[group.partial_week.eq(True)]
+        axis.scatter(partial.index, partial.fraud_rate, facecolors="white",
+                     edgecolors="#176b87", zorder=4, s=55)
+        for week in partial.index:
+            axis.axvspan(week - pd.Timedelta(days=3), week + pd.Timedelta(days=3),
+                         color="#e2e8f0", zorder=0)
+        axis.set_title("All countries" if country == "ALL" else country,
+                       loc="left", fontweight="bold")
+        axis.set_ylim(0, upper_rate)
+        axis.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+        axis.grid(axis="y", alpha=0.22)
+        axis.grid(axis="x", visible=False)
+        axis.spines[["top", "right"]].set_visible(False)
+        axis.xaxis.set_major_locator(mdates.MonthLocator())
+        axis.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+        axis.tick_params(axis="x", rotation=25)
+    for unused_axis in axes.flat[len(countries):]:
+        unused_axis.set_visible(False)
+    aggregate_changes: pd.DataFrame = changes.loc[changes.country_code.eq("ALL")]
+    if not aggregate_changes.empty:
+        movement: pd.Series = aggregate_changes.iloc[0]
+        annotation: str = (
+            f"{movement.previous_week:%d %b} → {movement.week_start:%d %b %Y}: "
+            f"{movement.rate_change_pp:+.4f} pp\n"
+            f"{movement.previous_fraud_labels:,.0f} / {movement.previous_valid_labels:,.0f}"
+            f" → {movement.fraud_labels:,.0f} / {movement.valid_labels:,.0f}"
+        )
+        axes[0, 0].annotate(
+            annotation, xy=(movement.week_start, movement.fraud_rate),
+            xytext=(weeks[0] + (weeks[-1] - weeks[0]) * 0.15, upper_rate * 0.49),
+            fontsize=9, arrowprops={"arrowstyle": "->", "color": "#243b53"},
+        )
+    excluded_labels: int = int((overall_rates.missing_labels + overall_rates.invalid_labels).sum())
+    figure.suptitle("Weekly fraud rates — safely linked orders", fontsize=17,
+                   fontweight="bold", y=0.99)
+    figure.supylabel("Fraud labels / valid 0–1 labels")
+    figure.supxlabel("Week starting Monday", y=0.055)
+    figure.text(
+        0.07, 0.006,
+        f"Valid labels only; {excluded_labels:,} missing/invalid labels excluded; "
+        f"{excluded_date_rows:,} date exclusions. Open markers / shaded bands: partial boundary weeks.\n"
+        f"Common 0–{upper_rate:.0%} axes; missing weeks leave gaps. "
+        "Descriptive movements do not establish a change point or cause.",
+        fontsize=10,
+    )
+    figure.tight_layout(rect=(0.02, 0.085, 1, 0.96))
+    return figure
+
+
+weekly_figure: Figure = plot_weekly_rates(
+    weekly_country_rates, weekly_overall_rates, weekly_changes,
+    weekly_country_rates.attrs["excluded_date_rows"],
+)
+display(weekly_figure)
+plt.close(weekly_figure)
 show_report(weekly_changes, "Largest absolute adjacent-week movements — descriptive candidates")
 
+weekly_reference_tables: list[str] = [
+    style_report(weekly_overall_rates, "Weekly fraud rates — all countries").to_html(),
+    *[
+        style_report(group, f"Weekly fraud rates — {country}").to_html()
+        for country, group in weekly_country_rates.groupby("country_code", sort=True)
+    ],
+]
+display(HTML(
+    '<details><summary>Supporting evidence: all weekly counts, denominators, exclusions and boundary flags</summary>'
+    '<div style="overflow-x: auto;">'
+    + "".join(weekly_reference_tables) + '</div></details>'
+))
+
+
 # %% [markdown]
-# #### 6.3.1 Findings and handling
+# #### 6.3.1 Weekly movement and interpretation
 #
-# No order dates are excluded from weekly rates. The aggregate's largest absolute adjacent-week movement is the rise from the week starting **2023-03-06** to **2023-03-13**: **11.7950% (4,540 / 38,491)** to **14.2392% (5,295 / 37,186)**, an increase of **2.4443 percentage points**. The movement table dates the largest candidate for each country and identifies whether a partial boundary week is involved.
+# No order dates are excluded from weekly rates.
+#
+# The aggregate's largest absolute adjacent-week movement is the rise from the week starting 2023-03-06 to 2023-03-13: 11.7950% (4,540 / 38,491) to 14.2392% (5,295 / 37,186), an increase of **2.4443 percentage points**. The movement table dates the largest candidate for each country and identifies whether a partial boundary week is involved.
 #
 # Preserve the weekly counts, denominators and boundary flags. Investigate dated movements alongside country mix and data coverage before attributing them to changing fraud behavior; this descriptive screen does not prove a change point. Keep any later model validation chronological where appropriate and fit preparation steps on training data only.
+
+# %% [markdown]
+# ## 7. Preparation decisions and limitations
+#
+# **Preparation decisions:** Use validated composite keys and keep coverage exceptions visible. Preserve unknown categories and missing values; parse only the documented date formats. Retain unusual numeric values with investigation flags until source evidence supports correction. Learned imputation, scaling, feature selection and any resampling must fit on training data only.
+#
+# **Later workflow:** Later preparation should call shared package functions directly, with explicit configuration and audited outputs. This notebook demonstrates reporting and working-copy transformations; it does not persist a cleaned dataset or train a model. Feature availability still needs a separate leakage audit, including the customer-history fields.
+#
+# **Limitations:** The full historical label period has been explored here. A later chronological split must disclose that earlier exploration and define fixed cutoffs separately. Weekly movements, country differences and IQR screens are descriptive evidence; they establish neither causes nor data errors. The final boundary weeks are partial, and full sampling is not guaranteed elsewhere.
