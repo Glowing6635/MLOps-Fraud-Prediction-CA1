@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 
-logger: logging.Logger = logging.getLogger(__name__)
 
-
-def load_base_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_base_data(
+    data_dir: str | Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Read the three base CSVs from an explicitly selected directory.
 
     Args:
@@ -32,6 +32,8 @@ def load_base_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd
     Logs each filename and its loaded dimensions at INFO level. Logging
     handlers and verbosity are configured by the caller.
     """
+    logger: logging.Logger = logging.getLogger(__name__)
+
     # Path() does not expand "~" automatically. Expand it so callers can use
     # home-relative directories such as "~/datasets/fraud".
     directory: Path = Path(data_dir).expanduser()
@@ -40,15 +42,24 @@ def load_base_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd
         directory / "orders_base.csv",
         directory / "labels_base.csv",
     )
-    missing_files: list[str] = [str(path) for path in paths if not path.is_file()]
+    missing_files: list[str] = [
+        str(path) for path in paths if not path.is_file()
+    ]
     if len(missing_files) > 0:
-        raise FileNotFoundError("Required CSV files not found: " + ", ".join(missing_files))
+        raise FileNotFoundError(
+            "Required CSV files not found: " + ", ".join(missing_files)
+        )
 
+    logger.info("Loading base datasets from %s", directory)
     frames: list[pd.DataFrame] = []
     for path in paths:
-        logger.info("Loading %s", path)
+        # Pandas' default returns a DataFrame; PyCharm misreads its Unpack overloads.
+        # noinspection PyTypeChecker,PyArgumentList
         frame: pd.DataFrame = pd.read_csv(path)
-        logger.info("Loaded %s: %d rows, %d columns", path.name, *frame.shape)
+        logger.info(
+            "Loaded %-18s | %9s rows | %2d columns",
+            path.name, f"{len(frame):,}", len(frame.columns),
+        )
         frames.append(frame)
 
     return frames[0], frames[1], frames[2]

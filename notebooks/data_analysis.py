@@ -31,7 +31,7 @@
 #   - [3.2 Exact duplicates](#32-exact-duplicates)
 #     - [3.2.1 Findings](#321-findings)
 #   - [3.3 Inspect category values](#33-inspect-category-values)
-#   - [3.4 Preview category standardisation](#34-preview-category-standardisation)
+#   - [3.4 Preview category standardization](#34-preview-category-standardization)
 #
 # [configure-data]: #21-configure-the-data-directory-and-logging
 #
@@ -91,6 +91,8 @@ import logging
 import sys
 from pathlib import Path
 
+# The linked cell repeats this import so it can run independently.
+# noinspection PyUnusedImports
 import pandas as pd
 from IPython.display import display
 from pandas.io.formats.style import Styler
@@ -194,7 +196,7 @@ base_data_dir: Path = project_root / "data"
 # %%
 # %%load_clean
 from mlops_fraud_prediction_ca1.data import load_base_data  # noqa: F401
-# Referenced Source: sha256:600f52fbebc8a7bff8a8e47340891e76a0af9ae28088cd3f24d7bcb21ac6b364
+# Referenced Source: sha256:a39409ecb291a66c6beac45c5f6df45cf1fd84af839727204378fa4c9b2da297
 
 import logging
 
@@ -241,7 +243,7 @@ def load_base_data(
     missing_files: list[str] = [
         str(path) for path in paths if not path.is_file()
     ]
-    if missing_files:
+    if len(missing_files) > 0:
         raise FileNotFoundError(
             "Required CSV files not found: " + ", ".join(missing_files)
         )
@@ -356,7 +358,7 @@ column_information: pd.DataFrame = pd.DataFrame(
     .set_caption("Column datatypes and inspection notes by dataset")
     .set_properties(**{"text-align": "left"})
     .set_table_styles(
-        [{"selector": "th", "props": [("text-align", "left")]}],
+        [CSSDict(selector="th", props=[("text-align", "left")])],
         overwrite=False,
     )
     .format(escape="html")
@@ -562,6 +564,8 @@ if category_top_k < 1:
     raise ValueError("category_top_k must be at least 1")
 
 for name, columns in category_columns.items():
+    # PyCharm cannot resolve the pandas Unpack overloads for this call.
+    # noinspection PyTypeChecker,PyArgumentList
     raw_categories: pd.DataFrame = pd.read_csv(
         base_data_dir / f"{name}_base.csv",
         usecols=columns,
@@ -589,7 +593,7 @@ for name, columns in category_columns.items():
         )
 
 # %% [markdown]
-# ### 3.4 Preview category standardisation
+# ### 3.4 Preview category standardization
 #
 # **Evidence-based formatting:** uppercase country codes and lowercase collection
 # and payment categories to bring observed case variants together. Lowercase
@@ -602,9 +606,9 @@ for name, columns in category_columns.items():
 # `on Delivery` is not mapped to `payment on delivery`.
 #
 # The package function returns original values, proposals, counts and statuses.
-# All distinct values are shown, with quotes exposing whitespace. These are
-# previews only: source files and the loaded datasets stay unchanged. The
-# [category standardisation notes](../docs/category-standardisation.md) document
+# All distinct values are shown directly, with whitespace preserved in the
+# value cells. These are previews only: source files and the loaded datasets stay unchanged. The
+# [category standardization notes](../docs/category-standardisation.md) document
 # the evidence, safeguards and decisions still requiring confirmation.
 
 # %%
@@ -613,6 +617,8 @@ from mlops_fraud_prediction_ca1.categories import standardise_categories
 category_previews: dict[tuple[str, str], pd.DataFrame] = {}
 
 for name, columns in category_columns.items():
+    # PyCharm cannot resolve the pandas Unpack overloads for this call.
+    # noinspection PyTypeChecker,PyArgumentList
     raw_category_values: pd.DataFrame = pd.read_csv(
         base_data_dir / f"{name}_base.csv",
         usecols=columns,
@@ -626,13 +632,22 @@ for name, columns in category_columns.items():
         )
         category_previews[name, column] = preview
         display(
-            preview.style
+            preview.rename(columns={
+                "original_value": "Original value",
+                "proposed_value": "Standardized value",
+                "count": "Count",
+                "status": "Status",
+            }).style
             .hide(axis="index")
             .pipe(apply_table_theme)
-            .set_caption(f"{name}.{column}: proposed formatting; source unchanged")
+            .set_caption(f"{name.title()} — {column.replace('_', ' ').capitalize()}")
+            .set_properties(
+                subset=["Original value", "Standardized value"],
+                **{"white-space": "pre-wrap"},
+            )
             .format(
-                {"original_value": repr, "proposed_value": repr, "count": "{:,}"},
+                {"Count": "{:,}"},
                 escape="html",
-                na_rep="<missing>",
+                na_rep="Missing",
             )
         )

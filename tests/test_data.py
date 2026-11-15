@@ -3,10 +3,12 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
 from pandas.testing import assert_frame_equal
+from load_clean.import_link import synchronize
 
 from mlops_fraud_prediction_ca1.data import load_base_data
 
@@ -62,6 +64,22 @@ class LoadBaseDataTests(unittest.TestCase):
                     self.assertRegex(dataset_logs, rf"\b{len(frame)}\b.*\b{len(frame.columns)}\b")
             for name, content in originals.items():
                 self.assertEqual((directory / name).read_bytes(), content)
+
+    def test_selected_loader_runs_without_original_module_globals(self) -> None:
+        """Keep the editable loader executable with only its selected imports."""
+        linked = synchronize(
+            "from mlops_fraud_prediction_ca1.data import load_base_data"
+        )
+        namespace: dict[str, Any] = {"__name__": "standalone_loader"}
+        exec(compile(linked.source, "<selected loader>", "exec"), namespace)
+        with TemporaryDirectory() as temporary:
+            directory: Path = Path(temporary)
+            for name in ("customers", "orders", "labels"):
+                (directory / f"{name}_base.csv").write_text("id\n1\n2\n")
+            frames = namespace["load_base_data"](directory)
+            self.assertEqual(len(frames), 3)
+            for frame in frames:
+                assert_frame_equal(frame, pd.DataFrame({"id": [1, 2]}))
 
     def test_reports_all_missing_files_before_reading(self) -> None:
         """Report every absent file without starting a partial load."""
