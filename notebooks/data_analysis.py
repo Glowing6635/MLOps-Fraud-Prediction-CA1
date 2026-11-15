@@ -42,6 +42,12 @@
 # Select the directory containing the three base CSVs. Loading uses pandas'
 # default type and missing-value inference; source files remain unchanged.
 #
+# ### Configure the data directory and logging
+#
+# Use the repository's `data/` directory when running from the project root or
+# `notebooks/`. Set `data_dir` to use another location. INFO logging displays
+# the files loaded and their dimensions.
+#
 # %%
 import logging
 from pathlib import Path
@@ -54,12 +60,33 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 project_root: Path = Path.cwd().parent if Path.cwd().name == "notebooks" else Path.cwd()
 data_dir: Path = project_root / "data"
 
-%load_ext load_clean
-
+# %% [markdown]
+# ### Enable NotebookHelpers
+#
+# Load the `load_clean` IPython extension to register the `%%load_clean` cell
+# magic used below. Run this cell before importing the loader through the magic.
+#
 # %%
-%%load_clean
+# %load_ext load_clean
+
+# %% [markdown]
+# ### Import the reusable loader
+#
+# The linked import below uses NotebookHelpers to synchronize `load_base_data`
+# with its package definition. Data loading logic stays in the package; the
+# notebook selects the directory and displays the results.
+#
+# %%
+# %%load_clean
 from mlops_fraud_prediction_ca1.data import load_base_data
 
+# %% [markdown]
+# ### Load the tables and check their dimensions
+#
+# Read the customer, order, and label CSVs into separate DataFrames. The summary
+# shows each table's row and column counts as an initial loading check;
+# data-quality checks follow separately.
+#
 # %%
 customers: pd.DataFrame
 orders: pd.DataFrame
