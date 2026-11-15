@@ -59,3 +59,19 @@ jobs:
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git --redact --log-opts="--all"
+
+  route:
+    # GitHub rules cannot limit which branch a pull request comes from, so this check does.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: The pull request follows the branch workflow in docs/contributors/README.md
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$BASE <- $HEAD" in
+            "main <- dev" | "dev <- user/"* | "dev <- documentation/"* | "user/"*" <- feature/"* | "user/"*" <- dev" | "feature/"*" <- feature/"*) ;;
+            *) echo "::error::A pull request from $HEAD into $BASE is not allowed; see docs/contributors/README.md." && exit 1 ;;
+          esac
