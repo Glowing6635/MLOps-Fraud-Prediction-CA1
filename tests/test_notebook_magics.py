@@ -28,7 +28,8 @@ class NotebookMagicTests(unittest.TestCase):
             cls.shell = InteractiveShell.instance(config=config)
         cls.shell.run_line_magic("load_ext", "load_clean")
 
-    def setUp(self):
+    def setUp(self) -> None:
+        """Create an isolated helper module and reset the shared shell input."""
         temporary = tempfile.TemporaryDirectory(prefix="notebook-magic-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -37,7 +38,7 @@ class NotebookMagicTests(unittest.TestCase):
         sys.path.insert(0, str(self.root))
         self.addCleanup(sys.path.remove, str(self.root))
         sys.modules.pop("magic_helper", None)
-        self.addCleanup(sys.modules.pop, "magic_helper", None)
+        self.addCleanup(lambda: sys.modules.pop("magic_helper", None))
         importlib.invalidate_caches()
         self.shell.payload_manager.clear_payload()
         self.shell.rl_next_input = ""

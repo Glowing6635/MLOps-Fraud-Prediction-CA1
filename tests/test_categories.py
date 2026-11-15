@@ -50,8 +50,12 @@ class StandardiseCategoriesTests(unittest.TestCase):
         """Reject configuration that would silently miss intended matches."""
         values = pd.Series(["MY"])
         with self.assertRaises(ValueError):
+            # Deliberately violate the type contract to check runtime validation.
+            # noinspection PyTypeChecker
             standardise_categories(values, case="title")
         with self.assertRaises(ValueError):
             standardise_categories(values, aliases={"YES": "true"})
         with self.assertRaises(TypeError):
+            # Deliberately supply a non-string category to check runtime validation.
+            # noinspection PyTypeChecker
             standardise_categories(values, allowed_values={1})

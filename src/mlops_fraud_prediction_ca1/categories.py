@@ -43,7 +43,7 @@ def standardise_categories(
     Case conversion is supported by observed variants in this dataset.
     Stripping, retaining unknowns and validating mappings are safeguards, not
     claims that those defects were observed. Aliases encode confirmed meaning,
-    not formatting evidence. See docs/category-standardisation.md.
+    not formatting evidence. See the category preview notes under ``docs/``.
     """
     if case not in ("lower", "upper"):
         raise ValueError("case must be 'lower' or 'upper'")
@@ -70,8 +70,9 @@ def standardise_categories(
         proposed = proposed.str.strip()
     proposed = proposed.str.lower() if case == "lower" else proposed.str.upper()
     if aliases is not None:
+        alias_mapping: Mapping[str, str] = aliases
         proposed = proposed.map(
-            lambda value: aliases.get(value, value) if pd.notna(value) else value
+            lambda value: alias_mapping.get(value, value) if pd.notna(value) else value
         ).astype("string")
     preview["proposed_value"] = proposed
     preview["status"] = "unchecked"

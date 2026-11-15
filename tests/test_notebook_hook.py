@@ -52,12 +52,14 @@ class NotebookHookTests(unittest.TestCase):
         nbformat.write(notebook, local)
         return script, local
 
-    def edit_notebook(self, local, source):
+    @staticmethod
+    def edit_notebook(local: Path, source: str) -> None:
+        """Save new cell source and make the notebook newer than its script."""
         notebook = nbformat.read(local, as_version=4)
         notebook.cells[0].source = source
         nbformat.write(notebook, local)
         script = local.with_suffix(".py")
-        newer = max(script.stat().st_mtime_ns, local.stat().st_mtime_ns) + 2_000_000_000
+        newer: int = int(max(script.stat().st_mtime_ns, local.stat().st_mtime_ns)) + 2_000_000_000
         os.utime(local, ns=(newer, newer))
 
     def run_hook(self, *args):

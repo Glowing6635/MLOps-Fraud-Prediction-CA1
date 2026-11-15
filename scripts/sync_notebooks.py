@@ -8,7 +8,8 @@ import subprocess
 import sys
 
 
-def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+    """Run Git and capture its byte output, optionally checking its exit code."""
     return subprocess.run(["git", "--no-optional-locks", *args], check=check, capture_output=True)
 
 
@@ -150,6 +151,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, subprocess.CalledProcessError) as error:
-        message("ERROR", str(error))
+    except (OSError, subprocess.CalledProcessError) as startup_error:
+        message("ERROR", str(startup_error))
         raise SystemExit(1)
