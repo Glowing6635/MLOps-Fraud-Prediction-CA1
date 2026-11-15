@@ -101,6 +101,45 @@ class NotebookMagicTests(unittest.TestCase):
         self.assertEqual(self.shell.user_ns["double"](4), 8)
         self.assertIn("%%load_clean", self.shell.rl_next_input)
 
+    def test_selected_import_sync_preserves_unrelated_source(self) -> None:
+        """Sync a selected function both ways without replacing its module."""
+        source: str = (
+            '"""Temporary module with shared context and an unrelated helper."""\n'
+            "FACTOR: int = 2\n\n"
+            "def double(value: int) -> int:\n"
+            '    """Scale a value using module configuration."""\n'
+            "    return value * FACTOR\n\n"
+            "def untouched() -> str:\n"
+            '    """Return an unrelated marker."""\n'
+            '    return "keep me"\n'
+        )
+        self.helper.write_text(source, encoding="utf-8")
+        self.run_cell("load_clean", "", "from magic_helper import double")
+        self.assertEqual(self.shell.user_ns["double"](4), 8)
+        generated: str = self.shell.rl_next_input
+        header, body = generated.split("\n", 1)
+        self.assertTrue(header.startswith("%%load_clean --import "))
+        self.assertNotIn("def untouched", body)
+
+        # Emulate editing and executing the generated cell in a notebook editor.
+        edited_body: str = body.replace("return value * FACTOR", "return value * FACTOR + 1")
+        self.assertNotEqual(edited_body, body)
+        self.run_cell("load_clean", header.removeprefix("%%load_clean "), edited_body)
+        expected_source: str = source.replace("return value * FACTOR", "return value * FACTOR + 1")
+        self.assertEqual(self.helper.read_text(encoding="utf-8"), expected_source)
+        self.assertEqual(self.shell.user_ns["double"](4), 9)
+
+        # A subsequent package edit should refresh an unchanged linked cell.
+        generated = self.shell.rl_next_input
+        header, body = generated.split("\n", 1)
+        updated_source: str = expected_source.replace("FACTOR + 1", "FACTOR + 3")
+        self.helper.write_text(updated_source, encoding="utf-8")
+        self.run_cell("load_clean", header.removeprefix("%%load_clean "), body)
+        self.assertEqual(self.helper.read_text(encoding="utf-8"), updated_source)
+        self.assertIn("return value * FACTOR + 3", self.shell.rl_next_input)
+        self.assertEqual(self.shell.user_ns["double"](4), 11)
+        self.assertEqual(sys.modules["magic_helper"].untouched(), "keep me")
+
 
 if __name__ == "__main__":
     unittest.main()

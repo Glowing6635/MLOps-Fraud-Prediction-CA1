@@ -104,6 +104,88 @@ not update `testing`.
 
 ## NotebookHelpers commands
 
+### Reusable code and Python documentation
+
+Keep reusable loaders and other shared operations in
+`src/mlops_fraud_prediction_ca1/`. Keep directory selection, logging
+configuration, analysis calls, displayed results, plots, and interpretation
+in the notebook. Exploratory code can remain in cells until reuse or
+readability justifies extracting it.
+
+For all new or modified Python code, annotate function parameters and return
+types, including `-> None`, and document modules, classes, and functions with
+docstrings visible through `help()` and `python -m pydoc`. Function docstrings
+should explain purpose, arguments, returns, relevant exceptions, and side
+effects where applicable. Annotate important configuration values and data
+objects; avoid comments that merely repeat the code. Apply this convention
+to notebook-defined helpers and tests as well as package code.
+
+### Data-analysis loader
+
+`load_base_data(data_dir: str | Path)` in `mlops_fraud_prediction_ca1.data`
+returns `(customers, orders, labels)` as pandas DataFrames. The caller selects
+the directory; the three filenames are fixed to `customers_base.csv`,
+`orders_base.csv`, and `labels_base.csv`. The loader checks all required files
+before reading, logs filenames and dimensions at INFO level, and preserves
+the source files. It uses pandas' default type and missing-value inference,
+without cleaning, joining, or parsing dates explicitly. It propagates read
+and parse errors to the caller. Configure logging in the notebook, not in
+the package.
+
+The analysis notebook defaults to the repository's `data/` directory when
+started from either the project root or `notebooks/`. Set `data_dir` explicitly
+to use another directory or start from another working directory. For example:
+
+```python
+data_dir: Path = Path("~/datasets/fraud").expanduser()
+```
+
+After loading the extension, the notebook uses the linked import form:
+
+```python
+%%load_clean
+from mlops_fraud_prediction_ca1.data import load_base_data
+```
+
+On execution, NotebookHelpers synchronizes the selected definition, executes
+it in its package module context, and requests that the editor replace the
+cell with editable source and a baseline. This is different from
+`%%load_clean default`, which performs an ordinary import. If the editor does
+not replace the cell, copy the generated cell it displays. Retain its generated
+header: later executions synchronize edits and detect conflicting changes.
+Save the notebook and sync its Jupytext pair after accepting the replacement.
+
+Generated headers contain an absolute source path. After moving the checkout
+or sharing it with a teammate, preserve any cell-only edits and regenerate
+the link using the short import form above. Do not reuse another machine's
+generated path.
+
+Inspect the loader's documentation from the project environment:
+
+```bash
+uv run --no-sync python -m pydoc mlops_fraud_prediction_ca1.data
+```
+
+### Testing approach
+
+Use `unittest` for the current suite; no additional test framework is required.
+Use small, multirow CSV fixtures and independently constructed expected frames
+with `pandas.testing.assert_frame_equal` to check the loader's complete results,
+including inferred dtypes. Check required-file failures and source preservation;
+avoid reproducing pandas' own parser test suite or asserting exact log wording.
+
+NotebookHelpers tests cover selected-definition synchronization in both
+directions, execution in module context, and preservation of unrelated source.
+They emulate accepting the generated cell; editor replacement itself still
+needs manual verification. Actual-data execution and review of analysis findings
+remain separate from these automated checks.
+
+Run all tests from the project root:
+
+```bash
+uv run --no-sync python -B -m unittest discover -s tests -v
+```
+
 ### IPython magics
 
 Load the extension in a notebook cell:
