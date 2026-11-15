@@ -66,8 +66,9 @@ def evaluate_top_k(
     orders per day, or a mapping from `country_code` to that country's capacity per day.
 
     Raises `ValueError` for a K that is not a whole number of at least 1, a country with
-    no K, a missing column, columns of different lengths, an `order_id` repeated within
-    one `country_code`, a label other than 0 or 1, or a score that is not finite.
+    no K, a missing column, a missing date, country or order ID (None, NaN or NaT),
+    columns of different lengths, an `order_id` repeated within one `country_code`, a
+    label other than 0 or 1, or a score that is not finite.
     """
     missing = [column for column in ORDER_COLUMNS if column not in orders]
     if missing:
@@ -93,6 +94,14 @@ def evaluate_top_k(
     for order_date, country_code, order_id, is_fraud, score in zip(
         *(orders[column] for column in ORDER_COLUMNS), scores, strict=True
     ):
+        if any(
+            value is None or value != value  # noqa: PLR0124 - only NaN and NaT are unequal to themselves.
+            for value in (order_date, country_code, order_id)
+        ):
+            raise ValueError(
+                f"Every order needs an order_date, country_code and order_id, but order"
+                f" {order_id} in country {country_code} on {order_date} is missing one."
+            )
         if is_fraud not in (0, 1):
             raise ValueError(
                 f"is_fraud must be 0 or 1, but order {order_id} has {is_fraud}."
