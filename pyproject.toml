@@ -15,3 +15,11 @@ mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "load-clean[notebook,tools]",
+]
+
+[tool.uv.sources]
+load-clean = { git = "https://github.com/SpiralSky/NotebookHelpers.git", rev = "main" }
