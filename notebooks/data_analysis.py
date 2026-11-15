@@ -78,7 +78,7 @@ data_dir: Path = project_root / "data"
 #
 # %%
 # %%load_clean
-from mlops_fraud_prediction_ca1.data import load_base_data
+from mlops_fraud_prediction_ca1.data import load_basUpdae_data
 
 # %% [markdown]
 # ### Load the tables and check their dimensions

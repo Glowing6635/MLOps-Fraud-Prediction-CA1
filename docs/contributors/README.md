@@ -111,6 +111,31 @@ the usual user-branch route.
 
 Documentation reaches `main` through the normal `dev → main` release process.
 
+## Code Readability and Documentation
+
+Write Python and notebook code for readers who may be new to the project or
+less familiar with Python conventions.
+
+- Use descriptive names such as `missing_files` so the purpose of a value is
+  clear where it is used.
+- Make collection checks explicit. For example, use `if len(missing_files) > 0:`
+  when checking whether any required files are missing. `if missing_files:`
+  relies on Python treating an empty list as false and a non-empty list as true;
+  the explicit count makes that condition easier for less experienced readers.
+- Explain why a non-obvious operation is needed, including its effect on caller
+  input. For example, `Path(data_dir).expanduser()` allows a directory such as
+  `~/datasets/fraud`: it expands `~` to the user's home directory because
+  `Path()` alone does not. Document this accepted input in the function's
+  docstring and explain the reason briefly beside the operation.
+- In notebooks, introduce each distinct step with a short Markdown cell that
+  explains its purpose and any prerequisite. Give extension activation its own
+  documented code cell before cells that depend on its magic commands. Avoid
+  prose that merely repeats individual lines of code.
+
+For type annotations, docstrings, and the boundary between reusable package
+logic and notebook analysis, see
+[Reusable code and Python documentation](../notebook-syncing.md#reusable-code-and-python-documentation).
+
 ## Commit Messages
 
 Use `type(scope): summary`; the scope and parentheses are optional.
