@@ -39,24 +39,24 @@ def test_each_day_selects_its_top_k_and_reports_k_and_2k():
         ("d1", "SG", "a1", 1, 0.9),
         ("d1", "SG", "a2", 0, 0.8),
         ("d1", "SG", "a3", 1, 0.1),
-        ("d2", "SG", "b1", 1, 0.7),  # Fewer orders than K: it is selected at K and 2K.
+        ("d2", "SG", "b1", 1, 0.7),  # Fewer orders than K: all are selected.
         ("d3", "MY", "c1", 0, 0.6),  # A day with no fraud: nothing to catch.
         ("d3", "MY", "c2", 0, 0.2),
     )
-    assert evaluate_top_k(orders, scores, k=1) == TopKReport(
+    assert evaluate_top_k(orders, scores, k=2) == TopKReport(
         at_k=TopKResult(
-            k=1,
-            fraud_caught=2,
-            fraud_catchable=2,
-            selected=3,
-            total_fraud=3,
-            total_orders=6,
-        ),
-        at_2k=TopKResult(
             k=2,
             fraud_caught=2,
             fraud_catchable=3,
             selected=5,
+            total_fraud=3,
+            total_orders=6,
+        ),
+        at_2k=TopKResult(
+            k=4,
+            fraud_caught=3,
+            fraud_catchable=3,
+            selected=6,
             total_fraud=3,
             total_orders=6,
         ),
@@ -151,15 +151,35 @@ def test_models_catching_the_same_fraud_are_ranked_by_average_precision():
     reports = {
         "falls_back": report(0.9, 0.5, 0.1),  # Catches 1; F N F: (1 + 2/3) / 2 = 5/6.
         "misses": report(0.1, 0.9, 0.5),  # Catches 0; N F F: (1/2 + 2/3) / 2 = 7/12.
-        "all_tied": report(
-            0.5, 0.5, 0.5
-        ),  # Catches o1 by order_id; one threshold: 2/3.
+        # Catches o1 by order_id; equal scores share one threshold: 2/3.
+        "all_tied": report(0.5, 0.5, 0.5),
         "perfect": report(0.9, 0.1, 0.5),  # Catches 1; F F N: 1.
     }
     assert [reports[name].average_precision for name in reports] == pytest.approx(
         [5 / 6, 7 / 12, 2 / 3, 1.0]
     )
     assert rank_models(reports) == ["perfect", "falls_back", "all_tied", "misses"]
+
+
+def test_fraud_caught_at_k_outranks_average_precision():
+    orders, _ = _orders(
+        ("d1", "SG", "a", 1, 0),
+        ("d1", "SG", "b", 0, 0),
+        ("d2", "SG", "c", 0, 0),
+        ("d2", "SG", "e", 1, 0),
+        ("d3", "SG", "x", 0, 0),
+    )
+    reports = {
+        # Catches a and e; window ranked N F F: (1/2 + 2/3) / 2 = 7/12.
+        "catches_more": evaluate_top_k(orders, [0.2, 0.1, 0.05, 0.15, 0.9], k=1),
+        # Catches only e; window ranked F N F: (1 + 2/3) / 2 = 5/6.
+        "ranks_better": evaluate_top_k(orders, [0.45, 0.5, 0.05, 0.6, 0.01], k=1),
+    }
+    assert [
+        (report.at_k.fraud_caught, report.average_precision)
+        for report in reports.values()
+    ] == [(2, pytest.approx(7 / 12)), (1, pytest.approx(5 / 6))]
+    assert rank_models(reports) == ["catches_more", "ranks_better"]
 
 
 def test_models_evaluated_with_different_k_are_not_ranked():
@@ -172,25 +192,32 @@ def test_models_evaluated_with_different_k_are_not_ranked():
         rank_models(reports)
 
 
+ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
+
+
 @pytest.mark.parametrize(
     ("orders", "scores", "k", "message"),
     [
-        (_orders(("d1", "SG", "o1", 1, 0.5))[0], [0.5], 0, "K must be at least 1"),
-        (
-            _orders(("d1", "MY", "o1", 1, 0.5))[0],
-            [0.5],
-            {"SG": 1},
-            "K is not set for country MY",
-        ),
+        (ORDER, [0.5], 0, "K must be a whole number"),
+        (ORDER, [0.5], 0.5, "K must be a whole number"),
+        (ORDER, [0.5], True, "K must be a whole number"),
+        (ORDER, [0.5], {"SG": 1.0}, "K must be a whole number"),
+        (ORDER, [0.5], {"MY": 1}, "K is not set for country SG"),
         (
             {"order_date": ["d1"], "is_fraud": [1]},
             [0.5],
             1,
             "no country_code, order_id",
         ),
-        (_orders(("d1", "SG", "o1", 1, 0.5))[0], [0.5, 0.4], 1, "zip"),
+        (ORDER, [0.5, 0.4], 1, "same length"),
         (_orders(("d1", "SG", "o1", 2, 0.5))[0], [0.5], 1, "is_fraud must be 0 or 1"),
-        (_orders(("d1", "SG", "o1", 1, 0.5))[0], [math.nan], 1, "not finite"),
+        (ORDER, [math.nan], 1, "not finite"),
+        (
+            _orders(("d1", "SG", "o1", 1, 0.5), ("d2", "SG", "o1", 0, 0.4))[0],
+            [0.5, 0.4],
+            1,
+            "appears more than once",
+        ),
     ],
 )
 def test_invalid_input_is_rejected(orders, scores, k, message):
