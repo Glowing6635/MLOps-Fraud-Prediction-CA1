@@ -4,7 +4,7 @@
 environment or `.env`, logs a parameter, a metric and a small artifact under the
 engineer's login name. MLflow prints the run's web address. It needs no database
 settings, so it works before the database exists. Unless the environment says
-otherwise, it gives up after about half a minute when the server does not answer.
+otherwise, it gives up within a minute when the server does not answer.
 """
 
 import getpass
