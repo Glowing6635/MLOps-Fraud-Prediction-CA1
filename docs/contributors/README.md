@@ -6,7 +6,7 @@
 Changes move from optional feature branches into user branches,
 then into dev, and finally into main for a release.
 Shared contributor documentation may instead use temporary documentation
-branches with approved pull requests directly to main, as described below.
+branches with approved pull requests directly to dev, as described below.
 The source branch supplies the changes in a pull request;
 the target branch receives them.
 
@@ -19,17 +19,15 @@ rules are defined under Pull Requests.
 The main branch should only contain working versions of the product.
 
 **Accepted PR source branches**:
-Pull requests from dev are accepted for releases.
-Pull requests from documentation branches are also accepted when limited
-to shared contributor documentation, as described under Contributor Documentation.
+Only pull requests from the dev branch are accepted.
 
 #### Dev
 The branch for development.
 
 **Accepted PR source branches**:
 Pull requests from user branches are accepted for development work.
-Pull requests from main are also accepted to synchronise approved
-contributor-documentation updates into dev.
+Pull requests from documentation branches are also accepted when limited
+to shared contributor documentation, as described under Contributor Documentation.
 
 #### User
 A continuing branch for each contributor, used across sprints to track
@@ -49,8 +47,8 @@ first, then update the dependent branch so its PR contains only its own changes.
 
 #### Documentation
 Temporary branches named `documentation/<description>` hold one coherent
-update to shared contributor guidance. Create them from the latest main
-and open pull requests targeting main.
+update to shared contributor guidance. Create them from the latest dev
+and open pull requests targeting dev.
 
 ### Pull Requests
 
@@ -64,9 +62,11 @@ other work can proceed in separate feature branches.
 #### Contributor Documentation
 Shared contributor guidance, such as `docs/contributors/**`, may be updated
 through a temporary `documentation/<description>` branch created from the
-latest main, with a pull request targeting main. Supporting documentation
+latest dev, with a pull request targeting dev. Supporting documentation
 index entries and README navigation links may be included.
-This is an exception to the usual feature-to-user-to-dev-to-main route.
+This is an exception to the usual feature-to-user-to-dev route.
+Contributor-documentation updates reach main through the normal
+dev-to-main release process.
 Feature-specific documentation should follow the feature through dev.
 
 Each documentation pull request must contain only the intended documentation
@@ -75,20 +75,19 @@ All other review and validation requirements still apply. Keep each branch
 focused on one coherent update.
 
 To separate documentation from unfinished feature work, create the documentation
-branch in a separate worktree based on main and apply only the intended
-changes. Review the diff against main to confirm that implementation changes
+branch in a separate worktree based on dev and apply only the intended
+changes. Review the diff against dev to confirm that implementation changes
 and unrelated configuration or dependency changes are excluded.
 
-After the documentation pull request is merged, open an approved synchronisation
-pull request from main to dev. Contributors should then merge dev into their
-user branches to receive the updated guidance. Completed documentation branches
-should follow the archiving and retention rules below.
+After the documentation pull request is merged into dev, contributors should
+merge dev into their user branches to receive the updated guidance.
+Completed documentation branches should follow the archiving and retention rules below.
 
 #### Review and Validation
 Every pull request should be approved by at least one team member
 other than its author before merging.
-This includes feature-to-user, user-to-dev, dev-to-main,
-documentation-to-main and main-to-dev synchronisation pull requests.
+This includes feature-to-user, documentation-to-dev, user-to-dev
+and dev-to-main pull requests.
 The pull request should describe the changes, reference the relevant
 task or PBI, and record the checks performed and their results.
 Relevant checks should pass, review discussions should be resolved,
@@ -100,8 +99,7 @@ Changes made after approval should be reviewed before merging.
 | Source | Target | Method |
 |---|---|---|
 | Completed feature branch | Its user branch | Squash and merge |
-| Documentation branch | main | Squash and merge |
-| main (documentation synchronisation) | dev | Create a merge commit |
+| Documentation branch | dev | Squash and merge |
 | User branch | dev | Create a merge commit |
 | dev | main | Create a merge commit |
 
@@ -184,14 +182,14 @@ contributor name where present, and descriptive part of the name:
 
 Further feature work should start on a new branch from the updated user branch.
 Further shared contributor-documentation work should start on a new branch
-from the updated main branch.
+from the updated dev branch.
 Retain archived branches until assessment is complete so their commits
 remain available as evidence of individual contributions.
 
 ### Releases and Naming
 Merges from dev into main should happen per working, production-ready release.
-Approved shared contributor-documentation updates may merge independently
-and do not require a release tag.
+Approved shared contributor-documentation updates may merge into dev
+independently of feature work and do not require a release tag.
 All sprint and production releases should be tagged.
 Consistent naming should be used throughout this project.
 Release tags should follow the format `v<MAJOR>.<MINOR>.<RELEASE>`.
