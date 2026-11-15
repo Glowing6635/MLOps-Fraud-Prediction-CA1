@@ -192,6 +192,18 @@ def test_models_evaluated_with_different_k_are_not_ranked():
         rank_models(reports)
 
 
+def test_the_same_order_id_in_two_countries_is_two_orders():
+    orders, scores = _orders(("d1", "SG", "o1", 1, 0.9), ("d1", "MY", "o1", 1, 0.8))
+    assert evaluate_top_k(orders, scores, k=1).at_k == TopKResult(
+        k=1,
+        fraud_caught=1,
+        fraud_catchable=1,
+        selected=1,
+        total_fraud=2,
+        total_orders=2,
+    )
+
+
 ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
 
 
@@ -216,7 +228,7 @@ ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
             _orders(("d1", "SG", "o1", 1, 0.5), ("d2", "SG", "o1", 0, 0.4))[0],
             [0.5, 0.4],
             1,
-            "appears more than once",
+            "Order o1 in country SG appears more than once",
         ),
     ],
 )
