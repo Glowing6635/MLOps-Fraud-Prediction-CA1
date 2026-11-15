@@ -17,6 +17,9 @@ from mlflow.exceptions import MlflowException
 
 
 def main() -> None:
+    # MLflow prints an emoji when the run ends; Windows cannot encode it when the output
+    # is piped, and the error would leave the run stuck as RUNNING.
+    sys.stdout.reconfigure(errors="replace")
     load_dotenv()
     uri = os.environ.get("MLFLOW_TRACKING_URI")
     experiment_name = os.environ.get("MLFLOW_EXPERIMENT_NAME")
