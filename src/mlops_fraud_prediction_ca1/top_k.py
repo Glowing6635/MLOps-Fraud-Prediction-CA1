@@ -66,8 +66,8 @@ def evaluate_top_k(
     orders per day, or a mapping from `country_code` to that country's capacity per day.
 
     Raises `ValueError` for a K that is not a whole number of at least 1, a country with
-    no K, a missing column, columns of different lengths, a repeated `order_id`, a label
-    other than 0 or 1, or a score that is not finite.
+    no K, a missing column, columns of different lengths, an `order_id` repeated within
+    one `country_code`, a label other than 0 or 1, or a score that is not finite.
     """
     missing = [column for column in ORDER_COLUMNS if column not in orders]
     if missing:
@@ -88,7 +88,8 @@ def evaluate_top_k(
     # Each group holds (sort key, is_fraud); the key sorts the highest score first.
     groups = defaultdict(list)
     labelled = []
-    order_ids = set()
+    # An order is its country and ID: the same order_id can appear in two countries.
+    orders_seen = set()
     for order_date, country_code, order_id, is_fraud, score in zip(
         *(orders[column] for column in ORDER_COLUMNS), scores, strict=True
     ):
@@ -100,9 +101,11 @@ def evaluate_top_k(
             raise ValueError(
                 f"Order {order_id} has a score that is not finite: {score}."
             )
-        if order_id in order_ids:
-            raise ValueError(f"Order {order_id} appears more than once.")
-        order_ids.add(order_id)
+        if (country_code, order_id) in orders_seen:
+            raise ValueError(
+                f"Order {order_id} in country {country_code} appears more than once."
+            )
+        orders_seen.add((country_code, order_id))
         labelled.append((score, bool(is_fraud)))
         group = order_date if isinstance(k, int) else (order_date, country_code)
         groups[group].append(((-score, country_code, order_id), bool(is_fraud)))
