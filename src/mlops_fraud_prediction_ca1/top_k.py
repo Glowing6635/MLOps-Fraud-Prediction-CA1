@@ -65,18 +65,30 @@ def evaluate_top_k(
     per order, in the same order. `k` is the daily review capacity, a whole number of
     orders per day, or a mapping from `country_code` to that country's capacity per day.
 
-    Raises `ValueError` for a K below 1, a country with no K, a missing column, columns
-    of different lengths, a label other than 0 or 1, or a score that is not finite.
+    Raises `ValueError` for a K that is not a whole number of at least 1, a country with
+    no K, a missing column, columns of different lengths, a repeated `order_id`, a label
+    other than 0 or 1, or a score that is not finite.
     """
     missing = [column for column in ORDER_COLUMNS if column not in orders]
     if missing:
         raise ValueError(f"The orders have no {', '.join(missing)} column.")
-    capacities = [k] if isinstance(k, int) else list(k.values())
-    if any(capacity < 1 for capacity in capacities):
-        raise ValueError(f"K must be at least 1 order, but it is {k}.")
+    capacities = list(k.values()) if isinstance(k, Mapping) else [k]
+    if any(
+        isinstance(capacity, bool) or not isinstance(capacity, int) or capacity < 1
+        for capacity in capacities
+    ):
+        raise ValueError(
+            f"K must be a whole number of orders, at least 1, but it is {k}."
+        )
+    if len({len(scores), *(len(orders[column]) for column in ORDER_COLUMNS)}) > 1:
+        raise ValueError(
+            "The order columns and the scores must all have the same length."
+        )
 
     # Each group holds (sort key, is_fraud); the key sorts the highest score first.
     groups = defaultdict(list)
+    labelled = []
+    order_ids = set()
     for order_date, country_code, order_id, is_fraud, score in zip(
         *(orders[column] for column in ORDER_COLUMNS), scores, strict=True
     ):
@@ -88,6 +100,10 @@ def evaluate_top_k(
             raise ValueError(
                 f"Order {order_id} has a score that is not finite: {score}."
             )
+        if order_id in order_ids:
+            raise ValueError(f"Order {order_id} appears more than once.")
+        order_ids.add(order_id)
+        labelled.append((score, bool(is_fraud)))
         group = order_date if isinstance(k, int) else (order_date, country_code)
         groups[group].append(((-score, country_code, order_id), bool(is_fraud)))
     if not isinstance(k, int):
@@ -98,9 +114,6 @@ def evaluate_top_k(
     for ranked in groups.values():
         ranked.sort()
 
-    labelled = [
-        (-key[0], is_fraud) for ranked in groups.values() for key, is_fraud in ranked
-    ]
     double_k = (
         2 * k
         if isinstance(k, int)
@@ -116,8 +129,8 @@ def evaluate_top_k(
 def rank_models(reports: Mapping[str, TopKReport]) -> list[str]:
     """Model names, best first: most fraud caught at K, then the higher average precision.
 
-    A model with no average precision (no fraud in the window) ranks below one that has it.
-    Raises `ValueError` unless every report uses the same K on the same window.
+    Raises `ValueError` unless every report has the same K and the same order and fraud
+    counts, a sign that the models were evaluated on the same orders.
     """
     results = [report.at_k for report in reports.values()]
     window = [(result.k, result.total_orders, result.total_fraud) for result in results]
@@ -126,16 +139,14 @@ def rank_models(reports: Mapping[str, TopKReport]) -> list[str]:
             "Models can only be ranked when evaluated with the same K on the same orders."
         )
 
-    def rank_key(name: str) -> tuple[int, float]:
-        report = reports[name]
-        # Average precision is never below 0, so -1 puts an undefined one last.
-        average_precision = report.average_precision
-        return (
-            -report.at_k.fraud_caught,
-            -(average_precision if average_precision is not None else -1),
-        )
-
-    return sorted(reports, key=rank_key)
+    # Equal fraud counts mean every average precision is defined, or none is.
+    return sorted(
+        reports,
+        key=lambda name: (
+            -reports[name].at_k.fraud_caught,
+            -(reports[name].average_precision or 0),
+        ),
+    )
 
 
 def format_report(report: TopKReport) -> str:
