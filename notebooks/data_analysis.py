@@ -14,6 +14,23 @@
 
 # %% [markdown]
 # # Data Analysis
+
+# %% [markdown]
+# ## Table of contents
+#
+# - [Purpose and workflow](#purpose-and-workflow)
+# - [1. Load and inspect the datasets](#1-load-and-inspect-the-datasets)
+#   - [Configure the data directory and logging](#configure-the-data-directory-and-logging)
+#   - [Enable NotebookHelpers](#enable-notebookhelpers)
+#   - [Import the reusable loader](#import-the-reusable-loader)
+#   - [Load the tables and check their dimensions](#load-the-tables-and-check-their-dimensions)
+#   - [Inspect dataset columns](#inspect-dataset-columns)
+# - [2. Assess data quality](#2-assess-data-quality)
+#   - [Missing values](#missing-values)
+#   - [Exact duplicates](#exact-duplicates)
+
+# %% [markdown]
+# ## Purpose and workflow
 #
 # This notebook conducts **exploratory data analysis (EDA)** on the three base
 # datasets used for fraud prediction to identify issues and patterns that could
@@ -37,19 +54,19 @@
 #   preserving the original source data.
 #
 #
-# ## Contents
-#
-# - [1. Load and inspect the datasets](#1-load-and-inspect-the-datasets)
-# - [2. Assess data quality](#2-assess-data-quality)
-#   - [Missing values](#missing-values)
-#   - [Exact duplicates](#exact-duplicates)
-# - [Glossary](#glossary)
+# Run the code cells from top to bottom using the project's `.venv` kernel.
+# Each check introduces its output before the code and records findings after
+# it. Review those findings when the source data changes. Use the table of
+# contents or your editor's outline to navigate; editors that support heading
+# folding can collapse sections while you work.
+
 # %% [markdown]
 # ## 1. Load and inspect the datasets
 #
 # Select the directory containing the three base CSVs. Loading uses pandas'
 # default type and missing-value inference; source files remain unchanged.
-#
+
+# %% [markdown]
 # ### Configure the data directory and logging
 #
 # Use the repository's `data/` directory when running from the project root or
@@ -196,7 +213,8 @@ with pd.option_context("display.max_rows", None, "display.max_columns", None):
 
 # %% [markdown]
 # ## 2. Assess data quality
-#
+
+# %% [markdown]
 # ### Missing values
 #
 # The table below shows the missing-value count and percentage for every column
@@ -311,16 +329,3 @@ with pd.option_context(
 #
 # These findings describe the current CSVs and should be reviewed if the inputs
 # or comparison rules change.
-
-# %% [markdown]
-# ## Glossary
-#
-# | Term | Meaning in this notebook |
-# | --- | --- |
-# | Column / field | A named attribute in a dataset. |
-# | Row / record | One entry containing values for the dataset's columns. |
-# | Feature | A variable used as an input to a prediction model. |
-# | Target | The outcome to predict; here, `is_fraud`. |
-# | Key / composite key | One column, or a combination of columns, intended to identify a record. Uniqueness must be checked. |
-# | Missing value | A value pandas recognises as absent; placeholder strings may require additional checks. |
-# | Exact duplicate | A row matching another row across all columns. |
