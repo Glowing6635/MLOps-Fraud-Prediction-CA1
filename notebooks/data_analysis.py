@@ -43,6 +43,7 @@
 # - [7. Feature availability and leakage audit](#7-feature-availability-and-leakage-audit)
 #   - [Availability table](#71-column-availability) · [Customer timing evidence](#72-customer-timing-evidence) · [Handling and recorded decisions](#73-handling-and-recorded-decisions)
 # - [8. Preparation decisions and limitations](#8-preparation-decisions-and-limitations)
+# - [9. Reusable post-EDA cleaning](#9-reusable-post-eda-cleaning)
 
 # %% [markdown]
 # ## 1. Workflow
@@ -1774,3 +1775,32 @@ show_report(
 # **Later workflow:** Later preparation should call shared package functions directly, with explicit configuration and audited outputs. This notebook demonstrates reporting and working-copy transformations; it does not persist a cleaned dataset or train a model. Section 7 and the decision log record the feature policy, unconfirmed customer fallback and provisional 30-day label-delay assumption. Later feature preparation and training must enforce those decisions; Operations evidence may replace the assumptions.
 #
 # **Limitations:** The full historical label period has been explored here. A later chronological split must disclose that earlier exploration and define fixed cutoffs separately. Weekly movements, country differences and IQR screens are descriptive evidence; they establish neither causes nor data errors. The final boundary weeks are partial, and full sampling is not guaranteed elsewhere.
+
+
+# %% [markdown]
+# ## 9. Reusable post-EDA cleaning
+#
+# This demonstration calls the same reusable module intended for #13 and #20. It reads literal strings through #6's guarded analysis loader before cleaning. The before/after counts cover only exposed base rows: the locked test window stays withheld, while analysis includes dates after its end. Reader exclusions are separate from cleaning rejections. Historical full-extract findings above retain their original scope.
+#
+# Policy `pbi12-v2` fixes known case/date/numeric representations, retains all rows and stores originals alongside cleaned values. Unseen categories, blank payments and missing customer dates remain unknown. `yes` and `on Delivery` remain unresolved; refunds never reject a row. Unknown counts below are cells, not distinct rows. See the [rule ledger and vocabulary sources](../docs/cleaning.md): the fixed engineering vocabulary reuses the disclosed historical #3 inventory, without learning from incoming batches. Learned transformations belong in #16, fitted on training rows.
+
+# %%
+from mlops_fraud_prediction_ca1.cleaning import load_clean_base_data, summarize_batch
+
+cleaning_batch = load_clean_base_data(base_data_dir, purpose="analysis")
+cleaning_counts = summarize_batch(cleaning_batch)
+display(
+    Markdown(
+        f"Cleaning policy: {cleaning_batch.policy_version}; "
+        f"test locked: {cleaning_batch.tables['orders'].raw.attrs['split_audit']['test_locked']}"
+    )
+)
+show_report(
+    cleaning_counts,
+    "Post-EDA cleaning — guarded base analysis rows; unknown counts are cells",
+)
+
+# %% [markdown]
+# For the recorded base files, cleaning retains 554,509 customers, 824,898 orders and 824,885 labels, with zero cleaning rejections. It reports 102 unknown mobile-verification cells, 416 unknown first-order dates and 17,009 unknown payment methods. These values are reference results for the recorded input hashes, not assertions for future batches. Raw source hashes remained unchanged.
+#
+# `cleaning_batch.tables[name]` exposes aligned `raw`, `cleaned`, `status`, `source_positions` and aggregate `audit` results. Retain source/batch identity with each position; filter unsafe cleaned keys explicitly before joins and enforce #4's feature policy separately. The table-in/table-out `clean_frame(frame)` API returns cleaned columns with originals in `raw_<column>` columns. Numeric fields use nullable `Float64` and the target uses `Int8`; IDs stay opaque. Adoption by #13 and #20 is separate integration work.

@@ -12,3 +12,5 @@
 `/output` Contains model outputs
 
 [Fixed temporal reads](docs/time-split.md) — protected CSV reads and SQL contract.
+
+[Deterministic cleaning](docs/cleaning.md) — reusable rules and batch contract.
