@@ -2,7 +2,7 @@
 
 The Docker bundle that Elastic Beanstalk builds into the team's MLflow server (issue #7). This basic design keeps runs in SQLite and artifacts in a folder inside the container, so a redeploy or a replaced instance loses them, and so may the instance stopping when the sandbox session ends. Issue #9 moves them to RDS and S3.
 
-Until issue #9 adds a login, anyone who knows the server's address can read and change everything on it, and traffic is plain HTTP that others on the network can read. Never log course data, passwords or keys to it.
+Until issue #9 adds a login, anyone who knows the server's address can read and change everything on it, and traffic is plain HTTP that others on the network can read. Never log source data, passwords or keys to it.
 
 ## Files
 
