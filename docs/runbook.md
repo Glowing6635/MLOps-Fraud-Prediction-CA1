@@ -1,6 +1,20 @@
 # Runbook
 
-How to create the team's cloud services in the AWS sandbox account and set them up. Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy.
+How to create the team's cloud services in the AWS sandbox account, bring them back after the sandbox stops, and the checks to repeat before the demo. The MLflow server's setup is in `mlflow-server/README.md`.
+
+Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy.
+
+## Who runs the services
+
+| Item | Record |
+| --- | --- |
+| Sandbox account hosting RDS, MLflow and S3 | Richard Go's AWS Academy sandbox, region `us-east-1` |
+| Who can start it | Richard Go only |
+| Demo machine | TO RECORD |
+| Demo-site network | TO RECORD |
+| Backup hotspot | TO RECORD |
+
+Only Richard can start the sandbox, so he is a single point of failure on demo day. Backup plan: TO RECORD.
 
 ## RDS database
 
@@ -109,3 +123,47 @@ The command prints the champion's version, then:
 3. Precision at K: the share of fraud among queued orders with a valid label. The labels are joined only after the queue is stored. Queued orders without a valid label are counted but left out of the share.
 
 It logs one MLflow run, `review-queue-<batch>-v<version>`, holding the queue as a CSV (date, country, order ID, the customer ID from the labels file, and score), the counts and precision at K. If the batch is not loaded, or the holdout setting withholds all its orders, it stops with status 1 and writes nothing. If two runs for one batch and model version overlap, the second may stop with status 1 on a duplicate key, and the first one's queue stands either way. If MLflow fails after the queue is stored, run the command again: it writes nothing and finishes the logging. Precision from a rehearsal only shows the command works; never quote it as a result.
+
+### Who can reach port 3306
+
+The instance has a public address, because the engineers connect from home and campus networks. Its security group lets in only:
+
+- one rule per engineer's current public address, each a single address (`/32`), added with step 4;
+- the MLflow server's Beanstalk instances, by naming their security group as the source, so the rule still holds when Beanstalk replaces an instance.
+
+We chose this over opening port 3306 to every address, which would leave the database's login exposed to the whole internet with only a password in the way. A VPN or a jump host would hide the database completely, but the sandbox gives no way to keep one running between sessions.
+
+When an engineer's address changes, add a rule for the new one and delete the old one with `aws ec2 revoke-security-group-ingress`, using the same options as step 4. `aws ec2 describe-security-groups --group-ids <security group>` lists the rules.
+
+## Before the sandbox stops
+
+Run `uv run redeploy-check record` once, from any laptop. It saves the model's predictions to `output/redeploy_check.json` on that laptop, so run the drill from the same laptop.
+
+## Restart drill
+
+1. Start the sandbox.
+2. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times. It prints the time from its own start to each step, and gives up after 30 minutes.
+3. Add the times to the table below.
+
+| Date | Machine and network | RDS | MLflow | Model | Total |
+| --- | --- | --- | --- | --- | --- |
+| | | | | | |
+
+Demo-day start time: TO RECORD, from the slowest total above plus a margin of TO RECORD minutes.
+
+## Reaching RDS from each laptop
+
+Each engineer runs `uv run restart-drill` once on the demo-site network and once on the backup hotspot.
+
+| Engineer | Demo-site network | Backup hotspot |
+| --- | --- | --- |
+| Richard Go | | |
+| Tung Shi An | | |
+
+## Sandbox budget
+
+At every sprint review, open the sandbox's start page, note the budget used and remaining, and add a row here. If the remaining budget would not last until the release, stop the services between work sessions.
+
+| Sprint review | Used | Remaining |
+| --- | --- | --- |
+| | | |
