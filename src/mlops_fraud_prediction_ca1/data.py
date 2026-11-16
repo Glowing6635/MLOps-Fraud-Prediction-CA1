@@ -1,65 +1,31 @@
-"""Load the base fraud-prediction datasets without cleaning source values."""
+"""Guarded base CSV reads; source bytes and values remain unchanged."""
 
 import logging
 from pathlib import Path
 
 import pandas as pd
 
+from mlops_fraud_prediction_ca1.splitting import split_orders
 
-def load_base_data(
-    data_dir: str | Path,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Read the three base CSVs from an explicitly selected directory.
 
-    Args:
-        data_dir: Directory containing customers_base.csv, orders_base.csv,
-            and labels_base.csv. Relative paths use the current working
-            directory. A leading `~` refers to the user's home directory,
-            so `~/datasets/fraud` can be used instead of a full absolute path.
-
-    Returns:
-        DataFrames in the order (customers, orders, labels). IDs, categories,
-        flags and dates use explicit string dtypes; numeric columns and missing
-        values follow pandas read_csv defaults. Leading zeros and flag spelling
-        are preserved across batches. No cleaning,
-        date parsing, joining, or source-file modification is performed.
-
-    Raises:
-        FileNotFoundError: One or more required files are absent. All paths
-            are checked before any CSV is read.
-        OSError: An input cannot be read.
-        pandas.errors.EmptyDataError: An input has no columns to parse.
-        pandas.errors.ParserError: An input cannot be parsed as CSV.
-
-    Logs each filename and its loaded dimensions at INFO level. Logging
-    handlers and verbosity are configured by the caller.
-    """
-    logger: logging.Logger = logging.getLogger(__name__)
-
-    # Path() does not expand "~" automatically. Expand it so callers can use
-    # home-relative directories such as "~/datasets/fraud".
-    directory: Path = Path(data_dir).expanduser()
-    paths: tuple[Path, Path, Path] = (
-        directory / "customers_base.csv",
-        directory / "orders_base.csv",
-        directory / "labels_base.csv",
+def _read_base_data(data_dir: str | Path, *, raw_strings: bool = False) -> tuple:
+    """Private ingestion: callers must scope rows before exposing any frame."""
+    directory = Path(data_dir).expanduser()
+    paths = tuple(
+        directory / f"{name}_base.csv" for name in ("customers", "orders", "labels")
     )
-    missing_files: list[str] = [str(path) for path in paths if not path.is_file()]
-    if len(missing_files) > 0:
-        raise FileNotFoundError(
-            "Required CSV files not found: " + ", ".join(missing_files)
-        )
-
-    logger.info("Loading base datasets from %s", directory)
-    frames: list[pd.DataFrame] = []
-    for path in paths:
-        # Pandas' default returns a DataFrame; PyCharm misreads its Unpack overloads.
-        # noinspection PyTypeChecker,PyArgumentList
-        frame: pd.DataFrame = pd.read_csv(
-            path,
-            dtype={
-                column: "string"
-                for column in (
+    missing = [str(path) for path in paths if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("Required CSV files not found: " + ", ".join(missing))
+    # IDs are opaque keys: inference can merge e.g. customers "001" and "1",
+    # exposing a test-only customer's payload through an allowed label.
+    options = (
+        {"dtype": "string", "keep_default_na": False}
+        if raw_strings
+        else {
+            "dtype": {
+                name: "string"
+                for name in (
                     "order_id",
                     "customer_id",
                     "country_code",
@@ -70,14 +36,110 @@ def load_base_data(
                     "collect_type",
                     "payment_method",
                 )
-            },
-        )
-        logger.info(
-            "Loaded %-18s | %9s rows | %2d columns",
+            }
+        }
+    )
+    frames = tuple(pd.read_csv(path, **options) for path in paths)
+    for path, frame in zip(paths, frames, strict=True):
+        logging.getLogger(__name__).info(
+            "Loaded %s | %s rows | %s columns",
             path.name,
-            f"{len(frame):,}",
+            len(frame),
             len(frame.columns),
         )
-        frames.append(frame)
+    return frames
 
-    return frames[0], frames[1], frames[2]
+
+def _key_index(frame: pd.DataFrame, id_column: str) -> pd.MultiIndex:
+    country = (
+        frame["country_code"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .replace("", pd.NA)
+    )
+    identity = frame[id_column].astype("string")
+    identity = identity.mask(identity.str.strip().eq(""), pd.NA)
+    return pd.MultiIndex.from_arrays([country, identity])
+
+
+def _scope_related(
+    customers: pd.DataFrame,
+    labels: pd.DataFrame,
+    allowed: pd.DataFrame,
+    denied: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    # A business key appearing in both allowed and withheld orders is unsafe:
+    # its undated label cannot be assigned to either side. Preserve order rows,
+    # but quarantine that key's related payload rather than guessing.
+    allowed_keys = _key_index(allowed, "order_id")
+    denied_keys = _key_index(denied, "order_id")
+    complete_orders = allowed_keys.to_frame(index=False).notna().all(axis=1).to_numpy()
+    eligible_keys = allowed_keys[complete_orders & ~allowed_keys.isin(denied_keys)]
+    label_keys = _key_index(labels, "order_id")
+    label_mask = (
+        label_keys.isin(eligible_keys)
+        & label_keys.to_frame(index=False).notna().all(axis=1).to_numpy()
+    )
+    scoped_labels = labels.iloc[label_mask].copy()
+    customer_keys = _key_index(scoped_labels, "customer_id")
+    complete_customers = (
+        customer_keys.to_frame(index=False).notna().all(axis=1).to_numpy()
+    )
+    scoped_customers = customers.iloc[
+        _key_index(customers, "customer_id").isin(customer_keys[complete_customers])
+    ].copy()
+    return scoped_customers, allowed.copy(), scoped_labels
+
+
+def load_base_data(
+    data_dir: str | Path,
+    *,
+    purpose: str = "analysis",
+    config_path: str | Path | None = None,
+    raw_strings: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Read (customers, orders, labels), withholding test rows by default.
+
+    All three CSVs are checked before reading. Orders are date-scoped first;
+    labels use normalized country/order keys and customers use country/customer
+    keys referenced by retained labels. Shared customers are possible: this is
+    chronological, not customer-disjoint. Incomplete keys cannot expose related
+    rows. raw_strings preserves literal category spelling/blank tokens under
+    the same guard. Missing/invalid schemas and configuration fail closed.
+    Each returned frame has aggregate-only split_audit attrs. No raw payload is
+    returned in audits. This selection does not replace #4's feature policy.
+    """
+    customers, orders, labels = _read_base_data(data_dir, raw_strings=raw_strings)
+    # Use a separate positional marker to detect cross-boundary duplicate keys.
+    marked = orders.copy()
+    marker = "__pbi6_position__"
+    if marker in marked:
+        raise ValueError(f"Reserved input column: {marker}")
+    marked[marker] = range(len(marked))
+    selected, audit = split_orders(marked, purpose=purpose, config_path=config_path)
+    denied = marked.loc[~marked[marker].isin(selected[marker])]
+    selected = selected.drop(columns=marker)
+    frames = _scope_related(customers, labels, selected, denied)
+    for name, frame in zip(("customers", "orders", "labels"), frames, strict=True):
+        frame.attrs = {"split_audit": audit}
+        logging.getLogger(__name__).info(
+            "Loaded %s_base.csv | %s rows | %s columns",
+            name,
+            len(frame),
+            len(frame.columns),
+        )
+    return frames
+
+
+def load_category_data(
+    data_dir: str | Path, *, config_path: str | Path | None = None
+) -> dict[str, pd.DataFrame]:
+    """Literal category values, scoped through the same locked analysis read."""
+    from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS
+
+    frames = load_base_data(data_dir, config_path=config_path, raw_strings=True)
+    return {
+        name: frame[list(CATEGORY_COLUMNS[name])].copy()
+        for name, frame in zip(("customers", "orders", "labels"), frames, strict=True)
+    }

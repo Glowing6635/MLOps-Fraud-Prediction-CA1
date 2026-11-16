@@ -1,7 +1,7 @@
 # Decision log
 
-This is the durable decision log for PBI #30. Entries record PBI #4's audit
-policy; they do not complete #30. Recorded on **15 November 2026**, not
+This is the durable decision log for PBI #30. Entries settle PBI #4's audit
+policy and PBI #6's temporal policy; they do not complete #30. Recorded on **15 November 2026**, not
 backdated to its 12 November log target or #4's 13 November evidence target.
 Owner means accountable engineer, not evidence of personal or Operations approval.
 No Operations answer or stakeholder communication is claimed.
@@ -162,3 +162,46 @@ record the actual evidence date, owner, reason and changed code/configuration.
 comparison and champion enforcement. Operations timing and label evidence may
 replace assumptions without pretending it was available on 12/13 November.
 Other #30 decisions and its engineer handover remain outside this completion.
+
+## D6-01 — Frozen retrospective windows and protected exposure
+
+- Recorded: 2026-11-15. Accountable engineer: SpiralSky. Affected PBIs:
+  #6, #13, #14, #21, #23, #25, #30.
+- Decision: freeze half-open windows in `config/time_split.toml`: train
+  [2022-11-12, 2023-03-27), validation [2023-03-27, 2023-04-17), test
+  [2023-04-17, 2023-05-11). Incoming batches never move these dates.
+- Reason: validation and test follow the descriptive March elevation; training
+  retains 70,653 orders on/after 13 March. This is a retrospective evaluation
+  choice, not a statistically established change point. The 2,341 orders on
+  11 May are excluded conservatively; low volume does not prove a partial day.
+  Counts, country mix and target denominators appear in the
+  [window evidence in PR #84](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/84).
+- Enforcement: `split_orders` shares one policy with CSV reads and parameterized
+  SQL predicates. Related labels/customers are scoped by allowed composite keys.
+  `test_locked=true` withholds the test interval from ordinary analysis. Train
+  and validation membership remains fixed after an analysis unlock.
+- Final-evaluation access additionally requires
+  `final_evaluation_enabled=true`, default false, after model, threshold and
+  preprocessing freeze. Both selection and SQL-predicate access log the test
+  interval and ordinary lock state. The setting does not unlock ordinary reads.
+  Caller-owned run logs must retain access and final results. Release training
+  is outside the current API.
+- Provenance: loader audits record purpose, both access settings, resolved ISO
+  cutoffs and aggregate membership counts. Consumers retain their code and
+  configuration revisions with this metadata in their run log.
+- Interpretation: preserve A1's zero = not fraud; unmatched labels remain
+  unknown. D4-04's provisional 30 days applies to historical label-derived
+  features, not proof of historical target availability or a required gap.
+  As-of evaluation requires actual label timestamps and a separate decision.
+- Limitations: freeze and implementation were committed on 15 November, after
+  the 12 November target. External first-training chronology is unverified.
+  Earlier full-extract EDA means this is not an untouched holdout. SQLite
+  semantic tests do not establish live RDS or downstream consumer enforcement.
+  No model or final scoring was run for this implementation.
+- Code and checks: `splitting.py`, `data.py`, `test_splitting.py`,
+  `test_guarded_data.py`, `test_data.py` and `test_eda_integration.py` under
+  `src/mlops_fraud_prediction_ca1/`. Consumer contract:
+  [fixed temporal reads](time-split.md).
+
+Date or interpretation changes require a new decision before subsequent
+training. Preserve existing final-evaluation artifacts when policy changes.

@@ -10,3 +10,5 @@
 ### Directories
 `/data` Contains data files for training
 `/output` Contains model outputs
+
+[Fixed temporal reads](docs/time-split.md) — protected CSV reads and SQL contract.

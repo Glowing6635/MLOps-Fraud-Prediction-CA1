@@ -247,7 +247,15 @@ base_data_dir: Path = project_root / "data"
 # %% [markdown]
 # ### 2.2 Import the reusable loader
 #
-# Import the package implementation directly so notebooks and later workflows share the same loading contract.
+# **PBI #6 scope (15 November 2026):** saved outputs below are historical
+# full-extract PBI #3/#4 evidence from before the test lock. They were not
+# re-executed for #6. Subsequent ordinary reads use `config/time_split.toml`: test
+# rows and their exclusive related payloads are withheld. Analysis may include
+# the separately reported 11 May day and later dates; this is not training
+# eligibility. Historical full-extract counts/conclusions need review if these
+# cells are re-executed on the scoped data. See [the window evidence in PR #84](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/84).
+#
+# Import the package implementation directly so notebooks and later workflows share the same guarded loading contract.
 
 # %%
 from mlops_fraud_prediction_ca1.data import load_base_data
@@ -468,15 +476,11 @@ category_columns: dict[str, list[str]] = {
 category_frequencies: dict[tuple[str, str], pd.Series] = {}
 category_tables: dict[tuple[str, str], str] = {}
 
+from mlops_fraud_prediction_ca1.data import load_category_data
+
+scoped_category_data = load_category_data(base_data_dir)
 for name, columns in category_columns.items():
-    # PyCharm cannot resolve the pandas Unpack overloads for this call.
-    # noinspection PyTypeChecker,PyArgumentList
-    raw_categories: pd.DataFrame = pd.read_csv(
-        base_data_dir / f"{name}_base.csv",
-        usecols=columns,
-        dtype="string",
-        keep_default_na=False,
-    )
+    raw_categories: pd.DataFrame = scoped_category_data[name][columns]
     for column in columns:
         frequencies: pd.Series = raw_categories[column].value_counts(dropna=False)
         category_frequencies[name, column] = frequencies
@@ -591,14 +595,7 @@ category_previews: dict[tuple[str, str], pd.DataFrame] = {}
 category_preview_tables: dict[tuple[str, str], str] = {}
 
 for name, columns in category_columns.items():
-    # PyCharm cannot resolve the pandas Unpack overloads for this call.
-    # noinspection PyTypeChecker,PyArgumentList
-    raw_category_values: pd.DataFrame = pd.read_csv(
-        base_data_dir / f"{name}_base.csv",
-        usecols=columns,
-        dtype="string",
-        keep_default_na=False,
-    )
+    raw_category_values: pd.DataFrame = scoped_category_data[name][columns]
     for column in columns:
         preview: pd.DataFrame = standardise_categories(
             raw_category_values[column],
@@ -1438,9 +1435,9 @@ display(
 # %% [markdown]
 # #### 6.3.1 Weekly movement and interpretation
 #
-# The largest adjacent-week jump identifies a possible onset; it is not a test of a lasting regime change. The base snapshot also shows a broader elevation: weekly aggregate rates are roughly 9–11% through February, 11.8% in the transition week starting 6 March, and roughly 12–14% from mid-March to May (including weeks just below 12%). This persistence matters alongside the single-week screen.
+# The largest adjacent-week jump identifies a candidate boundary; it is not a test of a lasting regime change. The base snapshot also shows a broader elevation: weekly aggregate rates are roughly 9–11% through February, 11.8% in the transition week starting 6 March, and roughly 12–14% from mid-March to May (including weeks just below 12%). This persistence matters alongside the single-week screen.
 #
-# The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
+# The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 then compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
 
 # %%
 from IPython.display import Markdown
