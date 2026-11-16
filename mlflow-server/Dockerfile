@@ -1,9 +1,14 @@
-# The team's MLflow tracking server (issue #7), built by Elastic Beanstalk's Docker platform.
-# Runs and artifacts live inside the container, so a redeploy loses them; issue #9 moves them to RDS and S3.
+# The team's MLflow tracking server, built by Elastic Beanstalk's Docker platform.
+# Runs and logins live in RDS and artifacts in S3 (issue #9), so a redeploy keeps them.
 FROM python:3.12-slim
 
 # Keep this version equal to the client's in ../pyproject.toml; CI checks that they match.
-RUN pip install --no-cache-dir mlflow==3.18.0
+# Flask-WTF is the login app's extra; PyMySQL reaches RDS; boto3 reaches S3.
+RUN pip install --no-cache-dir mlflow==3.18.0 Flask-WTF==1.3.0 "pymysql[rsa]==1.2.4" boto3==1.44.3
+
+# MLflow's first login-database migration gives two foreign keys the same name, which MySQL
+# refuses (error 1826). Rename the second; the build fails if that file has changed.
+RUN f=/usr/local/lib/python3.12/site-packages/mlflow/server/auth/db/migrations/versions/8606fa83a998_initial_migration.py  && test "$(grep -c 'name="fk_user_id"' "$f")" = 2  && sed -i '0,/name="fk_user_id"/! s/name="fk_user_id"/name="fk_registered_model_user_id"/' "$f"  && test "$(grep -c 'name="fk_user_id"' "$f")" = 1
 
 # The job runner starts one MLflow process per server job type (none of which the team
 # uses); together they fill the t3.small's 2 GB and freeze it.
@@ -12,11 +17,7 @@ ENV MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false
 ENV MLFLOW_DISABLE_TELEMETRY=true
 
 WORKDIR /mlflow
+COPY start.sh .
 EXPOSE 5000
 
-# MLflow refuses Host headers other than localhost and private IPs unless the
-# MLFLOW_SERVER_ALLOWED_HOSTS environment property names the Beanstalk URL, and
-# refuses changes made in the web UI unless MLFLOW_SERVER_CORS_ALLOWED_ORIGINS does.
-CMD ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000", "--workers", "2", \
-     "--backend-store-uri", "sqlite:////mlflow/mlflow.db", \
-     "--artifacts-destination", "/mlflow/artifacts"]
+CMD ["sh", "start.sh"]
