@@ -48,7 +48,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     """Read every setting from `environ`, or from the process environment plus `.env` when omitted.
 
     Raises `SettingError` naming every variable that is unset or empty, or a `DB_PORT`
-    that is not a whole number.
+    that is not a whole number from 1 to 65535.
     """
     if environ is None:
         load_dotenv()  # Does not override variables the environment already sets.
@@ -71,7 +71,11 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     try:
         db_port = int(environ.get("DB_PORT") or _DEFAULT_DB_PORT)
     except ValueError:
-        raise SettingError("DB_PORT must be a whole number, such as 3306.") from None
+        db_port = 0  # Not a number: reported below, with out-of-range ports.
+    if not 1 <= db_port <= 65535:
+        raise SettingError(
+            "DB_PORT must be a whole number from 1 to 65535, such as 3306."
+        )
     return Settings(
         db_host=environ["DB_HOST"],
         db_port=db_port,

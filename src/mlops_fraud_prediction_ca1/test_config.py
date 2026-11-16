@@ -1,7 +1,11 @@
 """Tests for the settings loader and the shared database engine. Nothing here connects."""
 
-import pytest
+from functools import partial
 
+import pytest
+from dotenv import load_dotenv
+
+from mlops_fraud_prediction_ca1 import config
 from mlops_fraud_prediction_ca1.config import (
     SettingError,
     Settings,
@@ -63,10 +67,32 @@ def test_missing_settings_are_all_named():
     )
 
 
-def test_a_port_that_is_not_a_number_is_named():
+@pytest.mark.parametrize("port", ["33o6", "0", "-1", "65536"])
+def test_a_port_that_is_not_valid_is_named(port):
     with pytest.raises(SettingError) as error:
-        load_settings({**ENVIRON, "DB_PORT": "33o6"})
-    assert str(error.value) == "DB_PORT must be a whole number, such as 3306."
+        load_settings({**ENVIRON, "DB_PORT": port})
+    assert str(error.value) == (
+        "DB_PORT must be a whole number from 1 to 65535, such as 3306."
+    )
+
+
+def test_dotenv_fills_unset_variables_and_the_environment_wins(tmp_path, monkeypatch):
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "".join(f"{name}={value}\n" for name, value in ENVIRON.items()),
+        encoding="utf-8",
+    )
+    # Use the temporary .env, never the developer's real one.
+    monkeypatch.setattr(config, "load_dotenv", partial(load_dotenv, dotenv))
+    for name in ENVIRON:
+        monkeypatch.setenv(name, "")  # So undo removes what load_dotenv sets.
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("DB_HOST", "db-from-environment.example.com")
+
+    settings = load_settings()
+
+    assert settings.db_host == "db-from-environment.example.com"
+    assert settings.db_name == "fraud" and settings.db_port == 3307
 
 
 def test_passwords_never_appear_in_repr():
