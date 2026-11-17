@@ -29,13 +29,8 @@ htmlcov/
 # Local source data and generated results; retain directory documentation
 /data/*
 !/data/.gitkeep
-!/data/README.md
 /output/*
 !/output/.gitkeep
-!/output/README.md
-/artifacts/
-/mlruns/
-/mlartifacts/
 *.log
 
 # Credentials and machine-specific configuration
@@ -62,9 +57,9 @@ Desktop.ini
 *.csv
 *.pdf
 
-# Local agent instructions retained from dev
+# Local agent instructions
 AGENTS.md
 CLAUDE.md
 
-# Local review worktrees and handoffs
+# Local workspace files
 .local/
