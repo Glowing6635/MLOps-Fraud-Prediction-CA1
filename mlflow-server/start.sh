@@ -21,6 +21,24 @@ admin_username = admin
 authorization_function = mlflow.server.auth:authenticate_request_basic_auth
 INI
 export MLFLOW_AUTH_CONFIG_PATH=/tmp/basic_auth.ini
+
+# A new sandbox session can start this instance before a stopped RDS is ready, so wait up
+# to 15 minutes for it rather than crash.
+python - <<'PY'
+import os, sys, time
+import sqlalchemy
+
+engine = sqlalchemy.create_engine(os.environ["MLFLOW_AUTH_DATABASE_URI"])
+for attempt in range(90):
+    try:
+        engine.connect().close()
+        sys.exit(0)
+    except sqlalchemy.exc.OperationalError as error:
+        print(f"Waiting for RDS ({attempt + 1}/90): {error.orig}", flush=True)
+        time.sleep(10)
+sys.exit("RDS did not answer within 15 minutes.")
+PY
+
 # Set up or upgrade the login database first: when the server does it on MySQL, two of its
 # connections wait on each other's table lock and it never starts.
 python -m mlflow.server.auth db upgrade --url "$MLFLOW_AUTH_DATABASE_URI"

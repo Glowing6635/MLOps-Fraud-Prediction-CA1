@@ -1,10 +1,16 @@
-# The team's MLflow tracking server, built by Elastic Beanstalk's Docker platform.
-# Runs and logins live in RDS and artifacts in S3 (issue #9), so a redeploy keeps them.
-FROM python:3.12-slim
+# The team's MLflow tracking server. It is built once, pushed to ECR, and every Beanstalk
+# instance runs that same image (see README.md). Runs and logins live in RDS and artifacts in
+# S3 (issue #9), so a new instance keeps them.
+# The base image is pinned to one build, so a rebuild starts from the same files.
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
-# Keep this version equal to the client's in ../pyproject.toml; CI checks that they match.
-# Flask-WTF is the login app's extra; PyMySQL reaches RDS; boto3 reaches S3.
-RUN pip install --no-cache-dir mlflow==3.18.0 Flask-WTF==1.3.0 "pymysql[rsa]==1.2.4" boto3==1.44.3
+# Every package, including the ones MLflow pulls in, comes from the locked and hashed list.
+# requirements.in holds the four chosen versions; README.md says how to relock.
+COPY requirements.txt .
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
+
+# RDS's certificates, so the server checks it is talking to RDS over an encrypted link.
+ADD --checksum=sha256:90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b     https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/rds-global-bundle.pem
 
 # MLflow's first login-database migration gives two foreign keys the same name, which MySQL
 # refuses (error 1826). Rename the second; the build fails if that file has changed.
