@@ -30,7 +30,7 @@
 #
 # - [1. Workflow](#1-workflow)
 # - [2. Load and inspect the datasets](#2-load-and-inspect-the-datasets)
-#   - [Configuration](#21-configure-the-data-directory-and-logging) · [Loader](#22-import-the-reusable-loader) · [Dimensions](#23-load-the-tables-and-check-their-dimensions)
+#   - [Configuration](#21-configure-the-data-directory-and-logging) · [Loader](#22-import-the-reusable-loader) · [Dimensions](#23-load-the-tables-and-check-their-dimensions) · [Columns](#24-inspect-dataset-columns)
 # - [3. Assess data quality](#3-assess-data-quality)
 #   - [Missing values](#31-missing-values) · [Duplicates](#32-exact-duplicates)
 #   - [Categories](#33-inspect-category-values) · [Standardization preview](#34-preview-category-standardization)
@@ -53,7 +53,7 @@
 #
 # This is a full-history exploratory analysis. It chooses no train/validation/test split and exports no prepared dataset. Saved outputs preserve the evidence, not DataFrames for a later pipeline. Splitting, deterministic cleaning and training belong in reusable modules called by a later configurable workflow.
 #
-# Section 6.4 reports daily volume through the final observed date and scans each eligible weekly boundary. Historical full-extract findings are identified explicitly; a later protected-reader rerun displays its current scope and flags policy exclusions. Earlier full-history exploration means a later holdout cannot be described as never seen.
+# Section 6.4 reports daily volume through the final observed date and scans each eligible weekly boundary. Historical full-extract findings are identified explicitly. Earlier full-history exploration means a later holdout cannot be described as never seen.
 
 # %% [markdown]
 # ## 2. Load and inspect the datasets
@@ -70,7 +70,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from IPython.display import display
+from IPython.display import HTML, Markdown, display
 from pandas.io.formats.style import Styler
 
 
@@ -247,13 +247,7 @@ base_data_dir: Path = project_root / "data"
 # %% [markdown]
 # ### 2.2 Import the reusable loader
 #
-# **PBI #6 scope (15 November 2026):** saved outputs below are historical
-# full-extract PBI #3/#4 evidence from before the test lock. They were not
-# re-executed for #6. Subsequent ordinary reads use `config/time_split.toml`: test
-# rows and their exclusive related payloads are withheld. Analysis may include
-# the separately reported 11 May day and later dates; this is not training
-# eligibility. Historical full-extract counts/conclusions need review if these
-# cells are re-executed on the scoped data. See [the window evidence in PR #84](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/84).
+# **PBI #6 scope:** earlier full-extract PBI #3/#4 exploration predates the test lock. Ordinary reads use `config/time_split.toml`, withholding test rows and their exclusive related payloads. Analysis may include the separately reported 11 May day and later dates; this does not establish training eligibility. Historical full-extract conclusions require review against the scoped data. See the [frozen-window evidence](../docs/time-split.md#frozen-windows-and-country-mix).
 #
 # Import the package implementation directly so notebooks and later workflows share the same guarded loading contract.
 
@@ -339,23 +333,10 @@ show_report(
 
 # %%
 
-missing_summaries: dict[str, pd.DataFrame] = {}
-
-for name, frame in datasets.items():
-    na_counts: pd.Series = frame.isna().sum()
-    missing_summaries[name] = pd.DataFrame(
-        {
-            "na_count": na_counts,
-            "na_percent": (
-                na_counts / len(frame) * 100 if len(frame) else float("nan")
-            ),
-        }
-    )
-
-missing_values: pd.DataFrame = pd.concat(
-    missing_summaries, names=["dataset", "column"]
-).reset_index()
-
+missing_values = quality["missing"][
+    ["dataset", "column", "missing", "missing_rate"]
+].rename(columns={"missing": "na_count", "missing_rate": "na_percent"})
+missing_values["na_percent"] *= 100
 
 (
     missing_values.set_index(["dataset", "column"])
@@ -396,27 +377,28 @@ missing_values: pd.DataFrame = pd.concat(
 # Up to five rows from duplicate groups are displayed per affected dataset. Pandas treats matching missing values as equal for this check. A repeated ID with different values is not an exact duplicate; section 4 checks key uniqueness and conflicting records separately. These cells inspect the data without removing rows. Percentages are undefined for empty datasets.
 
 # %%
-duplicate_records: list[dict[str, str | int | float]] = []
-duplicate_examples: dict[str, pd.DataFrame] = {}
-
-for name, frame in datasets.items():
-    extra_count: int = int(frame.duplicated().sum())
-    duplicate_group_mask: pd.Series = frame.duplicated(keep=False)
-    duplicate_records.append(
-        {
-            "dataset": name,
-            "total_rows": len(frame),
-            "extra_duplicate_rows": extra_count,
-            "extra_duplicate_percent": (
-                extra_count / len(frame) * 100 if len(frame) else float("nan")
-            ),
-            "rows_in_duplicate_groups": int(duplicate_group_mask.sum()),
+duplicate_summary = (
+    quality["copies"]
+    .rename(
+        columns={
+            "rows": "total_rows",
+            "extra_copies": "extra_duplicate_rows",
+            "rows_in_copy_groups": "rows_in_duplicate_groups",
         }
     )
-    duplicate_examples[name] = frame.loc[duplicate_group_mask].head(5)
-
-duplicate_summary: pd.DataFrame = pd.DataFrame(duplicate_records)
-
+    .copy()
+)
+duplicate_summary["extra_duplicate_percent"] = (
+    duplicate_summary.extra_duplicate_rows
+    / duplicate_summary.total_rows.where(duplicate_summary.total_rows.ne(0))
+    * 100
+)
+duplicate_examples = {
+    name: datasets[name].loc[datasets[name].duplicated(keep=False)].head(5)
+    for name in duplicate_summary.loc[
+        duplicate_summary.rows_in_duplicate_groups.gt(0), "dataset"
+    ]
+}
 
 display(
     duplicate_summary.set_index("dataset")
@@ -465,8 +447,6 @@ for name, examples in duplicate_examples.items():
 
 # %%
 from html import escape
-
-from IPython.display import HTML
 
 category_columns: dict[str, list[str]] = {
     "customers": ["country_code", "mobile_verified"],
@@ -807,7 +787,7 @@ for dataset_name in numeric_features:
 #
 # The tables' skewness values use the full finite data, including the tails. The restricted histogram view does not remove observations from the data.
 #
-# Monetary axes use SGD, as specified for `total_payment_last_50days`, `order_value` and `refund_value` in Appendix A1 of the supplied specification; count axes use integer ticks. The cancelled/refunded-count boxes collapse at zero because Q1 = Q3 = 0. Their nonzero points reflect sparse distributions, not established errors.
+# Monetary axes use SGD, as specified for `total_payment_last_50days`, `order_value` and `refund_value` in the supplied field definitions; count axes use integer ticks. The cancelled/refunded-count boxes collapse at zero because Q1 = Q3 = 0. Their nonzero points reflect sparse distributions, not established errors.
 
 # %%
 # %matplotlib inline
@@ -1214,7 +1194,40 @@ show_report(
 #
 # All 949,889 order dates parse: `%Y/%m/%d` (949,180), `%Y-%m-%d` (200) and `%Y/%b/%d` (509). They span 2022-11-12 to 2023-05-11. Customer timestamps use `%Y-%m-%d %H:%M:%S`: 900,600 valid, 712 missing, and no invalid or unrecognized values, spanning 2012-03-25 12:53:43 to 2023-05-10 20:59:37.
 #
-# **Numeric date order:** Both numeric formats are interpreted as year/month/day. In the base snapshot, the middle field never exceeds 12, while the third exceeds 12 in 569,616 slash rows and 41 dash rows; this supports the same month/day order across each format. Another 379,564 slash rows and 159 dash rows are ambiguous individually, so their interpretation depends on that dataset-level convention. Confirm it again for later sources. English month abbreviations are parsed case-insensitively; all 509 current values are title case.
+# **Numeric date order:** Both numeric formats are interpreted as year/month/day. The computed evidence below distinguishes rows whose third field exceeds 12 from individually ambiguous rows. A middle field above 12 would contradict that convention and require investigation. Confirm the convention again for later sources. English month abbreviations are parsed case-insensitively.
+
+# %%
+numeric_date_order: dict[str, dict[str, int]] = {}
+for date_format, pattern in (
+    ("slash", r"(?P<year>\d{4})/(?P<middle>\d{2})/(?P<third>\d{2})"),
+    ("dash", r"(?P<year>\d{4})-(?P<middle>\d{2})-(?P<third>\d{2})"),
+):
+    parts = orders.order_date.astype("string").str.extract("^" + pattern + "$").dropna()
+    middle = pd.to_numeric(parts.middle)
+    third = pd.to_numeric(parts.third)
+    numeric_date_order[date_format] = {
+        "rows": len(parts),
+        "middle_above_12": int(middle.gt(12).sum()),
+        "third_above_12": int(third.gt(12).sum()),
+        "ambiguous": int((middle.between(1, 12) & third.between(1, 12)).sum()),
+    }
+    evidence = numeric_date_order[date_format]
+    interpretation = (
+        "The middle fields are consistent with months; third fields above 12 "
+        "support year/month/day, while individually ambiguous rows depend on that convention."
+        if evidence["middle_above_12"] == 0 and evidence["third_above_12"] > 0
+        else "These counts do not establish the year/month/day convention; investigate the source."
+    )
+    display(
+        Markdown(
+            f"**{date_format.title()} numeric dates:** {evidence['rows']:,} rows; "
+            f"{evidence['middle_above_12']:,} middle fields above 12; "
+            f"{evidence['third_above_12']:,} third fields above 12; "
+            f"{evidence['ambiguous']:,} individually ambiguous rows. {interpretation}"
+        )
+    )
+
+# %% [markdown]
 #
 # Retain raw dates, parse these explicit formats on working copies, and leave missing timestamps missing. Isolate any invalid or unrecognized dates in later batches rather than guessing a format.
 
@@ -1440,8 +1453,6 @@ display(
 # The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 then compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
 
 # %%
-from IPython.display import Markdown
-
 aggregate_movement = weekly_changes.loc[weekly_changes.country_code.eq("ALL")]
 if not aggregate_movement.empty:
     movement = aggregate_movement.iloc[0]
@@ -1496,40 +1507,37 @@ display(
 #
 # Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison, rather than selecting a March-only search interval. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
 #
-# The daily table reports the current reader's scope. If a downstream protected reader withholds the test interval, its zero-count days are flagged as policy exclusions and the country scan uses the contiguous pre-test prefix. No withheld rows are opened for this analysis. The full-history findings below refer to the recorded historical snapshot.
+# The tables use the current reader scope. Locked reads flag the withheld test dates and scan only the contiguous pre-test prefix, without opening test rows. The full-history interpretation below records the earlier extract; it does not establish an untouched holdout, and its longer comparison window is unavailable in a locked rerun.
 
 # %%
-from IPython.display import HTML
-
 from mlops_fraud_prediction_ca1.temporal import (
     daily_order_counts,
     parse_dates,
     weekly_country_changes,
-    weekly_fraud_rates,
 )
 
-review_audit = orders.attrs.get("split_audit", {})
-review_locked = bool(review_audit.get("test_locked", False))
-review_daily = daily_order_counts(linked_orders)
-review_daily["withheld_by_policy"] = False
-if review_locked:
-    cutoffs = review_audit["cutoffs"]
-    review_daily["withheld_by_policy"] = review_daily.date.ge(
+split_audit = orders.attrs.get("split_audit", {})
+test_locked = bool(split_audit.get("test_locked", False))
+daily_counts = daily_order_counts(linked_orders)
+daily_counts["withheld_by_policy"] = False
+if test_locked:
+    cutoffs = split_audit["cutoffs"]
+    daily_counts["withheld_by_policy"] = daily_counts.date.ge(
         pd.Timestamp(cutoffs["test_start"])
-    ) & review_daily.date.lt(pd.Timestamp(cutoffs["test_end_exclusive"]))
-assert int(review_daily.orders.sum()) == len(linked_orders)
+    ) & daily_counts.date.lt(pd.Timestamp(cutoffs["test_end_exclusive"]))
+assert int(daily_counts.orders.sum()) == len(linked_orders)
 show_report(
     pd.DataFrame(
         [
             {
                 "orders": len(linked_orders),
-                "calendar_days": len(review_daily),
-                "first_observed": review_daily.date.min(),
-                "last_observed": review_daily.date.max(),
-                "zero_count_days": int(review_daily.orders.eq(0).sum()),
-                "policy_withheld_days": int(review_daily.withheld_by_policy.sum()),
-                "date_exclusions": review_daily.attrs["excluded_date_rows"],
-                "test_locked": review_locked,
+                "calendar_days": len(daily_counts),
+                "first_observed": daily_counts.date.min(),
+                "last_observed": daily_counts.date.max(),
+                "zero_count_days": int(daily_counts.orders.eq(0).sum()),
+                "date_exclusions": daily_counts.attrs["excluded_date_rows"],
+                "policy_withheld_days": int(daily_counts.withheld_by_policy.sum()),
+                "test_locked": test_locked,
             }
         ]
     ),
@@ -1538,83 +1546,90 @@ show_report(
 display(
     HTML(
         "<details><summary>Every calendar date and policy/boundary flags</summary>"
-        + style_report(review_daily, "Observed daily orders").to_html()
+        + style_report(daily_counts, "Observed daily orders").to_html()
         + "</details>"
     )
 )
-# A scan needs a contiguous series: locked reruns use the pre-test prefix,
-# while the standalone #3 branch scans all complete historical weeks.
-review_scan_orders = linked_orders
-if review_locked:
-    dates = parse_dates(linked_orders.order_date)
-    review_scan_orders = linked_orders.loc[
-        dates.date.lt(pd.Timestamp(review_audit["cutoffs"]["test_start"]))
+scan_orders = linked_orders
+if test_locked:
+    scan_orders = linked_orders.loc[
+        parse_dates(linked_orders.order_date).date.lt(
+            pd.Timestamp(split_audit["cutoffs"]["test_start"])
+        )
     ].copy()
-review_weekly = weekly_fraud_rates(review_scan_orders)
-review_changes = weekly_country_changes(review_weekly)
-review_largest = (
-    review_changes.loc[
-        review_changes.groupby("country_code").difference_pp.apply(
+scan_weekly_rates = weekly_fraud_rates(scan_orders)
+complete_weekly_rates = scan_weekly_rates.loc[~scan_weekly_rates.partial_week].copy()
+country_changes = weekly_country_changes(complete_weekly_rates)
+largest_country_contrasts = (
+    country_changes.loc[
+        country_changes.groupby("country_code").difference_pp.apply(
             lambda x: x.abs().idxmax()
         )
     ]
-    if not review_changes.empty
-    else review_changes
+    if not country_changes.empty
+    else country_changes
 )
-show_report(review_largest, "Largest pooled before/after contrast per country")
+show_report(
+    largest_country_contrasts, "Largest pooled before/after contrast per country"
+)
 display(
     HTML(
         "<details><summary>Every eligible country/week boundary, with denominators</summary>"
-        + style_report(review_changes, "Pooled complete-week comparisons").to_html()
+        + style_report(country_changes, "Pooled complete-week comparisons").to_html()
         + "</details>"
     )
 )
-# Preserve the previously previewed baseline: complete weeks 14 Nov–26 Feb
-# versus 13 Mar–16 Apr. Show each country's additive contribution.
-review_counts = ["valid_labels", "fraud_labels"]
-review_baseline = (
-    review_weekly.loc[review_weekly.week_start.between("2022-11-14", "2023-02-20")]
-    .groupby("country_code")[review_counts]
+# Compare complete weeks 14 Nov–26 Feb against 13 Mar–7 May.
+# Locked reads use only the available pre-test weeks within that interval.
+decomposition_counts = ["valid_labels", "fraud_labels"]
+baseline_counts = (
+    complete_weekly_rates.loc[
+        complete_weekly_rates.week_start.between("2022-11-14", "2023-02-20")
+    ]
+    .groupby("country_code")[decomposition_counts]
     .sum()
 )
-review_comparison = (
-    review_weekly.loc[review_weekly.week_start.between("2023-03-13", "2023-04-10")]
-    .groupby("country_code")[review_counts]
+comparison_counts = (
+    complete_weekly_rates.loc[
+        complete_weekly_rates.week_start.between("2023-03-13", "2023-05-01")
+    ]
+    .groupby("country_code")[decomposition_counts]
     .sum()
 )
-review_baseline_rate = review_baseline.fraud_labels / review_baseline.valid_labels
-review_comparison_rate = review_comparison.fraud_labels / review_comparison.valid_labels
-review_baseline_share = (
-    review_baseline.valid_labels / review_baseline.valid_labels.sum()
-)
-review_comparison_share = (
-    review_comparison.valid_labels / review_comparison.valid_labels.sum()
-)
-review_contributions = pd.DataFrame(
+baseline_rate = baseline_counts.fraud_labels / baseline_counts.valid_labels
+comparison_rate = comparison_counts.fraud_labels / comparison_counts.valid_labels
+baseline_share = baseline_counts.valid_labels / baseline_counts.valid_labels.sum()
+comparison_share = comparison_counts.valid_labels / comparison_counts.valid_labels.sum()
+country_contributions = pd.DataFrame(
     {
-        "before_valid": review_baseline.valid_labels,
-        "before_fraud": review_baseline.fraud_labels,
-        "after_valid": review_comparison.valid_labels,
-        "after_fraud": review_comparison.fraud_labels,
-        "before_rate": review_baseline_rate,
-        "after_rate": review_comparison_rate,
-        "within_country_pp": review_baseline_share
-        * (review_comparison_rate - review_baseline_rate)
-        * 100,
-        "mix_pp": (review_comparison_share - review_baseline_share)
-        * review_comparison_rate
-        * 100,
+        "before_valid": baseline_counts.valid_labels,
+        "before_fraud": baseline_counts.fraud_labels,
+        "after_valid": comparison_counts.valid_labels,
+        "after_fraud": comparison_counts.fraud_labels,
+        "before_rate": baseline_rate,
+        "after_rate": comparison_rate,
+        "within_country_pp": baseline_share * (comparison_rate - baseline_rate) * 100,
+        "mix_pp": (comparison_share - baseline_share) * comparison_rate * 100,
     }
 ).reset_index()
-show_report(review_contributions, "March rise — within-country and mix contributions")
+show_report(country_contributions, "March rise — within-country and mix contributions")
+display(
+    Markdown(
+        f"Comparison uses available complete weeks through "
+        f"{complete_weekly_rates.week_start.max() + pd.Timedelta(days=6):%d %B %Y}; "
+        f"test locked: {test_locked}. Historical full-period results below use the earlier extract."
+    )
+)
 
 
 # %% [markdown]
 # In the full historical snapshot, daily counts reconcile 949,889 orders across 181 dates, 12 November 2022–11 May 2023, with no excluded dates or zero-observation days. The median is 5,240 orders/day; 11 May contains 2,341 orders. This final-day volume warrants caution but does not prove incomplete source coverage.
 #
-# Across all eligible full-history weekly boundaries, BD's largest pooled rise is at 28 November (14.11% before, 30.43% after) and PK's at 6 March (20.55% before, 31.14% after). PH's largest pooled decline is at 27 February (9.54% to 6.84%); it also has lower rates across the April comparisons, including 8.94% before 3 April versus 6.53% afterward. These are descriptive contrasts, not proof that each movement began on its selected boundary. A locked rerun can yield different contrasts because its scope is shorter.
+# Across all eligible full-history weekly boundaries, BD's largest pooled rise is at 28 November (14.11% before, 30.43% after) and PK's at 6 March (20.55% before, 31.14% after). PH's largest pooled decline is at 27 February (9.54% to 6.84%). Its roughly −2.5-percentage-point pooled contrast appears across boundaries from December onward, so it does not establish an April-specific change. PH's weekly rate rises again from 17 April, to 7.17%, 7.14% and 7.36% in the last three complete weeks. These overlapping comparisons do not establish onset dates or causes.
 #
-# For the March decomposition, the baseline is the complete weeks 14 November–26 February and the comparison is 13 March–16 April. PK is the main contributor: its rate rises from 20.3127% to 38.4699%, adding +3.3777 percentage points at baseline country shares. BD adds +0.5799 points; PH offsets the rise by -0.8936 points. The aggregate rises from 9.9813% to 13.3058%, decomposed into +3.2284 points within countries and +0.0962 from mix. The former March-only threshold check also classified an early-February BD week as high, so it could not establish BD's onset. The all-week comparison replaces that restricted screen.
+# The March decomposition compares complete weeks 14 November–26 February (56,116 fraud / 562,211 valid labels) with 13 March–7 May (36,524 / 282,055). The partial first and last weeks are excluded, and the two transition weeks 27 February–12 March separate the periods. All complete weeks after the transition are included. The aggregate rises from 9.9813% to 12.9492% (+2.9679 percentage points): +2.1683 points from within-country changes at baseline valid-label shares, plus +0.7997 points from country mix evaluated at comparison rates.
+#
+# PK remains the largest within-country contributor (+2.0681 points), with a pooled rate of 20.3127% before and 31.4300% afterward. Its weekly rate returns to about 24% from 17 April (23.82%, 23.18%, 23.71%); stopping at 16 April would overstate its sustained elevation. BD adds +0.6168 points, MY +0.2664 and TH +0.0226; PH offsets the rise by −0.8057 points. The country-mix term uses valid-label shares, not all-order shares; missing and invalid labels are excluded from rate denominators.
 
 
 # %% [markdown]
@@ -1622,11 +1637,11 @@ show_report(review_contributions, "March rise — within-country and mix contrib
 #
 # The model must flag orders before shipping. An availability table records when each field's value could have been known, the evidence for that timing, and whether the model may use it. A value in today's historical file may have been added after the prediction would have been made. Using that later information is leakage.
 #
-# **Review date: 15 Nov 2026.** This section audits feature availability at order placement for PBI #4. No Operations timing confirmation was supplied to this audit. The field definitions in `spec.txt`, Appendix A1, do not establish historical availability. All timing statuses therefore remain unconfirmed; placement-time assumptions are identified explicitly. The review date is not a request date, confirmation date, or evidence of what was known on 13 Nov.
+# **Review date: 15 Nov 2026.** This section audits feature availability at order placement for PBI #4. No Operations confirmation has been received, so every timing status remains unconfirmed. The supplied field definitions do not establish historical availability; placement-time assumptions are identified explicitly.
 #
 # ### 7.1 Column availability
 #
-# Every column in all three source files is included, including repeated keys and the target. The approved inventory below preserves the unconfirmed evidence statuses; [the decision log](../docs/decision-log.md) records the adopted handling and assumptions (D4-01–D4-05, owner: SpiralSky, settled 15 Nov 2026). Key fields support linkage/grouping rather than model inputs. D4-01 assumes the four selected order attributes are their original placement-time values, including `order_value` before later adjustments. This is not Operations confirmation.
+# Every column in all three source files is included, including repeated keys and the target. The inventory below preserves the unconfirmed evidence statuses; [the decision log](../docs/decision-log.md) records the adopted handling and assumptions (D4-01–D4-05, owner: SpiralSky, settled 15 Nov 2026). Key fields support linkage/grouping rather than model inputs. D4-01 assumes the four selected order attributes are their original placement-time values, including `order_value` before later adjustments. This is not Operations confirmation.
 #
 # For each customer field, the snapshot's anchor date and the order it describes are unknown. Earliest observed order dates and batch arrival order cannot resolve that question. The four 50-day fields are named separately below; their window endpoints and event timing need field-specific evidence, including for later orders. A check of `first_order_datetime` cannot validate the other customer columns.
 
@@ -1662,7 +1677,7 @@ display(
     )
 )
 
-# Check the reusable column contract without changing the approved reports.
+# Check the reusable column contract without changing the reports.
 assert select_feature_inputs(orders, source="orders").columns.tolist() == [
     column for column in orders.columns if column in ORDER_FEATURE_COLUMNS
 ]
@@ -1761,10 +1776,10 @@ show_report(
 # - **Date exceptions:** Retain the orders and flag inconsistent or unevaluable customer dates. Withhold the affected customer values pending resolution; do not silently repair dates or reject an entire order because of this check. Missing dates do not establish leakage.
 # - **History without labels:** Use only orders with `earlier order_date < current order_date`. Same-day history is excluded because order times are unavailable.
 # - **History using labels (D4-04):** Label delay is **30 calendar days, a provisional engineering assumption**, not a measured maturity period or Operations confirmation. Require `earlier order_date + 30 days < current order_date`, plus an actually available valid prior label; equality is excluded. Use `historical_order_mask(..., label_delay_days=ASSUMED_LABEL_DELAY_DAYS)`. The delay argument is required; pass zero explicitly for history without labels. Current selected inputs contain no label-derived features. The mask does not validate labels, match customers, establish as-of availability or impose a 50-day window. Unknown history completeness prevents reconstructing the undated window fields as if confirmed.
-# - **Target definition (D4-05):** Appendix A1 defines `is_fraud=0` as not fraud and `1` as fraud. Review completeness, finalization timing and later reversals remain unknown; those gaps are separate from the supplied binary definition.
-# - **Confirmation and dates (D4-02/D4-03):** No Operations evidence was supplied. Scoring-time customer linkage remains unconfirmed despite the valid historical label bridge. Without dated evidence for 13 Nov, retain the unconfirmed/#14 fallback; do not claim the historical 12/13 Nov targets were met. New evidence must receive its actual date in the decision log. These records do not claim a stakeholder message was sent or owner/Operations endorsement was received.
+# - **Target definition (D4-05):** The supplied field definitions define `is_fraud=0` as not fraud and `1` as fraud. Review completeness, finalization timing and later reversals remain unknown; those gaps are separate from the supplied binary definition.
+# - **Evidence gaps (D4-02/D4-03):** Scoring-time customer linkage remains unconfirmed despite the valid historical label bridge. Retain the unconfirmed/#14 fallback until dated field-specific evidence is available, and record its actual date in the decision log. The 12/13 Nov evidence targets were missed.
 #
-# **Status:** PBI #4's audit covers its six criteria through the unconfirmed/#14 fallback and recorded assumptions; see [the decision log](../docs/decision-log.md). The inventory is not a production availability certification. Operations confirmation can replace assumptions later; #14 owns actual experiments and later preparation owns pipeline enforcement. GitHub issue state is separate from local completion. New data or evidence requires a new review.
+# **Status:** The inventory and [decision log](../docs/decision-log.md) record the feature policy and its assumptions. #14 owns model comparisons, and later preparation owns pipeline enforcement. Revisit the policy when new timing evidence or data is available.
 
 # %% [markdown]
 # ## 8. Preparation decisions and limitations

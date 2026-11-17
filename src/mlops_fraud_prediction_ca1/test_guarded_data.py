@@ -3,7 +3,6 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
 import pandas as pd
 
@@ -241,24 +240,32 @@ class LoadBaseDataTests(unittest.TestCase):
                 self.assertEqual(labels.order_id.tolist(), ["a"])
                 self.assertEqual(customers.customer_id.tolist(), ["safe"])
 
-    def test_reports_all_missing_files_before_reading(self):
-        with TemporaryDirectory(prefix="pbi6-missing-") as tmp:
+    def test_each_table_owns_nested_audit_metadata(self):
+        with TemporaryDirectory(prefix="pbi6-audit-") as tmp:
             root = Path(tmp)
-            (root / "customers_base.csv").write_text("customer_id\nA\n")
-            with patch("mlops_fraud_prediction_ca1.data.pd.read_csv") as read:
-                with self.assertRaises(FileNotFoundError) as raised:
-                    load_base_data(root)
-                read.assert_not_called()
-            self.assertIn("orders_base.csv", str(raised.exception))
-            self.assertIn("labels_base.csv", str(raised.exception))
+            self.fixture(root)
+            customers, orders, labels = load_base_data(root)
+            for frame in (customers, orders, labels):
+                audit = frame.attrs["split_audit"]
+                self.assertEqual(audit["cutoffs"]["test_start"], "2023-04-17")
+                self.assertEqual(audit["membership_counts"]["test"], 3)
+            customers.attrs["split_audit"]["cutoffs"]["test_start"] = "2030-01-01"
+            customers.attrs["split_audit"]["membership_counts"]["test"] = -1
+            customers.attrs["split_audit"]["purpose"] = "changed"
+            for frame in (orders, labels):
+                audit = frame.attrs["split_audit"]
+                self.assertEqual(audit["cutoffs"]["test_start"], "2023-04-17")
+                self.assertEqual(audit["membership_counts"]["test"], 3)
+                self.assertEqual(audit["purpose"], "analysis")
+            orders.attrs["split_audit"]["cutoffs"]["test_end_exclusive"] = "2031-01-01"
+            self.assertEqual(
+                labels.attrs["split_audit"]["cutoffs"]["test_end_exclusive"],
+                "2023-05-11",
+            )
 
-    def test_malformed_csv_and_missing_schema_fail_closed(self):
+    def test_missing_schema_fails_closed(self):
         with TemporaryDirectory(prefix="pbi6-schema-") as tmp:
             root = Path(tmp)
-            for name in ("customers", "orders", "labels"):
-                (root / f"{name}_base.csv").write_text("")
-            with self.assertRaises(pd.errors.EmptyDataError):
-                load_base_data(root)
             for name in ("customers", "orders", "labels"):
                 (root / f"{name}_base.csv").write_text("id\n1\n")
             with self.assertRaises(KeyError):

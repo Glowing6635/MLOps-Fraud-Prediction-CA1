@@ -1,24 +1,24 @@
 # Decision log
 
-This is the durable decision log for PBI #30. Entries settle PBI #4's audit
-policy and PBI #6's temporal policy; they do not complete #30. Recorded on **15 November 2026**, not
-backdated to its 12 November log target or #4's 13 November evidence target.
-Owner means accountable engineer, not evidence of personal or Operations approval.
-No Operations answer or stakeholder communication is claimed.
+This log records the feature-timing assumptions and handling for PBI #4 and the temporal policy for PBI #6.
+No Operations confirmation has been received, so every timing status remains
+unconfirmed. Feature-timing decisions were recorded on 15 November 2026 and
+temporal windows on 16 November, after the 12 November log and 13 November
+evidence targets. Owner identifies the accountable engineer.
 
 Sources: [live #4](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/4),
 [#14](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/14), and
 [#30](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/30), checked
-15 November 2026; `spec.txt` Appendix A1; notebook section 7's executed extract
-checks. The issues had no comments at review. None supplies field timing or
-measured label maturity. The live issue criteria permit explicit assumptions
+15 November 2026; the supplied field definitions; notebook section 7's executed extract
+checks. None supplies field timing or
+measured label maturity; the issue criteria permit explicit assumptions
 and the unconfirmed/#14 fallback.
 
 ## D4-01 — Scoring boundary and order inputs
 
 - Settled: 2026-11-15. Owner: SpiralSky. Affected PBIs: #4, #6, #12, #14, #30.
 - Decision/source: **engineering assumptions**, based on #4's pre-shipping
-  objective and A1 definitions: score at order placement, before shipping;
+  objective and the supplied field definitions: score at order placement, before shipping;
   `collect_type`, `payment_method`, `order_value`, and `num_items_ordered` are
   the original placement-time values, available then. In particular, assume
   `order_value` has not been overwritten by payment/refund adjustments. These
@@ -47,29 +47,29 @@ and the unconfirmed/#14 fallback.
   request, answer, or deadline was met. The snapshot anchor and which order the
   row describes are **unknown**, for both initial and later observed orders.
 - Per-field evidence and required follow-up:
-  - `country_code`: A1 defines country identity; normalized linkage checks
+  - `country_code`: The supplied field definitions describe country identity; normalized linkage checks
     support historical matching only. Placement-time customer record/version
     remains unconfirmed. Link/group only, never a feature.
-  - `customer_id`: A1 defines customer identity; composite-key/label-bridge
+  - `customer_id`: The supplied field definitions describe customer identity; composite-key/label-bridge
     checks support historical identity only. The scoring-time order-to-customer
     mapping is unconfirmed. Link/group only, never a feature.
-  - `mobile_verified`: A1 defines verification state; no historical verification
+  - `mobile_verified`: The supplied field definitions describe verification state; no historical verification
     timestamp/version establishes the state at placement. Unconfirmed; #14 group.
-  - `num_orders_last_50days`: A1 defines an order count; window endpoint,
+  - `num_orders_last_50days`: The supplied field definitions describe an order count; window endpoint,
     event inclusion, and snapshot/order scope are unknown for every order,
     including later orders. Unconfirmed; #14 group.
-  - `num_cancelled_orders_last_50days`: A1 defines cancellations; cancellation
+  - `num_cancelled_orders_last_50days`: The supplied field definitions describe cancellations; cancellation
     event availability, window endpoint, and snapshot/order scope are unknown,
     including for later orders. Unconfirmed; #14 group.
-  - `num_refund_orders_last_50days`: A1 defines refund-request counts;
+  - `num_refund_orders_last_50days`: The supplied field definitions describe refund-request counts;
     request-event availability, window endpoint, and snapshot/order scope are
     unknown, including for later orders. Unconfirmed; #14 group.
-  - `total_payment_last_50days`: A1 defines total payments; payment-event
+  - `total_payment_last_50days`: The supplied field definitions describe total payments; payment-event
     availability, window endpoint, and snapshot/order scope are unknown,
     including for later orders. Unconfirmed; #14 group.
-  - `num_associated_customers`: A1 defines associations; no historical edge
+  - `num_associated_customers`: The supplied field definitions describe associations; no historical edge
     creation/version evidence dates the recorded count. Unconfirmed; #14 group.
-  - `first_order_datetime`: A1 defines the first-order event. The date-order
+  - `first_order_datetime`: The supplied field definitions describe the first-order event. The date-order
     test in section 7.2 is limited evidence for this column alone: 105 orders
     precede that calendar day, 14,274 are same-day with unknown intraday order,
     934,722 are later, and 788 are unevaluable (949,889 safe unique orders,
@@ -144,14 +144,14 @@ and the unconfirmed/#14 fallback.
 ## D4-05 — Supplied target definition versus review completeness
 
 - Settled: 2026-11-15. Owner: SpiralSky. Affected PBIs: #4, #6, #14, #30.
-- Source/decision: A1 explicitly defines `is_fraud=1` as fraud and `is_fraud=0`
+- Source/decision: The supplied field definitions explicitly define `is_fraud=1` as fraud and `is_fraud=0`
   as **not fraud**. Preserve that supplied definition. Do not reinterpret every
   zero as missing or unreviewed.
 - Separate uncertainty/reason: fraud-review coverage, subsequent reversals,
   finalization timestamps and the completeness of reviews are unknown. The
   binary definition alone cannot establish those properties or validate D4-04's
   delay. Keep this gap separate from target meaning and seek Operations evidence.
-- Code/evidence: `spec.txt` A1, `availability_inventory` target role and notebook
+- Code/evidence: the supplied field definitions, `availability_inventory` target role and notebook
   section 7.3. No target relabelling or source-file changes are introduced.
 
 ## Reopening and downstream ownership
@@ -161,11 +161,11 @@ record the actual evidence date, owner, reason and changed code/configuration.
 #6/#12 own later preparation/split integration; #14 owns the grouped model
 comparison and champion enforcement. Operations timing and label evidence may
 replace assumptions without pretending it was available on 12/13 November.
-Other #30 decisions and its engineer handover remain outside this completion.
+Other #30 decisions and its engineer handover remain pending.
 
 ## D6-01 — Frozen retrospective windows and protected exposure
 
-- Recorded: 2026-11-15. Accountable engineer: SpiralSky. Affected PBIs:
+- Recorded: 2026-11-16. Accountable engineer: SpiralSky. Affected PBIs:
   #6, #13, #14, #21, #23, #25, #30.
 - Decision: freeze half-open windows in `config/time_split.toml`: train
   [2022-11-12, 2023-03-27), validation [2023-03-27, 2023-04-17), test
@@ -175,7 +175,7 @@ Other #30 decisions and its engineer handover remain outside this completion.
   choice, not a statistically established change point. The 2,341 orders on
   11 May are excluded conservatively; low volume does not prove a partial day.
   Counts, country mix and target denominators appear in the
-  [window evidence in PR #84](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/84).
+  [frozen-window evidence](time-split.md#frozen-windows-and-country-mix).
 - Enforcement: `split_orders` shares one policy with CSV reads and parameterized
   SQL predicates. Related labels/customers are scoped by allowed composite keys.
   `test_locked=true` withholds the test interval from ordinary analysis. Train
@@ -189,11 +189,11 @@ Other #30 decisions and its engineer handover remain outside this completion.
 - Provenance: loader audits record purpose, both access settings, resolved ISO
   cutoffs and aggregate membership counts. Consumers retain their code and
   configuration revisions with this metadata in their run log.
-- Interpretation: preserve A1's zero = not fraud; unmatched labels remain
+- Interpretation: preserve the supplied zero = not fraud definition; unmatched labels remain
   unknown. D4-04's provisional 30 days applies to historical label-derived
   features, not proof of historical target availability or a required gap.
   As-of evaluation requires actual label timestamps and a separate decision.
-- Limitations: freeze and implementation were committed on 15 November, after
+- Limitations: freeze and implementation were committed on 16 November, after
   the 12 November target. External first-training chronology is unverified.
   Earlier full-extract EDA means this is not an untouched holdout. SQLite
   semantic tests do not establish live RDS or downstream consumer enforcement.
