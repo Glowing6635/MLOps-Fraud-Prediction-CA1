@@ -28,7 +28,7 @@ jobs:
       - name: Tests
         run: uv run pytest
       - name: MLflow server and client versions match
-        run: grep -qwF "mlflow==$(uv run python -c 'import mlflow; print(mlflow.__version__)')" mlflow-server/Dockerfile
+        run: grep -qwF "mlflow==$(uv run python -c 'import mlflow; print(mlflow.__version__)')" mlflow-server/requirements.txt
       - name: Licences
         # Exact names as the locked packages report them, so a look-alike licence
         # cannot pass by containing an allowed name. Windows-only packages' names are

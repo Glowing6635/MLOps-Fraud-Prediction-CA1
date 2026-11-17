@@ -16,6 +16,7 @@ MLflow reads `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME` and
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import URL, Engine, create_engine
@@ -23,6 +24,9 @@ from sqlalchemy import URL, Engine, create_engine
 _DEFAULT_DB_PORT = "3306"
 # PyMySQL waits forever on an unreachable host without this; seconds.
 _CONNECT_TIMEOUT = 10
+# RDS's certificates, from https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem.
+# The database refuses unencrypted connections, and this lets the driver check it is RDS.
+RDS_CA_BUNDLE = Path(__file__).with_name("rds-global-bundle.pem")
 
 
 class SettingError(Exception):
@@ -100,5 +104,10 @@ def create_db_engine(settings: Settings) -> Engine:
         database=settings.db_name,
     )
     return create_engine(
-        url, pool_pre_ping=True, connect_args={"connect_timeout": _CONNECT_TIMEOUT}
+        url,
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": _CONNECT_TIMEOUT,
+            "ssl": {"ca": str(RDS_CA_BUNDLE)},
+        },
     )
