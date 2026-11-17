@@ -50,7 +50,7 @@
 #
 # This is a full-history exploratory analysis. It chooses no train/validation/test split and exports no prepared dataset. Saved outputs preserve the evidence, not DataFrames for a later pipeline. Splitting, deterministic cleaning and training belong in reusable modules called by a later configurable workflow.
 #
-# Section 6.4 reports daily volume through the final observed date and scans each eligible weekly boundary. Historical full-extract findings are identified explicitly. Earlier full-history exploration means a later holdout cannot be described as never seen.
+# Section 6.4 reports daily volume through the final observed date and scans each eligible weekly boundary. These findings describe the full historical extract. This exploration means later evaluation cannot assume unseen data.
 
 # %% [markdown]
 # ## 2. Load and inspect the datasets
