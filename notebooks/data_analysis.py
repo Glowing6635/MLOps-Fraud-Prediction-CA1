@@ -448,21 +448,21 @@ for name, examples in duplicate_examples.items():
 # %%
 from html import escape
 
-category_columns: dict[str, list[str]] = {
-    "customers": ["country_code", "mobile_verified"],
-    "orders": ["country_code", "collect_type", "payment_method"],
-    "labels": ["country_code", "is_fraud"],
-}
+from mlops_fraud_prediction_ca1.data import load_category_data
+from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS, raw_category_reports
+
+scoped_category_data = load_category_data(base_data_dir)
+raw_category_report = raw_category_reports(scoped_category_data)
 category_frequencies: dict[tuple[str, str], pd.Series] = {}
 category_tables: dict[tuple[str, str], str] = {}
 
-from mlops_fraud_prediction_ca1.data import load_category_data
-
-scoped_category_data = load_category_data(base_data_dir)
-for name, columns in category_columns.items():
-    raw_categories: pd.DataFrame = scoped_category_data[name][columns]
+for name, columns in CATEGORY_COLUMNS.items():
     for column in columns:
-        frequencies: pd.Series = raw_categories[column].value_counts(dropna=False)
+        column_report = raw_category_report.loc[
+            raw_category_report["dataset"].eq(name)
+            & raw_category_report["column"].eq(column)
+        ]
+        frequencies: pd.Series = column_report.set_index("original_value")["count"]
         category_frequencies[name, column] = frequencies
         top_values: pd.DataFrame = frequencies.rename_axis("Value").reset_index(
             name="Count"
@@ -569,25 +569,16 @@ display(
 # This also checks `mobile_verified` against true/false and `is_fraud` against 0/1. Other nonblank categories show `unchecked` because no allowed values are defined. Whitespace trimming is a precaution, not a confirmed data issue. See the [standardization notes](../docs/category-standardisation.md) for details.
 
 # %%
-from mlops_fraud_prediction_ca1.categories import standardise_categories
-
 category_previews: dict[tuple[str, str], pd.DataFrame] = {}
 category_preview_tables: dict[tuple[str, str], str] = {}
 
-for name, columns in category_columns.items():
-    raw_category_values: pd.DataFrame = scoped_category_data[name][columns]
+for name, columns in CATEGORY_COLUMNS.items():
     for column in columns:
-        preview: pd.DataFrame = standardise_categories(
-            raw_category_values[column],
-            case="upper" if column == "country_code" else "lower",
-            allowed_values=(
-                {"true", "false"}
-                if column == "mobile_verified"
-                else {"0", "1"}
-                if column == "is_fraud"
-                else None
-            ),
-        )
+        preview: pd.DataFrame = raw_category_report.loc[
+            raw_category_report["dataset"].eq(name)
+            & raw_category_report["column"].eq(column),
+            ["original_value", "proposed_value", "count", "status"],
+        ].reset_index(drop=True)
         category_previews[name, column] = preview
         category_preview_tables[name, column] = (
             preview.rename(
@@ -1505,7 +1496,7 @@ display(
 #
 # Daily counts cover every calendar date between the first and last observed orders, including the final observed day. Boundary flags indicate potentially partial coverage; low volume alone does not establish an incomplete day. Missing/invalid dates are counted separately.
 #
-# Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison, rather than selecting a March-only search interval. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
+# Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
 #
 # The tables use the current reader scope. Locked reads flag the withheld test dates and scan only the contiguous pre-test prefix, without opening test rows. The full-history interpretation below records the earlier extract; it does not establish an untouched holdout, and its longer comparison window is unavailable in a locked rerun.
 
@@ -1625,11 +1616,11 @@ display(
 # %% [markdown]
 # In the full historical snapshot, daily counts reconcile 949,889 orders across 181 dates, 12 November 2022–11 May 2023, with no excluded dates or zero-observation days. The median is 5,240 orders/day; 11 May contains 2,341 orders. This final-day volume warrants caution but does not prove incomplete source coverage.
 #
-# Across all eligible full-history weekly boundaries, BD's largest pooled rise is at 28 November (14.11% before, 30.43% after) and PK's at 6 March (20.55% before, 31.14% after). PH's largest pooled decline is at 27 February (9.54% to 6.84%). Its roughly −2.5-percentage-point pooled contrast appears across boundaries from December onward, so it does not establish an April-specific change. PH's weekly rate rises again from 17 April, to 7.17%, 7.14% and 7.36% in the last three complete weeks. These overlapping comparisons do not establish onset dates or causes.
+# Across all eligible full-history weekly boundaries, BD's largest pooled rise is at 28 November (14.11% before, 30.43% after) and PK's at 6 March (20.55% before, 31.14% after). PH's largest pooled decline is at 27 February (9.54% to 6.84%). Its roughly −2.5-percentage-point pooled contrast appears across boundaries from December through early April, so it does not establish an April-specific change. PH's weekly rate rises again from 17 April, to 7.17%, 7.14% and 7.36% in the last three complete weeks. These overlapping comparisons do not establish onset dates or causes.
 #
 # The March decomposition compares complete weeks 14 November–26 February (56,116 fraud / 562,211 valid labels) with 13 March–7 May (36,524 / 282,055). The partial first and last weeks are excluded, and the two transition weeks 27 February–12 March separate the periods. All complete weeks after the transition are included. The aggregate rises from 9.9813% to 12.9492% (+2.9679 percentage points): +2.1683 points from within-country changes at baseline valid-label shares, plus +0.7997 points from country mix evaluated at comparison rates.
 #
-# PK remains the largest within-country contributor (+2.0681 points), with a pooled rate of 20.3127% before and 31.4300% afterward. Its weekly rate returns to about 24% from 17 April (23.82%, 23.18%, 23.71%); stopping at 16 April would overstate its sustained elevation. BD adds +0.6168 points, MY +0.2664 and TH +0.0226; PH offsets the rise by −0.8057 points. The country-mix term uses valid-label shares, not all-order shares; missing and invalid labels are excluded from rate denominators.
+# PK remains the largest within-country contributor (+2.0681 points), with a pooled rate of 20.3127% before and 31.4300% afterward. Its weekly rate returns to about 24% from 17 April (23.82%, 23.18%, 23.71%). BD adds +0.6168 points, MY +0.2664 and TH +0.0226; PH offsets the rise by −0.8057 points. The country-mix term uses valid-label shares, not all-order shares; missing and invalid labels are excluded from rate denominators.
 
 
 # %% [markdown]
@@ -1777,7 +1768,7 @@ show_report(
 # - **History without labels:** Use only orders with `earlier order_date < current order_date`. Same-day history is excluded because order times are unavailable.
 # - **History using labels (D4-04):** Label delay is **30 calendar days, a provisional engineering assumption**, not a measured maturity period or Operations confirmation. Require `earlier order_date + 30 days < current order_date`, plus an actually available valid prior label; equality is excluded. Use `historical_order_mask(..., label_delay_days=ASSUMED_LABEL_DELAY_DAYS)`. The delay argument is required; pass zero explicitly for history without labels. Current selected inputs contain no label-derived features. The mask does not validate labels, match customers, establish as-of availability or impose a 50-day window. Unknown history completeness prevents reconstructing the undated window fields as if confirmed.
 # - **Target definition (D4-05):** The supplied field definitions define `is_fraud=0` as not fraud and `1` as fraud. Review completeness, finalization timing and later reversals remain unknown; those gaps are separate from the supplied binary definition.
-# - **Evidence gaps (D4-02/D4-03):** Scoring-time customer linkage remains unconfirmed despite the valid historical label bridge. Retain the unconfirmed/#14 fallback until dated field-specific evidence is available, and record its actual date in the decision log. The 12/13 Nov evidence targets were missed.
+# - **Evidence gaps (D4-02/D4-03):** Scoring-time customer linkage remains unconfirmed despite the valid historical label bridge. Retain the unconfirmed/#14 fallback until dated field-specific evidence is available, and record its actual date in the decision log.
 #
 # **Status:** The inventory and [decision log](../docs/decision-log.md) record the feature policy and its assumptions. #14 owns model comparisons, and later preparation owns pipeline enforcement. Revisit the policy when new timing evidence or data is available.
 
