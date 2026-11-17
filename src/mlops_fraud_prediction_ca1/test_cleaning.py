@@ -6,19 +6,10 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from mlops_fraud_prediction_ca1.cleaning import clean_frame, clean_table
-
-POLICY = {
-    "country_code": {"MY", "PK", "PH"},
-    "collect_type": {"delivery", "self-pick-up"},
-    "payment_method": {"credit card", "online banking", "payment on delivery"},
-}
+from mlops_fraud_prediction_ca1.cleaning import clean_frame
 
 
 class CleaningTests(unittest.TestCase):
-    def clean(self, frame):
-        return clean_table(frame, category_values=POLICY)
-
     def test_category_case_whitespace_and_unseen_kept_unknown(self):
         frame = pd.DataFrame(
             {
@@ -32,21 +23,18 @@ class CleaningTests(unittest.TestCase):
                 ],
             }
         )
-        result = self.clean(frame)
+        result = clean_frame(frame)
+        self.assertEqual(result.country_code.iloc[:3].tolist(), ["MY", "PK", "PH"])
         self.assertEqual(
-            result.cleaned.country_code.iloc[:3].tolist(), ["MY", "PK", "PH"]
-        )
-        self.assertEqual(
-            result.cleaned.collect_type.iloc[:3].tolist(),
+            result.collect_type.iloc[:3].tolist(),
             ["delivery", "delivery", "self-pick-up"],
         )
         self.assertEqual(
-            result.cleaned.payment_method.iloc[:3].tolist(),
+            result.payment_method.iloc[:3].tolist(),
             ["online banking", "payment on delivery", "credit card"],
         )
-        self.assertTrue(result.cleaned.iloc[3].isna().all())
-        self.assertTrue(result.status.iloc[3].eq("unknown_unseen").all())
-        self.assertEqual(len(result.cleaned), 4)
+        self.assertTrue(result.loc[:, frame.columns].iloc[3].isna().all())
+        self.assertEqual(len(result), 4)
 
     def test_unapproved_semantics_and_blanks(self):
         frame = pd.DataFrame(
@@ -56,22 +44,18 @@ class CleaningTests(unittest.TestCase):
                 "first_order_datetime": ["", "   ", None, "2023-01-01 12:13:14"],
             }
         )
-        result = self.clean(frame)
-        self.assertTrue(pd.isna(result.cleaned.mobile_verified.iloc[0]))
+        result = clean_frame(frame)
+        self.assertTrue(pd.isna(result.mobile_verified.iloc[0]))
+        self.assertEqual(result.mobile_verified.iloc[1:3].tolist(), [True, False])
+        self.assertTrue(result.payment_method.isna().all())
+        self.assertTrue(result.first_order_datetime.iloc[:3].isna().all())
         self.assertEqual(
-            result.cleaned.mobile_verified.iloc[1:3].tolist(), [True, False]
-        )
-        self.assertTrue(result.cleaned.payment_method.isna().all())
-        self.assertEqual(
-            result.status.payment_method.tolist(),
-            ["unknown_unseen", "unknown_blank", "unknown_blank", "unknown_missing"],
-        )
-        self.assertTrue(result.cleaned.first_order_datetime.iloc[:3].isna().all())
-        self.assertEqual(
-            result.cleaned.first_order_datetime.iloc[3],
+            result.first_order_datetime.iloc[3],
             pd.Timestamp("2023-01-01 12:13:14"),
         )
-        assert_frame_equal(result.raw, frame)
+        assert_frame_equal(
+            result.filter(regex="^raw_").rename(columns=lambda c: c[4:]), frame
+        )
 
     def test_mobile_verification_nullable_boolean_and_originals(self):
         frame = pd.DataFrame(
@@ -122,29 +106,16 @@ class CleaningTests(unittest.TestCase):
                 ]
             }
         )
-        result = self.clean(frame)
-        self.assertTrue(
-            result.cleaned.order_date.iloc[:3].eq(pd.Timestamp("2024-02-29")).all()
-        )
-        self.assertTrue(result.cleaned.order_date.iloc[3:].isna().all())
-        self.assertEqual(
-            result.status.order_date.tolist(),
-            ["normalized"] * 3
-            + [
-                "unknown_invalid",
-                "unknown_invalid",
-                "unknown_unrecognized",
-                "unknown_missing",
-                "unknown_blank",
-            ],
-        )
-        customer = self.clean(
+        result = clean_frame(frame)
+        self.assertTrue(result.order_date.iloc[:3].eq(pd.Timestamp("2024-02-29")).all())
+        self.assertTrue(result.order_date.iloc[3:].isna().all())
+        customer = clean_frame(
             pd.DataFrame({"first_order_datetime": ["2023-02-30 10:00:00"]})
         )
-        self.assertEqual(customer.status.iloc[0, 0], "unknown_invalid")
+        self.assertTrue(pd.isna(customer.first_order_datetime.iloc[0]))
 
     def test_case_insensitive_months_and_parser_limitations_are_explicit(self):
-        result = self.clean(
+        result = clean_frame(
             pd.DataFrame(
                 {
                     "order_date": [
@@ -155,12 +126,8 @@ class CleaningTests(unittest.TestCase):
                 }
             )
         )
-        self.assertEqual(result.cleaned.order_date.iloc[0], pd.Timestamp("2024-02-29"))
-        self.assertTrue(result.cleaned.order_date.iloc[1:].isna().all())
-        self.assertEqual(
-            result.status.order_date.tolist(),
-            ["normalized", "unknown_unrecognized", "unknown_unrecognized"],
-        )
+        self.assertEqual(result.order_date.iloc[0], pd.Timestamp("2024-02-29"))
+        self.assertTrue(result.order_date.iloc[1:].isna().all())
 
     def test_numeric_unknowns_and_finite_values_no_clamping(self):
         frame = pd.DataFrame(
@@ -178,24 +145,23 @@ class CleaningTests(unittest.TestCase):
                 "refund_value": ["999999999", "-5", "0", None, "inf", "bad", 1],
             }
         )
-        result = self.clean(frame)
-        self.assertEqual(result.cleaned.order_value.iloc[0], 2.5)
-        self.assertEqual(result.cleaned.order_value.iloc[5], -7)
-        self.assertEqual(result.cleaned.refund_value.iloc[0], 999999999)
-        self.assertEqual(result.cleaned.refund_value.iloc[1], -5)
-        self.assertEqual(result.cleaned.num_items_ordered.iloc[5], 1.5)
-        self.assertTrue(result.cleaned.order_value.iloc[[1, 2, 3, 4, 6]].isna().all())
-        self.assertTrue(pd.isna(result.cleaned.num_items_ordered.iloc[6]))
-        self.assertEqual(len(result.cleaned), len(frame))
+        result = clean_frame(frame)
+        self.assertEqual(result.order_value.iloc[0], 2.5)
+        self.assertEqual(result.order_value.iloc[5], -7)
+        self.assertEqual(result.refund_value.iloc[0], 999999999)
+        self.assertEqual(result.refund_value.iloc[1], -5)
+        self.assertEqual(result.num_items_ordered.iloc[5], 1.5)
+        self.assertTrue(result.order_value.iloc[[1, 2, 3, 4, 6]].isna().all())
+        self.assertTrue(pd.isna(result.num_items_ordered.iloc[6]))
+        self.assertEqual(len(result), len(frame))
 
     def test_large_numbers_are_flagged_without_rounding_originals(self):
         for values in (["9007199254740993"], ["9007199254740993", "bad", None, "1.5"]):
             frame = pd.DataFrame({"order_value": values})
-            result = self.clean(frame)
-            self.assertTrue(pd.isna(result.cleaned.order_value.iloc[0]))
-            self.assertEqual(result.raw.order_value.iloc[0], "9007199254740993")
-            self.assertEqual(result.status.order_value.iloc[0], "unknown_precision")
-            self.assertEqual(str(result.cleaned.order_value.dtype), "Float64")
+            result = clean_frame(frame)
+            self.assertTrue(pd.isna(result.order_value.iloc[0]))
+            self.assertEqual(result.raw_order_value.iloc[0], "9007199254740993")
+            self.assertEqual(str(result.order_value.dtype), "Float64")
 
     def test_simple_dataframe_api_preserves_originals_and_numeric_labels(self):
         frame = pd.DataFrame(
@@ -231,9 +197,9 @@ class CleaningTests(unittest.TestCase):
             ),
         ):
             with self.subTest(shape=frame.shape):
-                result = self.clean(frame)
-                self.assertEqual(result.cleaned.shape, frame.shape)
-                self.assertTrue(result.cleaned.isna().all(axis=None))
+                result = clean_frame(frame)
+                self.assertEqual(result.loc[:, frame.columns].shape, frame.shape)
+                self.assertTrue(result.loc[:, frame.columns].isna().all(axis=None))
 
     def test_no_input_mutation_raw_copy_duplicate_index_and_identity(self):
         frame = pd.DataFrame(
@@ -247,15 +213,16 @@ class CleaningTests(unittest.TestCase):
             index=[7, 7],
         )
         original = frame.copy(deep=True)
-        result = self.clean(frame)
+        result = clean_frame(frame)
         assert_frame_equal(frame, original)
-        assert_frame_equal(result.raw, original)
-        self.assertEqual(result.cleaned.index.tolist(), [7, 7])
-        self.assertEqual(result.cleaned.order_id.tolist(), ["same", "same"])
-        self.assertEqual(result.cleaned.is_fraud.tolist(), [1, 0])
-        self.assertTrue(result.status.other.eq("unchanged").all())
-        result.raw.iloc[0, 0] = "changed"
-        result.cleaned.iloc[1, 0] = "changed"
+        assert_frame_equal(
+            result.filter(regex="^raw_").rename(columns=lambda c: c[4:]), original
+        )
+        self.assertEqual(result.index.tolist(), [7, 7])
+        self.assertEqual(result.order_id.tolist(), ["same", "same"])
+        self.assertEqual(result.is_fraud.tolist(), [1, 0])
+        result.iloc[0, result.columns.get_loc("raw_country_code")] = "changed"
+        result.iloc[1, 0] = "changed"
         assert_frame_equal(frame, original)
 
     def test_determinism_batch_independence_and_label_independence(self):
@@ -269,44 +236,52 @@ class CleaningTests(unittest.TestCase):
             },
             index=[9, 9, 2],
         )
-        first, second = self.clean(frame), self.clean(frame)
-        for attr in ("raw", "cleaned", "status"):
-            assert_frame_equal(getattr(first, attr), getattr(second, attr))
+        first, second = clean_frame(frame), clean_frame(frame)
+        assert_frame_equal(first, second)
         for position in range(len(frame)):
-            single = self.clean(frame.iloc[[position]])
-            assert_frame_equal(
-                first.cleaned.iloc[[position]], single.cleaned, check_dtype=False
-            )
-            assert_frame_equal(first.status.iloc[[position]], single.status)
-        shuffled = self.clean(frame.iloc[[2, 0, 1]])
-        assert_frame_equal(first.cleaned.iloc[[2, 0, 1]], shuffled.cleaned)
-        altered = self.clean(frame.assign(is_fraud=[1, 0, 0]))
+            single = clean_frame(frame.iloc[[position]])
+            assert_frame_equal(first.iloc[[position]], single, check_dtype=False)
+        shuffled = clean_frame(frame.iloc[[2, 0, 1]])
+        assert_frame_equal(first.iloc[[2, 0, 1]], shuffled)
+        altered = clean_frame(frame.assign(is_fraud=[1, 0, 0]))
         assert_frame_equal(
-            first.cleaned.drop(columns="is_fraud"),
-            altered.cleaned.drop(columns="is_fraud"),
+            first.drop(columns=["is_fraud", "raw_is_fraud"]),
+            altered.drop(columns=["is_fraud", "raw_is_fraud"]),
         )
-        assert_frame_equal(first.status, altered.status)
 
-    def test_configuration_is_explicit_fixed_and_validated(self):
-        with self.assertRaises(ValueError):
-            clean_table(pd.DataFrame({"payment_method": ["new"]}), category_values={})
-        for policy in (
-            {"payment_method": {"Credit Card"}},
-            {"payment_method": {"on delivery"}},
-            {"mobile_verified": {"yes"}},
-            {"payment_method": {""}},
-        ):
-            with self.subTest(policy=policy), self.assertRaises(ValueError):
-                clean_table(pd.DataFrame(), category_values=policy)
-        with self.assertRaises(TypeError):
-            clean_table(pd.DataFrame(), category_values={"country_code": "MY"})
-        with self.assertRaises(ValueError):
-            self.clean(pd.DataFrame([[1, 2]], columns=["a", "a"]))
-        result = clean_table(
-            pd.DataFrame({"payment_method": ["credit card"]}),
-            category_values={"payment_method": set()},
+    def test_boolean_numeric_distinctions_and_precision_boundaries(self):
+        frame = pd.DataFrame(
+            {
+                "mobile_verified": [True, 1, False, 0, "true", "false", "yes", ""],
+                "is_fraud": [True, 1, False, 0, "1.0", "0.0", "2", ""],
+                "order_value": [
+                    str(2**53 - 1),
+                    str(2**53),
+                    str(-(2**53)),
+                    "-inf",
+                    True,
+                    "1.5",
+                    "-7",
+                    None,
+                ],
+            },
+            index=[4] * 8,
         )
-        self.assertTrue(pd.isna(result.cleaned.iloc[0, 0]))
+        result = clean_frame(frame)
+        self.assertEqual(
+            result.mobile_verified.iloc[[0, 2, 4, 5]].tolist(),
+            [True, False, True, False],
+        )
+        self.assertTrue(result.mobile_verified.iloc[[1, 3, 6, 7]].isna().all())
+        self.assertEqual(result.is_fraud.iloc[[1, 3, 4, 5]].tolist(), [1, 0, 1, 0])
+        self.assertTrue(result.is_fraud.iloc[[0, 2, 6, 7]].isna().all())
+        self.assertEqual(result.order_value.iloc[0], 2**53 - 1)
+        self.assertTrue(result.order_value.iloc[[1, 2, 3, 4, 7]].isna().all())
+        self.assertEqual(result.order_value.iloc[[5, 6]].tolist(), [1.5, -7])
+
+    def test_duplicate_columns_raise(self):
+        with self.assertRaises(ValueError):
+            clean_frame(pd.DataFrame([[1, 2]], columns=["a", "a"]))
 
 
 if __name__ == "__main__":

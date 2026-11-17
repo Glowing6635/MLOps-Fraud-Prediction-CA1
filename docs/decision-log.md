@@ -3,8 +3,7 @@
 This log records the feature-timing assumptions and handling for PBI #4 and the temporal policy for PBI #6.
 No Operations confirmation has been received, so every timing status remains
 unconfirmed. Feature-timing decisions were recorded on 15 November 2026 and
-temporal windows on 16 November, after the 12 November log and 13 November
-evidence targets. Owner identifies the accountable engineer.
+temporal windows on 16 November. Owner identifies the accountable engineer.
 
 Sources: [live #4](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/4),
 [#14](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/14), and
@@ -29,7 +28,7 @@ and the unconfirmed/#14 fallback.
 - Consumer setting: `leakage.ORDER_FEATURE_COLUMNS` and
   `select_feature_inputs(frame, source="orders")` select just those four.
   Keep `order_date` separately as temporal context for splits/history and later
-  approved date derivations; it is not a direct input from this selector.
+  date derivations; it is not a direct input from this selector.
   Keys (`country_code`, `customer_id`, `order_id`), `refund_value`, `is_fraud`,
   and unknown columns are excluded, even if present in the wrong source.
   `refund_value` is evaluation-only, because a later refund is not established
@@ -42,10 +41,9 @@ and the unconfirmed/#14 fallback.
 
 - Settled: 2026-11-15. Owner: SpiralSky. Affected PBIs: #4, #12, #14, #30.
 - Decision: every customer field's historical availability remains
-  **unconfirmed**. No supplied dated evidence establishes its status on
-  13 November. Preserve the conservative status now; do not claim a historical
-  request, answer, or deadline was met. The snapshot anchor and which order the
-  row describes are **unknown**, for both initial and later observed orders.
+  **unconfirmed**. No supplied dated evidence establishes its historical
+  availability. The snapshot anchor and which order the row describes are
+  **unknown**, for both initial and later observed orders.
 - Per-field evidence and required follow-up:
   - `country_code`: The supplied field definitions describe country identity; normalized linkage checks
     support historical matching only. Placement-time customer record/version
@@ -160,7 +158,7 @@ Reopen the relevant entry on new timing evidence or changed input schema/data;
 record the actual evidence date, owner, reason and changed code/configuration.
 #6/#12 own later preparation/split integration; #14 owns the grouped model
 comparison and champion enforcement. Operations timing and label evidence may
-replace assumptions without pretending it was available on 12/13 November.
+replace assumptions when field-specific evidence becomes available.
 Other #30 decisions and its engineer handover remain pending.
 
 ## D6-01 — Frozen retrospective windows and protected exposure

@@ -10,20 +10,18 @@ from pandas.testing import assert_frame_equal
 from mlops_fraud_prediction_ca1.cleaning import (
     BASE_CATEGORY_VALUES,
     CLEANING_POLICY_VERSION,
-    clean_batch,
-    clean_table,
-    load_clean_base_data,
-    summarize_batch,
+    clean_frame,
 )
+from mlops_fraud_prediction_ca1.data import load_base_data
 
 
-class BatchContractTests(unittest.TestCase):
+class CleaningContractTests(unittest.TestCase):
     def test_frozen_policy_covers_recorded_formats_without_semantic_aliases(self):
         self.assertEqual(CLEANING_POLICY_VERSION, "pbi12-v3")
         with self.assertRaises(TypeError):
             BASE_CATEGORY_VALUES["country_code"] = frozenset({"ZZ"})
         self.assertNotIn("on delivery", BASE_CATEGORY_VALUES["payment_method"])
-        result = clean_table(
+        result = clean_frame(
             pd.DataFrame(
                 {
                     "country_code": ["th", "bd", "ZZ"],
@@ -35,25 +33,28 @@ class BatchContractTests(unittest.TestCase):
                     ],
                 }
             ),
-            category_values=BASE_CATEGORY_VALUES,
         )
-        self.assertEqual(result.cleaned.country_code.iloc[:2].tolist(), ["TH", "BD"])
+        self.assertEqual(result.country_code.iloc[:2].tolist(), ["TH", "BD"])
         self.assertEqual(
-            result.cleaned.collect_type.iloc[:2].tolist(), ["pickup", "self-pick-up"]
+            result.collect_type.iloc[:2].tolist(), ["pickup", "self-pick-up"]
         )
         self.assertEqual(
-            result.cleaned.payment_method.iloc[:2].tolist(),
+            result.payment_method.iloc[:2].tolist(),
             ["cybersource", "xendit directdebit"],
         )
-        self.assertTrue(result.cleaned.iloc[2].isna().all())
+        self.assertTrue(
+            result.loc[:, ["country_code", "collect_type", "payment_method"]]
+            .iloc[2]
+            .isna()
+            .all()
+        )
         # Every frozen entry recognizes itself independently of batch contents.
         for column, values in BASE_CATEGORY_VALUES.items():
             for value in values:
-                one = clean_table(
+                one = clean_frame(
                     pd.DataFrame({column: [value]}),
-                    category_values=BASE_CATEGORY_VALUES,
                 )
-                self.assertEqual(one.cleaned.iloc[0, 0], value)
+                self.assertEqual(one.iloc[0, 0], value)
 
     def test_missing_links_unknown_keys_and_future_batches_keep_all_rows(self):
         tables = {
@@ -76,21 +77,19 @@ class BatchContractTests(unittest.TestCase):
                 }
             ),
         }
-        result = clean_batch(tables)
-        self.assertEqual(result.policy_version, "pbi12-v3")
+        result = {name: clean_frame(frame) for name, frame in tables.items()}
         for name, frame in tables.items():
-            assert_frame_equal(result.tables[name].raw, frame)
-            self.assertEqual(len(result.tables[name].cleaned), len(frame))
-        orders = result.tables["orders"]
-        self.assertEqual(orders.cleaned.order_id.tolist(), ["001", "1", "no-label"])
-        self.assertEqual(orders.cleaned.refund_value.iloc[:2].tolist(), [999999, -5])
-        self.assertTrue(pd.isna(orders.cleaned.country_code.iloc[1]))
-        self.assertEqual(orders.cleaned.order_date.iloc[1], pd.Timestamp("2030-01-01"))
-        self.assertEqual(len(result.tables["labels"].cleaned), 1)
-
-    def test_batch_requires_all_three_tables(self):
-        with self.assertRaises(ValueError):
-            clean_batch({"orders": pd.DataFrame()})
+            assert_frame_equal(
+                result[name].filter(regex="^raw_").rename(columns=lambda c: c[4:]),
+                frame,
+            )
+            self.assertEqual(len(result[name]), len(frame))
+        orders = result["orders"]
+        self.assertEqual(orders.order_id.tolist(), ["001", "1", "no-label"])
+        self.assertEqual(orders.refund_value.iloc[:2].tolist(), [999999, -5])
+        self.assertTrue(pd.isna(orders.country_code.iloc[1]))
+        self.assertEqual(orders.order_date.iloc[1], pd.Timestamp("2030-01-01"))
+        self.assertEqual(len(result["labels"]), 1)
 
 
 class GuardedCleaningTests(unittest.TestCase):
@@ -147,40 +146,43 @@ class GuardedCleaningTests(unittest.TestCase):
                 ("validation", ["v"]),
             ):
                 with self.subTest(purpose=purpose):
-                    batch = load_clean_base_data(root, purpose=purpose)
-                    self.assertEqual(
-                        batch.tables["orders"].raw.order_id.tolist(), expected
+                    frames = load_base_data(root, purpose=purpose, raw_strings=True)
+                    tables = dict(
+                        zip(("customers", "orders", "labels"), frames, strict=True)
                     )
-                    for result in batch.tables.values():
-                        for attr in ("raw", "cleaned", "status"):
-                            self.assertNotIn(
-                                "TEST_SECRET", str(getattr(result, attr).to_dict())
-                            )
-                        self.assertEqual(len(result.raw), len(result.cleaned))
-                    order = batch.tables["orders"]
+                    cleaned = {
+                        name: clean_frame(frame) for name, frame in tables.items()
+                    }
+                    self.assertEqual(tables["orders"].order_id.tolist(), expected)
+                    for name, frame in tables.items():
+                        self.assertNotIn("TEST_SECRET", str(frame.to_dict()))
+                        self.assertNotIn("TEST_SECRET", str(cleaned[name].to_dict()))
+                        self.assertEqual(len(frame), len(cleaned[name]))
+                        self.assertEqual(cleaned[name].attrs, frame.attrs)
+                        self.assertTrue(frame.attrs["split_audit"]["test_locked"])
+                        assert_frame_equal(
+                            cleaned[name]
+                            .filter(regex="^raw_")
+                            .rename(columns=lambda c: c[4:]),
+                            frame,
+                        )
+                    order = cleaned["orders"]
                     if purpose != "validation":
                         self.assertEqual(
-                            batch.tables["customers"].raw.customer_id.tolist(),
+                            tables["customers"].customer_id.tolist(),
                             ["001", "cv"] if purpose == "analysis" else ["001"],
                         )
-                        self.assertEqual(order.raw.payment_method.iloc[0], "")
-                        self.assertTrue(pd.isna(order.cleaned.payment_method.iloc[0]))
-                        self.assertEqual(order.cleaned.refund_value.iloc[0], 999)
-                    features = select_feature_inputs(order.cleaned, source="orders")
+                        self.assertEqual(order.raw_payment_method.iloc[0], "")
+                        self.assertTrue(pd.isna(order.payment_method.iloc[0]))
+                        self.assertEqual(order.refund_value.iloc[0], 999)
+                    features = select_feature_inputs(order, source="orders")
                     self.assertFalse(
                         {
                             "refund_value",
                             "is_fraud",
                             "order_id",
                             "customer_id",
-                            "batch_id",
                         }
                         & set(features.columns)
                     )
-            batch = load_clean_base_data(root)
-            report = summarize_batch(batch).set_index("table")
-            self.assertEqual(report.loc["orders", "before_rows"], 4)
-            self.assertEqual(report.loc["orders", "after_rows"], 4)
-            self.assertEqual(report.loc["orders", "unknown_cells"], 4)
-            self.assertEqual(report.loc["customers", "unknown_cells"], 2)
             self.assertEqual(before, {p.name: p.read_bytes() for p in root.iterdir()})

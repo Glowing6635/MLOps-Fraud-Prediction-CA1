@@ -31,7 +31,6 @@ ORDER_FEATURE_COLUMNS: tuple[str, ...] = (
     "order_value",
     "num_items_ordered",
 )
-POLICY_DECISION_LOG: str = "docs/decision-log.md"
 ASSUMED_LABEL_DELAY_DAYS: int = 30
 
 

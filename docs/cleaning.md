@@ -33,10 +33,10 @@ Feature approval and train-only transformations remain consumer responsibilities
 Numeric fields convert a whole column at a time. Finite negatives, fractions,
 outliers and refunds are retained inside the supported range. To avoid silent
 rounding of large integers in model inputs, magnitudes at or above `2**53`
-become unknown with `unknown_precision` status; their exact originals remain
-available. This bound is fixed across batches. Nullable numeric arrays can be
-converted to model arrays with an explicit missing-value convention; learned
-missing-value handling must still fit on training rows only.
+become unknown; their exact originals remain available. This bound is fixed
+across batches. Nullable numeric arrays can be converted to model arrays with
+an explicit missing-value convention; learned missing-value handling must
+still fit on training rows only.
 
 Order formats are `YYYY/MM/DD`, `YYYY-MM-DD` and `YYYY/Mon/DD`, with
 case-insensitive English month abbreviations. Customer timestamps require
@@ -50,8 +50,8 @@ verify their driver boundary.
 model dtypes, unsupported-precision handling, binary labels and nullable Boolean
 mobile verification. Category normalization reuses `standardise_categories`.
 
-Sources are the supplied field definitions and examples and the historical PBI #3 category
-inventory. The [category decisions](category-standardisation.md) describe
+Sources are the supplied field definitions and examples and the historical
+PBI #3 category inventory. The [category decisions](category-standardisation.md) describe
 unresolved representations. Earlier EDA inspected the full extract, including
 the eventual test window; this reuse does not establish a train-only vocabulary
 or an untouched holdout. No incoming batch automatically expands the vocabulary.
@@ -68,18 +68,29 @@ or an untouched holdout. No incoming batch automatically expands the vocabulary.
 A future vocabulary change requires a version, source and reason. Consumers
 should log the policy version. Labels never choose cleaning rules.
 
-## Diagnostics and protected base reads
+## Protected base reads and counts
 
-`clean_table` returns aligned `raw`, `cleaned` and per-cell `status` frames.
-Callers needing one DataFrame use `clean_frame` directly. `clean_batch` applies
-the same rules independently to customers/orders/labels and records the policy
-version. Keep source/batch identity separately. Consumers must validate key
-completeness and uniqueness and avoid joining unknown keys.
+Load authorized rows before cleaning, then apply `clean_frame` independently to
+customers, orders and labels. The protected reader withholds test rows in
+ordinary reads; cleaning retains every row it receives and preserves the
+reader's `split_audit` metadata. Keep source/batch identity separately. Validate
+key completeness and uniqueness before joins and avoid joining unknown keys.
 
-`load_clean_base_data(data_dir, purpose="train")` calls the protected CSV reader
-before cleaning. It cannot expose withheld test rows through ordinary reads.
-The existing notebook demonstration uses guarded analysis scope; its reference
-counts for the recorded base files are:
+```python
+from mlops_fraud_prediction_ca1.data import load_base_data
+
+customers, orders, labels = load_base_data(
+    data_dir, purpose="analysis", raw_strings=True
+)
+cleaned_customers = clean_frame(customers)
+cleaned_orders = clean_frame(orders)
+cleaned_labels = clean_frame(labels)
+```
+
+The notebook derives before/after row counts and counts unknown cells with
+`isna()` on recognized cleaned fields only. Original `raw_` columns and
+untouched fields do not contribute to unknown counts. No rows are rejected.
+The reference counts for the recorded base files in guarded analysis scope are:
 
 | Table | Before | After | Rejected | Unknown cells |
 | --- | ---: | ---: | ---: | --- |
@@ -91,9 +102,9 @@ The reader separately withholds 124,991 test-window orders. Analysis includes
 2,341 orders on 11 May outside the frozen evaluation interval. Unknown counts
 refer to cells, not distinct rows. Original CSVs remain unchanged.
 
-The local API is available to #13 and #20; their later adoption is separate
-integration work. This module does not implement a database loader, choose
-model inputs or certify live-driver integration.
+Use the same policy for incoming frames. Database adapters must supply the
+documented string formats; feature selection and learned preprocessing remain
+consumer responsibilities.
 
 Tests live beside package code. Run `uv run pytest` from the repository root.
 The suites cover row retention, originals, duplicate indices, numeric dtypes,
