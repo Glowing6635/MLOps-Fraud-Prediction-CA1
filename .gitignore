@@ -1,5 +1,4 @@
 *.pdf
-*.txt
 
 AGENTS.md
 CLAUDE.md
@@ -8,7 +7,7 @@ CLAUDE.md
 # Secrets: copy .env.example to .env
 .env
 
-# Course data and run outputs stay on each laptop
+# Data files and run outputs stay on each laptop
 *.csv
 data/*
 !data/.gitkeep
