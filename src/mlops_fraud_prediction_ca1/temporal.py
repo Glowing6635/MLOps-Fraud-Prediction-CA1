@@ -46,7 +46,7 @@ def parse_dates(values: pd.Series, *, kind: str = "order") -> pd.DataFrame:
         }
     )
     text = values.astype("string")
-    string_values = values.map(lambda value: isinstance(value, str))
+    string_values = values.map(lambda value: isinstance(value, str)).astype(bool)
     formats = (
         [(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", "%Y-%m-%d %H:%M:%S")]
         if kind == "customer"
