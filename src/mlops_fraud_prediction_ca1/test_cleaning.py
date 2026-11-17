@@ -59,7 +59,7 @@ class CleaningTests(unittest.TestCase):
         result = self.clean(frame)
         self.assertTrue(pd.isna(result.cleaned.mobile_verified.iloc[0]))
         self.assertEqual(
-            result.cleaned.mobile_verified.iloc[1:3].tolist(), ["true", "false"]
+            result.cleaned.mobile_verified.iloc[1:3].tolist(), [True, False]
         )
         self.assertTrue(result.cleaned.payment_method.isna().all())
         self.assertEqual(
@@ -72,6 +72,40 @@ class CleaningTests(unittest.TestCase):
             pd.Timestamp("2023-01-01 12:13:14"),
         )
         assert_frame_equal(result.raw, frame)
+
+    def test_mobile_verification_nullable_boolean_and_originals(self):
+        frame = pd.DataFrame(
+            {
+                "mobile_verified": [
+                    "true",
+                    " FALSE ",
+                    True,
+                    False,
+                    "yes",
+                    "",
+                    " ",
+                    None,
+                    pd.NA,
+                    1,
+                ]
+            },
+            index=[7] * 10,
+        )
+        original = frame.copy(deep=True)
+        result = clean_frame(frame)
+        self.assertEqual(str(result.mobile_verified.dtype), "boolean")
+        self.assertEqual(
+            result.mobile_verified.iloc[:4].tolist(), [True, False, True, False]
+        )
+        self.assertTrue(result.mobile_verified.iloc[4:].isna().all())
+        self.assertEqual(result.index.tolist(), frame.index.tolist())
+        assert_frame_equal(
+            result[["raw_mobile_verified"]].rename(
+                columns={"raw_mobile_verified": "mobile_verified"}
+            ),
+            original,
+        )
+        assert_frame_equal(frame, original)
 
     def test_all_evidenced_date_formats_and_invalid_dates(self):
         frame = pd.DataFrame(
@@ -153,7 +187,6 @@ class CleaningTests(unittest.TestCase):
         self.assertTrue(result.cleaned.order_value.iloc[[1, 2, 3, 4, 6]].isna().all())
         self.assertTrue(pd.isna(result.cleaned.num_items_ordered.iloc[6]))
         self.assertEqual(len(result.cleaned), len(frame))
-        self.assertEqual(result.audit.rejected_rows.sum(), 0)
 
     def test_large_numbers_are_flagged_without_rounding_originals(self):
         for values in (["9007199254740993"], ["9007199254740993", "bad", None, "1.5"]):
@@ -200,11 +233,6 @@ class CleaningTests(unittest.TestCase):
             with self.subTest(shape=frame.shape):
                 result = self.clean(frame)
                 self.assertEqual(result.cleaned.shape, frame.shape)
-                self.assertEqual(result.source_positions, tuple(range(len(frame))))
-                self.assertEqual(
-                    set(result.audit.columns),
-                    {"column", "outcome", "rows", "rejected_rows"},
-                )
                 self.assertTrue(result.cleaned.isna().all(axis=None))
 
     def test_no_input_mutation_raw_copy_duplicate_index_and_identity(self):
@@ -222,7 +250,6 @@ class CleaningTests(unittest.TestCase):
         result = self.clean(frame)
         assert_frame_equal(frame, original)
         assert_frame_equal(result.raw, original)
-        self.assertEqual(result.source_positions, (0, 1))
         self.assertEqual(result.cleaned.index.tolist(), [7, 7])
         self.assertEqual(result.cleaned.order_id.tolist(), ["same", "same"])
         self.assertEqual(result.cleaned.is_fraud.tolist(), [1, 0])
@@ -243,7 +270,7 @@ class CleaningTests(unittest.TestCase):
             index=[9, 9, 2],
         )
         first, second = self.clean(frame), self.clean(frame)
-        for attr in ("raw", "cleaned", "status", "audit"):
+        for attr in ("raw", "cleaned", "status"):
             assert_frame_equal(getattr(first, attr), getattr(second, attr))
         for position in range(len(frame)):
             single = self.clean(frame.iloc[[position]])

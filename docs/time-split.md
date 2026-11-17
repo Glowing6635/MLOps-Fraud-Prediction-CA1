@@ -113,6 +113,49 @@ CSV; downstream/private consumers must adopt and verify that contract themselves
 
 The notebook's earlier full-extract EDA is historical and predates the test lock.
 It does not establish an untouched holdout. Ordinary notebook reads use the
-protected loader. Window counts and rationale are retained in the
-[window evidence in PR #84](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/84) and
-[decision log](decision-log.md). No duplicate preview implementation is required.
+protected loader. The tables below retain the recorded base-extract evidence;
+they do not enable ordinary access to test rows. [D6-01](decision-log.md#d6-01--frozen-retrospective-windows-and-protected-exposure)
+records the policy and its limitations.
+
+## Frozen windows and country mix
+
+Intervals are half-open. Fraud rates exclude missing labels; country counts
+include every safe order. These counts describe the recorded base extract.
+
+| Window | Dates | Orders | Valid labels | Fraud | Missing labels | Fraud rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Train | 12 Nov–before 27 Mar | 721,364 | 721,354 | 75,449 | 10 | 10.4594% |
+| Validation | 27 Mar–before 17 Apr | 101,193 | 101,190 | 13,066 | 3 | 12.9123% |
+| Test | 17 Apr–before 11 May | 124,991 | 124,989 | 15,584 | 2 | 12.4683% |
+| Excluded final day | 11 May | 2,341 | 2,341 | 323 | 0 | 13.7975% |
+
+Country mix as counts (denominator is each row's order total; retain these
+counts when producing percentages so the mix is reproducible):
+
+| Window | BD | MY | PH | PK | TH |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Train | 45,216 | 285,680 | 208,007 | 136,393 | 46,068 |
+| Validation | 6,567 | 35,422 | 32,835 | 18,196 | 8,173 |
+| Test | 7,598 | 38,378 | 39,592 | 30,096 | 9,327 |
+| Excluded final day | 179 | 1,089 | 777 | 137 | 159 |
+
+
+## Rationale and limits
+
+- Counts reconcile to 949,889 orders and 949,874 valid matched labels.
+  Fifteen unmatched targets remain unknown; The supplied field definitions define zero as not fraud.
+- Before 13 March, training contains 650,711 orders, 650,702 valid labels and
+  65,650 fraud (10.0891%). On/after that date it contains 70,653 orders,
+  70,652 valid labels and 9,799 fraud (13.8694%). The March movement is
+  descriptive; no model metric selected the windows.
+- The extract covers 181 observed dates, 12 November–11 May. The final day's
+  2,341 orders are excluded conservatively. Date-only data cannot prove the
+  day is incomplete. Ordinary analysis can include it outside the test window.
+- Prior full-extract EDA was disclosed. The evaluation is retrospective;
+  historical label availability and external training chronology are unknown.
+  The 30-day assumption governs label history, not historical target maturity.
+- Dates were committed on 16 November; the 12 November deadline was missed.
+  Local CSV/SQL-contract tests do not establish live RDS or downstream adoption.
+- `test_locked=true` and `final_evaluation_enabled=false` are the defaults.
+  Explicit final-evaluation access is logged and leaves ordinary reads locked.
+  No model or final scoring was run to produce this evidence.

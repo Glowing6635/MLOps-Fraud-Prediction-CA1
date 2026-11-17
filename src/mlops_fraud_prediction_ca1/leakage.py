@@ -90,7 +90,7 @@ def availability_inventory(
     """List every actual source column, with conservative proposed dispositions.
 
     ``reviewed_on`` is the actual review date, not a historical confirmation.
-    Definitions come from spec.txt Appendix A1; definitions alone do not prove
+    Definitions come from the supplied field definitions; definitions alone do not prove
     availability. No Operations response is supplied to this function, so it
     never marks a field confirmed. Unknown/new fields fail closed. Repeated
     identifiers in different sources remain separate entries. The result is
@@ -111,7 +111,7 @@ def availability_inventory(
                 "Unconfirmed",
                 "Withhold pending evidence",
             )
-            evidence = "spec.txt A1 defines the field; no timing confirmation supplied"
+            evidence = "The supplied field definitions describe the field; no timing confirmation supplied"
             scope = "Order placement; source version at that time needs confirmation"
             if source == "customers":
                 scope = "Customer snapshot anchor/order unknown, including later orders"

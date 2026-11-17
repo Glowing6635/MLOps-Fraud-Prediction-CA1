@@ -4,15 +4,16 @@ No reads, joins, split selection, fitted transformations or feature approval.
 Consumers retain raw alongside cleaned values and select safe features later.
 """
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
 import pandas as pd
 
+from mlops_fraud_prediction_ca1.categories import standardise_categories
 from mlops_fraud_prediction_ca1.temporal import parse_dates
 
-# Versioned engineering policy from A1 examples and the recorded PBI #3 inventory.
+# Versioned engineering policy from the supplied field definitions and the recorded PBI #3 inventory.
 # This is an explicit vocabulary, not a business-authoritative domain or a fit.
 # See docs/cleaning.md for provenance and the prior full-extract EDA limitation.
 CLEANING_POLICY_VERSION = "pbi12-v3"
@@ -61,19 +62,15 @@ _DATES = {"order_date": "order", "first_order_datetime": "customer"}
 
 @dataclass
 class CleaningResult:
-    """Aligned copies; source_positions identifies rows even with duplicate indices.
+    """Aligned raw/cleaned copies and per-cell diagnostic status.
 
-    Positions are local to this call, not globally unique ingestion identifiers.
-    Retain the source batch identifier separately. No rows are rejected. status
-    gives per-cell outcomes; audit aggregates them without influencing cleaning.
-    Identifiers and unrecognized columns are copied unchanged; labels use Int8.
+    Every row and its original index are retained, including duplicate indices.
+    Source and batch identity belong to the caller. No rows are rejected.
     """
 
     raw: pd.DataFrame
     cleaned: pd.DataFrame
     status: pd.DataFrame
-    source_positions: tuple[int, ...]
-    audit: pd.DataFrame
 
 
 def _category_policy(
@@ -86,18 +83,13 @@ def _category_policy(
         if isinstance(values, str):
             raise TypeError("Category vocabulary must be a collection, not a string")
         entries = frozenset(values)
-        for entry in entries:
-            if not isinstance(entry, str) or not entry:
-                raise ValueError("Vocabulary entries must be nonempty strings")
-            normalized = (
-                entry.strip().upper()
-                if column == "country_code"
-                else entry.strip().lower()
-            )
-            if normalized != entry:
-                raise ValueError(
-                    "Vocabulary entries must already use canonical case/whitespace"
-                )
+        if "" in entries:
+            raise ValueError("Vocabulary entries must be nonempty strings")
+        standardise_categories(
+            pd.Series([], dtype="string"),
+            case="upper" if column == "country_code" else "lower",
+            allowed_values=entries,
+        )
         if column == "payment_method" and "on delivery" in entries:
             raise ValueError(
                 "'on delivery' is unresolved; no semantic alias is approved"
@@ -116,9 +108,9 @@ def clean_table(
     Every present category except mobile_verified needs a canonical vocabulary;
     missing configuration raises rather than learning from this batch. These
     sets are consumer configuration, not assertions of an authoritative domain.
-    Country codes become uppercase, other categories lowercase, with boundary
+    Country codes become uppercase, other category text lowercase, with boundary
     whitespace removed. Missing/blank/unseen values become pd.NA. 'yes' and
-    'on Delivery' remain unknown. Boolean mobile values normalize textually.
+    'on Delivery' remain unknown. Mobile verification becomes nullable Boolean after canonical normalization.
 
     Dates use the committed explicit parser; invalid/missing/unrecognized dates
     become NaT with separate statuses. Only strings in its documented formats
@@ -142,14 +134,32 @@ def clean_table(
     for column in cleaned.columns:
         source = cleaned[column].copy()
         if column in _CATEGORIES:
-            text = source.astype("string").str.strip()
-            text = text.str.upper() if column == "country_code" else text.str.lower()
-            known = text.isin(policy[column])
-            cleaned[column] = text.where(known, pd.NA)
-            status[column] = "unknown_unseen"
-            status.loc[known, column] = "normalized"
-            status.loc[text.eq("").fillna(False), column] = "unknown_blank"
-            status.loc[source.isna(), column] = "unknown_missing"
+            # Normalize unique textual values through the shared category policy,
+            # then map them back positionally, preserving duplicate caller indices.
+            # Convert before grouping so True and numeric 1 remain distinct tokens.
+            text = source.astype("string")
+            preview = standardise_categories(
+                text,
+                case="upper" if column == "country_code" else "lower",
+                allowed_values=policy[column],
+            ).set_index("original_value")
+            outcomes = text.map(preview["status"])
+            normalized = text.map(preview["proposed_value"]).astype("string")
+            known = outcomes.eq("allowed")
+            if column == "mobile_verified":
+                cleaned[column] = normalized.map({"true": True, "false": False}).astype(
+                    "boolean"
+                )
+            else:
+                cleaned[column] = normalized.where(known, pd.NA)
+            status[column] = outcomes.map(
+                {
+                    "allowed": "normalized",
+                    "unexpected": "unknown_unseen",
+                    "blank": "unknown_blank",
+                    "missing": "unknown_missing",
+                }
+            )
         elif column in _DATES:
             parsed = parse_dates(source, kind=_DATES[column])
             cleaned[column] = parsed["date"]
@@ -186,17 +196,9 @@ def clean_table(
             status.loc[labels.isna(), column] = "unknown_invalid"
             status.loc[text.eq("").fillna(False), column] = "unknown_blank"
             status.loc[source.isna(), column] = "unknown_missing"
-    records = [
-        {"column": column, "outcome": outcome, "rows": int(count), "rejected_rows": 0}
-        for column in status.columns
-        for outcome, count in status[column].value_counts(sort=False).items()
-    ]
-    audit = pd.DataFrame(
-        records, columns=["column", "outcome", "rows", "rejected_rows"]
-    )
     cleaned.index = frame.index.copy()
     status.index = frame.index.copy()
-    return CleaningResult(raw, cleaned, status, tuple(range(len(frame))), audit)
+    return CleaningResult(raw, cleaned, status)
 
 
 def clean_frame(
@@ -219,41 +221,24 @@ def clean_frame(
 
 @dataclass
 class CleanedBatch:
-    """Three independent row-preserving tables with caller-supplied provenance.
+    """Three row-preserving tables cleaned with the same versioned policy."""
 
-    A durable row identity is (source, batch_id, table_name, source_position).
-    This is not a database load, a join, a deduplication or feature preparation.
-    """
-
-    batch_id: str
-    source: str
     policy_version: str
     tables: dict[str, CleaningResult]
 
 
-def clean_batch(
-    tables: Mapping[str, pd.DataFrame],
-    *,
-    batch_id: str,
-    source: str,
-) -> CleanedBatch:
-    """Apply the frozen v3 policy to literal, already-authorized tables.
+def clean_batch(tables: Mapping[str, pd.DataFrame]) -> CleanedBatch:
+    """Apply the frozen policy independently to three authorized input tables.
 
-    Missing labels/customer links never discard order rows: there are no joins.
-    New ingestion batches can use this without applying base evaluation dates.
-    Native database dates must be explicitly serialized to documented formats
-    at that consumer's boundary; passing them here is not supported by v3.
+    Missing customer/label links do not discard orders: there are no joins.
+    The caller retains source/batch provenance. Native database dates require
+    serialization at the consumer boundary before applying this string policy.
     """
-    for name, value in (("batch_id", batch_id), ("source", source)):
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{name} must be a nonblank string")
     if set(tables) != {"customers", "orders", "labels"}:
         raise ValueError(
             "Supply customers, orders and labels separately, including empty tables"
         )
     return CleanedBatch(
-        batch_id,
-        source,
         CLEANING_POLICY_VERSION,
         {
             name: clean_table(tables[name], category_values=BASE_CATEGORY_VALUES)
@@ -278,34 +263,14 @@ def load_clean_base_data(
     )
     return clean_batch(
         dict(zip(("customers", "orders", "labels"), frames, strict=True)),
-        batch_id="base",
-        source=str(data_dir),
     )
-
-
-def complete_key_mask(result: CleaningResult, keys: Sequence[str]) -> pd.Series:
-    """Mark complete cleaned keys without dropping rows or allowing null joins.
-
-    Consumers must still enforce unique composite keys and temporal eligibility.
-    IDs stay opaque: whitespace is checked for blankness, never stripped from
-    a nonblank identifier, and '001' remains different from '1'.
-    """
-    if not keys or len(set(keys)) != len(keys):
-        raise ValueError("Specify distinct key columns")
-    complete = pd.Series(True, index=result.cleaned.index)
-    for key in keys:
-        values = result.cleaned[key]
-        complete &= values.map(
-            lambda value: isinstance(value, str) and bool(value.strip())
-        )
-    return complete
 
 
 def summarize_batch(batch: CleanedBatch) -> pd.DataFrame:
     """Before/after counts for supplied rows, with unknown cells by column.
 
-    Unknown totals are cells, not distinct rows. Rejection counts describe
-    cleaning only, not rows withheld earlier by a reader or later by a join.
+    Unknown totals are cells, not distinct rows. Reader exclusions and downstream
+    join decisions are separate from this row-preserving transformation.
     """
     records = []
     for name, result in batch.tables.items():
@@ -318,7 +283,6 @@ def summarize_batch(batch: CleanedBatch) -> pd.DataFrame:
                 "table": name,
                 "before_rows": len(result.raw),
                 "after_rows": len(result.cleaned),
-                "rejected_rows": len(result.raw) - len(result.cleaned),
                 "unknown_cells": sum(unknowns.values()),
                 "unknown_by_column": ", ".join(
                     f"{column}: {count}" for column, count in unknowns.items() if count

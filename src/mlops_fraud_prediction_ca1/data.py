@@ -1,10 +1,12 @@
 """Guarded base CSV reads; source bytes and values remain unchanged."""
 
 import logging
+from copy import deepcopy
 from pathlib import Path
 
 import pandas as pd
 
+from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS
 from mlops_fraud_prediction_ca1.splitting import split_orders
 
 
@@ -42,7 +44,7 @@ def _read_base_data(data_dir: str | Path, *, raw_strings: bool = False) -> tuple
     frames = tuple(pd.read_csv(path, **options) for path in paths)
     for path, frame in zip(paths, frames, strict=True):
         logging.getLogger(__name__).info(
-            "Loaded %s | %s rows | %s columns",
+            "Ingested %s | %s rows | %s columns",
             path.name,
             len(frame),
             len(frame.columns),
@@ -99,16 +101,40 @@ def load_base_data(
     config_path: str | Path | None = None,
     raw_strings: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Read (customers, orders, labels), withholding test rows by default.
+    """Read base CSVs and return authorized customers, orders and labels.
 
-    All three CSVs are checked before reading. Orders are date-scoped first;
-    labels use normalized country/order keys and customers use country/customer
-    keys referenced by retained labels. Shared customers are possible: this is
-    chronological, not customer-disjoint. Incomplete keys cannot expose related
-    rows. raw_strings preserves literal category spelling/blank tokens under
-    the same guard. Missing/invalid schemas and configuration fail closed.
-    Each returned frame has aggregate-only split_audit attrs. No raw payload is
-    returned in audits. This selection does not replace #4's feature policy.
+    Args:
+        data_dir: Directory containing customers_base.csv, orders_base.csv and
+            labels_base.csv. A leading ~ is expanded to the user's home directory.
+        purpose: "analysis" by default, excluding the locked test interval.
+            "train" and "validation" use fixed windows; "final_evaluation"
+            requires a separate final_evaluation_enabled=true configuration.
+        config_path: Temporal-policy TOML path. None resolves config/time_split.toml
+            relative to this source checkout, independent of the working directory.
+            Installed consumers must supply an explicit configuration path.
+        raw_strings: False uses normal CSV missing-value/numeric inference while
+            preserving opaque IDs and category/date/label text. True reads every
+            column as literal strings, preserving blanks under the same guard.
+
+    Returns:
+        Tuple of customers, orders and labels DataFrames, in that order.
+        Orders are scoped first; labels use normalized country/order keys and
+        customers use country/customer keys referenced by retained labels.
+        Incomplete or cross-boundary ambiguous keys cannot expose related rows.
+        Shared customers may remain visible: windows are not customer-disjoint.
+        Each frame has an independent, aggregate-only split_audit in attrs,
+        including nested cutoffs and counts. No withheld payload enters audits.
+        Feature availability remains the caller's responsibility.
+
+    Raises:
+        FileNotFoundError: Any required CSV or the policy file is absent. All
+            three CSV paths are checked before reading any of them.
+        pandas.errors.EmptyDataError: An input CSV has no columns.
+        pandas.errors.ParserError: An input CSV cannot be parsed.
+        KeyError: Required country, identity or order_date columns are absent.
+        ValueError: Configuration, purpose or access settings are invalid,
+            final evaluation is disabled, or the reserved positional marker is
+            already present. Malformed TOML also raises a ValueError subclass.
     """
     customers, orders, labels = _read_base_data(data_dir, raw_strings=raw_strings)
     # Use a separate positional marker to detect cross-boundary duplicate keys.
@@ -122,9 +148,9 @@ def load_base_data(
     selected = selected.drop(columns=marker)
     frames = _scope_related(customers, labels, selected, denied)
     for name, frame in zip(("customers", "orders", "labels"), frames, strict=True):
-        frame.attrs = {"split_audit": audit}
+        frame.attrs = {"split_audit": deepcopy(audit)}
         logging.getLogger(__name__).info(
-            "Loaded %s_base.csv | %s rows | %s columns",
+            "Scoped %s_base.csv | %s rows | %s columns",
             name,
             len(frame),
             len(frame.columns),
@@ -136,8 +162,6 @@ def load_category_data(
     data_dir: str | Path, *, config_path: str | Path | None = None
 ) -> dict[str, pd.DataFrame]:
     """Literal category values, scoped through the same locked analysis read."""
-    from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS
-
     frames = load_base_data(data_dir, config_path=config_path, raw_strings=True)
     return {
         name: frame[list(CATEGORY_COLUMNS[name])].copy()

@@ -12,7 +12,6 @@ from mlops_fraud_prediction_ca1.cleaning import (
     CLEANING_POLICY_VERSION,
     clean_batch,
     clean_table,
-    complete_key_mask,
     load_clean_base_data,
     summarize_batch,
 )
@@ -77,50 +76,21 @@ class BatchContractTests(unittest.TestCase):
                 }
             ),
         }
-        result = clean_batch(tables, batch_id="future-01", source="synthetic")
-        self.assertEqual(
-            (result.batch_id, result.source, result.policy_version),
-            ("future-01", "synthetic", "pbi12-v3"),
-        )
+        result = clean_batch(tables)
+        self.assertEqual(result.policy_version, "pbi12-v3")
         for name, frame in tables.items():
             assert_frame_equal(result.tables[name].raw, frame)
             self.assertEqual(len(result.tables[name].cleaned), len(frame))
-            self.assertEqual(
-                result.tables[name].source_positions, tuple(range(len(frame)))
-            )
         orders = result.tables["orders"]
         self.assertEqual(orders.cleaned.order_id.tolist(), ["001", "1", "no-label"])
         self.assertEqual(orders.cleaned.refund_value.iloc[:2].tolist(), [999999, -5])
-        self.assertEqual(
-            complete_key_mask(orders, ["country_code", "order_id"]).tolist(),
-            [True, False, True],
-        )
+        self.assertTrue(pd.isna(orders.cleaned.country_code.iloc[1]))
         self.assertEqual(orders.cleaned.order_date.iloc[1], pd.Timestamp("2030-01-01"))
         self.assertEqual(len(result.tables["labels"].cleaned), 1)
 
-    def test_batch_metadata_and_key_contract_fail_closed(self):
-        tables = {name: pd.DataFrame() for name in ("customers", "orders", "labels")}
-        for metadata in (
-            {"batch_id": "", "source": "fixture"},
-            {"batch_id": "base", "source": " "},
-        ):
-            with self.assertRaises(ValueError):
-                clean_batch(tables, **metadata)
+    def test_batch_requires_all_three_tables(self):
         with self.assertRaises(ValueError):
-            clean_batch({"orders": pd.DataFrame()}, batch_id="base", source="fixture")
-        result = clean_table(
-            pd.DataFrame(
-                {"country_code": ["MY"] * 4, "order_id": ["001", "1", " ", None]}
-            ),
-            category_values=BASE_CATEGORY_VALUES,
-        )
-        self.assertEqual(
-            complete_key_mask(result, ["country_code", "order_id"]).tolist(),
-            [True, True, False, False],
-        )
-        for keys in ([], ["order_id", "order_id"]):
-            with self.assertRaises(ValueError):
-                complete_key_mask(result, keys)
+            clean_batch({"orders": pd.DataFrame()})
 
 
 class GuardedCleaningTests(unittest.TestCase):
@@ -182,7 +152,7 @@ class GuardedCleaningTests(unittest.TestCase):
                         batch.tables["orders"].raw.order_id.tolist(), expected
                     )
                     for result in batch.tables.values():
-                        for attr in ("raw", "cleaned", "status", "audit"):
+                        for attr in ("raw", "cleaned", "status"):
                             self.assertNotIn(
                                 "TEST_SECRET", str(getattr(result, attr).to_dict())
                             )
@@ -213,5 +183,4 @@ class GuardedCleaningTests(unittest.TestCase):
             self.assertEqual(report.loc["orders", "after_rows"], 4)
             self.assertEqual(report.loc["orders", "unknown_cells"], 4)
             self.assertEqual(report.loc["customers", "unknown_cells"], 2)
-            self.assertTrue(report.rejected_rows.eq(0).all())
             self.assertEqual(before, {p.name: p.read_bytes() for p in root.iterdir()})

@@ -23,7 +23,7 @@ Feature approval and train-only transformations remain consumer responsibilities
 | --- | --- | --- |
 | Country codes | Uppercase, boundary spaces removed | Missing, blank or unseen becomes unknown |
 | Collection/payment categories | Lowercase, boundary spaces removed | Missing, blank or unseen becomes unknown |
-| Mobile verification | Canonical `true`/`false` text | `yes` remains unknown |
+| Mobile verification | Nullable `boolean` (`True`/`False`/`pd.NA`) | `yes`, blanks and missing remain unknown |
 | Order dates | Parsed `datetime64[ns]` | Invalid or unsupported format becomes `NaT` |
 | First-order timestamps | Parsed `datetime64[ns]` | Invalid or unsupported format becomes `NaT` |
 | Eight numeric amount/count fields | Nullable `Float64` | Invalid, Boolean, nonfinite or unsupported precision becomes unknown |
@@ -46,11 +46,11 @@ verify their driver boundary.
 
 ## Versioned category vocabulary
 
-`CLEANING_POLICY_VERSION = "pbi12-v3"` names the policy. Version 3 adds numeric
-model dtypes, explicit unsupported-precision handling and numeric binary labels.
-The category vocabulary and case-insensitive date parser are unchanged.
+`CLEANING_POLICY_VERSION = "pbi12-v3"` names the fixed policy for numeric
+model dtypes, unsupported-precision handling, binary labels and nullable Boolean
+mobile verification. Category normalization reuses `standardise_categories`.
 
-Sources are Appendix A1's definitions/examples and the historical PBI #3 category
+Sources are the supplied field definitions and examples and the historical PBI #3 category
 inventory. The [category decisions](category-standardisation.md) describe
 unresolved representations. Earlier EDA inspected the full extract, including
 the eventual test window; this reuse does not establish a train-only vocabulary
@@ -70,13 +70,11 @@ should log the policy version. Labels never choose cleaning rules.
 
 ## Diagnostics and protected base reads
 
-`clean_table` additionally returns aligned `raw`, `cleaned`, per-cell `status`,
-`source_positions` and aggregate `audit` frames. These diagnostics support the
-notebook; callers needing one DataFrame can use `clean_frame` directly.
-`clean_batch` applies the same rules independently to customers/orders/labels
-and attaches caller-supplied batch/source metadata. `complete_key_mask` marks
-complete cleaned keys; consumers must still enforce uniqueness and never join
-unknown keys.
+`clean_table` returns aligned `raw`, `cleaned` and per-cell `status` frames.
+Callers needing one DataFrame use `clean_frame` directly. `clean_batch` applies
+the same rules independently to customers/orders/labels and records the policy
+version. Keep source/batch identity separately. Consumers must validate key
+completeness and uniqueness and avoid joining unknown keys.
 
 `load_clean_base_data(data_dir, purpose="train")` calls the protected CSV reader
 before cleaning. It cannot expose withheld test rows through ordinary reads.
@@ -95,10 +93,9 @@ refer to cells, not distinct rows. Original CSVs remain unchanged.
 
 The local API is available to #13 and #20; their later adoption is separate
 integration work. This module does not implement a database loader, choose
-model inputs or certify live-driver integration. No rejection audit API is
-needed until a row rejection rule is proposed.
+model inputs or certify live-driver integration.
 
 Tests live beside package code. Run `uv run pytest` from the repository root.
 The suites cover row retention, originals, duplicate indices, numeric dtypes,
 precision, determinism, fixed vocabularies, unknowns and protected-reader
-integration, including test-only sentinels. No test imports a preview script.
+integration, including test-only sentinels.
