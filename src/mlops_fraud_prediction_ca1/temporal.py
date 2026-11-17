@@ -265,7 +265,7 @@ def weekly_country_changes(
 
     The boundary week belongs to 'after'. Require at least minimum_weeks on
     each side; partial and zero-label weeks are excluded. Each candidate uses
-    the entire supplied complete-week scope, rather than a chosen March start.
+    the entire supplied complete-week scope.
     Missing calendar weeks invalidate a country's scan. Counts accompany rates;
     overlapping descriptive comparisons are not significance tests or causal
     estimates, and the largest contrast is not proof of a change-point date.
