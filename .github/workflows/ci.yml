@@ -1,0 +1,81 @@
+# Lint, format, tests, dependency and secret checks on every pull request.
+# A failing job blocks the merge: see "Checks" in README.md.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.12.24"
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check --output-format=github
+      - name: Format
+        run: uv run ruff format --check
+      - name: Tests
+        run: uv run pytest
+      - name: Licences
+        # Exact names as the locked packages report them, so a look-alike licence
+        # cannot pass by containing an allowed name. Windows-only packages' names are
+        # included so the step also passes on laptops. Notebook/EDA dependencies
+        # report the additional exact names below (including NumPy's bundled licences).
+        run: >-
+          uv run --with pip-licenses==5.5.5 pip-licenses
+          --ignore-packages mlops-fraud-prediction-ca1
+          --allow-only "MIT;MIT License;MIT-0;
+          BSD License;BSD-2-Clause;BSD-3-Clause;
+          Apache-2.0 OR BSD-2-Clause;Apache-2.0 OR BSD-3-Clause;
+          Apache-2.0;Apache 2.0;Apache Software License;
+          ISC License (ISCL);MIT-CMU;
+          BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0;
+          PSF-2.0;Python Software Foundation License"
+      - name: Advisories
+        run: |
+          uv export --locked --no-emit-project --format requirements-txt > "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit==2.10.1 --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+      - name: Sources
+        # Every locked package must come from PyPI, apart from this project itself.
+        run: "! grep -E '^source = ' uv.lock | grep -v -e 'registry = \"https://pypi.org/simple\"' -e 'editable = \".\"'"
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan the full history of every branch with gitleaks
+        run: |
+          curl -sSfL --max-time 120 -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git --redact --log-opts="--all"
+
+  route:
+    # GitHub rules cannot limit which branch a pull request comes from, so this check does.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: The pull request follows the branch workflow in docs/contributors/README.md
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$BASE <- $HEAD" in
+            "main <- dev" | "dev <- user/"* | "dev <- documentation/"* | "user/"*" <- feature/"* | "user/"*" <- dev" | "feature/"*" <- feature/"*) ;;
+            *) echo "::error::A pull request from $HEAD into $BASE is not allowed; see docs/contributors/README.md." && exit 1 ;;
+          esac
