@@ -12,12 +12,15 @@ dependencies = [
     "pandas>=3.1.1",
     "pymysql[rsa]>=1.2.4",
     "python-dotenv>=1.2.4",
+    "scikit-learn==1.9.1",
+    "skops==0.16.0",
     "sqlalchemy>=2.1.8",
 ]
 
 [project.scripts]
 mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
 log-test-run = "mlops_fraud_prediction_ca1.log_test_run:main"
+train = "mlops_fraud_prediction_ca1.training:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]
@@ -40,6 +43,7 @@ extend-select = ["I", "B", "UP", "T20"]
 [tool.ruff.lint.per-file-ignores]
 # main() is the command's entry point, where printing is its output.
 "src/mlops_fraud_prediction_ca1/__init__.py" = ["T201"]
+"src/mlops_fraud_prediction_ca1/training.py" = ["T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["src"]
