@@ -26,7 +26,7 @@ htmlcov/
 *.ipynb
 .ipynb_checkpoints/
 
-# Local source data and generated results; retain directory documentation
+# Local source data and generated results
 /data/*
 !/data/.gitkeep
 /output/*
@@ -60,6 +60,3 @@ Desktop.ini
 # Local agent instructions
 AGENTS.md
 CLAUDE.md
-
-# Local workspace files
-.local/

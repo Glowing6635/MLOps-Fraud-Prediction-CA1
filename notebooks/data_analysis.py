@@ -443,25 +443,28 @@ for name, examples in duplicate_examples.items():
 # %%
 from html import escape
 
-category_columns: dict[str, list[str]] = {
-    "customers": ["country_code", "mobile_verified"],
-    "orders": ["country_code", "collect_type", "payment_method"],
-    "labels": ["country_code", "is_fraud"],
-}
-category_frequencies: dict[tuple[str, str], pd.Series] = {}
-category_tables: dict[tuple[str, str], str] = {}
+from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS, raw_category_reports
 
-for name, columns in category_columns.items():
-    # PyCharm cannot resolve the pandas Unpack overloads for this call.
-    # noinspection PyTypeChecker,PyArgumentList
-    raw_categories: pd.DataFrame = pd.read_csv(
+raw_categories = {
+    name: pd.read_csv(
         base_data_dir / f"{name}_base.csv",
         usecols=columns,
         dtype="string",
         keep_default_na=False,
     )
+    for name, columns in CATEGORY_COLUMNS.items()
+}
+raw_category_report = raw_category_reports(raw_categories)
+category_frequencies: dict[tuple[str, str], pd.Series] = {}
+category_tables: dict[tuple[str, str], str] = {}
+
+for name, columns in CATEGORY_COLUMNS.items():
     for column in columns:
-        frequencies: pd.Series = raw_categories[column].value_counts(dropna=False)
+        column_report = raw_category_report.loc[
+            raw_category_report["dataset"].eq(name)
+            & raw_category_report["column"].eq(column)
+        ]
+        frequencies: pd.Series = column_report.set_index("original_value")["count"]
         category_frequencies[name, column] = frequencies
         top_values: pd.DataFrame = frequencies.rename_axis("Value").reset_index(
             name="Count"
@@ -568,32 +571,16 @@ display(
 # This also checks `mobile_verified` against true/false and `is_fraud` against 0/1. Other nonblank categories show `unchecked` because no allowed values are defined. Whitespace trimming is a precaution, not a confirmed data issue. See the [standardization notes](../docs/category-standardisation.md) for details.
 
 # %%
-from mlops_fraud_prediction_ca1.categories import standardise_categories
-
 category_previews: dict[tuple[str, str], pd.DataFrame] = {}
 category_preview_tables: dict[tuple[str, str], str] = {}
 
-for name, columns in category_columns.items():
-    # PyCharm cannot resolve the pandas Unpack overloads for this call.
-    # noinspection PyTypeChecker,PyArgumentList
-    raw_category_values: pd.DataFrame = pd.read_csv(
-        base_data_dir / f"{name}_base.csv",
-        usecols=columns,
-        dtype="string",
-        keep_default_na=False,
-    )
+for name, columns in CATEGORY_COLUMNS.items():
     for column in columns:
-        preview: pd.DataFrame = standardise_categories(
-            raw_category_values[column],
-            case="upper" if column == "country_code" else "lower",
-            allowed_values=(
-                {"true", "false"}
-                if column == "mobile_verified"
-                else {"0", "1"}
-                if column == "is_fraud"
-                else None
-            ),
-        )
+        preview: pd.DataFrame = raw_category_report.loc[
+            raw_category_report["dataset"].eq(name)
+            & raw_category_report["column"].eq(column),
+            ["original_value", "proposed_value", "count", "status"],
+        ].reset_index(drop=True)
         category_previews[name, column] = preview
         category_preview_tables[name, column] = (
             preview.rename(
@@ -1511,9 +1498,9 @@ display(
 #
 # Daily counts cover every calendar date between the first and last observed orders, including the final observed day. Boundary flags indicate potentially partial coverage; low volume alone does not establish an incomplete day. Missing/invalid dates are counted separately.
 #
-# Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison, rather than selecting a March-only search interval. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
+# Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
 #
-# These tables describe the full historical extract, including the period later used for testing. They do not provide evidence of an untouched holdout.
+# These tables describe the full historical extract. This exploration means later evaluation cannot assume unseen data.
 
 # %%
 from mlops_fraud_prediction_ca1.temporal import (
@@ -1607,11 +1594,11 @@ show_report(country_contributions, "March rise — within-country and mix contri
 # %% [markdown]
 # In the full historical snapshot, daily counts reconcile 949,889 orders across 181 dates, 12 November 2022–11 May 2023, with no excluded dates or zero-observation days. The median is 5,240 orders/day; 11 May contains 2,341 orders. This final-day volume warrants caution but does not prove incomplete source coverage.
 #
-# Across all eligible full-history weekly boundaries, BD's largest pooled rise is at 28 November (14.11% before, 30.43% after) and PK's at 6 March (20.55% before, 31.14% after). PH's largest pooled decline is at 27 February (9.54% to 6.84%). Its roughly −2.5-percentage-point pooled contrast appears across boundaries from December onward, so it does not establish an April-specific change. PH's weekly rate rises again from 17 April, to 7.17%, 7.14% and 7.36% in the last three complete weeks. These overlapping comparisons do not establish onset dates or causes.
+# Across all eligible full-history weekly boundaries, BD's largest pooled rise is at 28 November (14.11% before, 30.43% after) and PK's at 6 March (20.55% before, 31.14% after). PH's largest pooled decline is at 27 February (9.54% to 6.84%). Its roughly −2.5-percentage-point pooled contrast appears across boundaries from December through early April, so it does not establish an April-specific change. PH's weekly rate rises again from 17 April, to 7.17%, 7.14% and 7.36% in the last three complete weeks. These overlapping comparisons do not establish onset dates or causes.
 #
 # The March decomposition compares complete weeks 14 November–26 February (56,116 fraud / 562,211 valid labels) with 13 March–7 May (36,524 / 282,055). The partial first and last weeks are excluded, and the two transition weeks 27 February–12 March separate the periods. All complete weeks after the transition are included. The aggregate rises from 9.9813% to 12.9492% (+2.9679 percentage points): +2.1683 points from within-country changes at baseline valid-label shares, plus +0.7997 points from country mix evaluated at comparison rates.
 #
-# PK remains the largest within-country contributor (+2.0681 points), with a pooled rate of 20.3127% before and 31.4300% afterward. Its weekly rate returns to about 24% from 17 April (23.82%, 23.18%, 23.71%); stopping at 16 April would overstate its sustained elevation. BD adds +0.6168 points, MY +0.2664 and TH +0.0226; PH offsets the rise by −0.8057 points. The country-mix term uses valid-label shares, not all-order shares; missing and invalid labels are excluded from rate denominators.
+# PK remains the largest within-country contributor (+2.0681 points), with a pooled rate of 20.3127% before and 31.4300% afterward. Its weekly rate returns to about 24% from 17 April (23.82%, 23.18%, 23.71%). BD adds +0.6168 points, MY +0.2664 and TH +0.0226; PH offsets the rise by −0.8057 points. The country-mix term uses valid-label shares, not all-order shares; missing and invalid labels are excluded from rate denominators.
 
 
 # %% [markdown]
