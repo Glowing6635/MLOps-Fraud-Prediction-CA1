@@ -135,6 +135,14 @@ We chose this over opening port 3306 to every address, which would leave the dat
 
 When an engineer's address changes, add a rule for the new one and delete the old one with `aws ec2 revoke-security-group-ingress`, using the same options as step 4. `aws ec2 describe-security-groups --group-ids <security group>` lists the rules.
 
+The database also refuses unencrypted connections, because `require_secure_transport` is on in the `fraud-mysql84` parameter group. The shared connection code encrypts and checks the RDS certificate, so nothing else needs setting up.
+
+## Between sessions
+
+RDS keeps running, and spending the sandbox budget, after the sandbox stops. When the next session is a day or more away, stop it with `aws rds stop-db-instance --db-instance-identifier fraud-db`. RDS starts it again by itself after 7 days, so stop it again then. At the start of the next session, start it with `aws rds start-db-instance` before anything else, since it takes several minutes. The MLflow server waits up to 15 minutes for it.
+
+Before each deadline, back up the `fraud`, `mlflow` and `mlflow_auth` databases with `mysqldump`, and the artifact bucket with `aws s3 sync s3://<bucket> <folder>`. Pressing Reset in the sandbox deletes everything in it.
+
 ## Before the sandbox stops
 
 Run `uv run redeploy-check record` once, from any laptop. It saves the model's predictions to `output/redeploy_check.json` on that laptop, so run the drill from the same laptop.
@@ -152,6 +160,14 @@ Run `uv run redeploy-check record` once, from any laptop. It saves the model's p
 On 17 Nov, ending the sandbox terminated the MLflow server's machine, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. The runs and the model were still there, because they live in RDS and S3. RDS was not stopped: it logged no events. A sandbox stopped overnight may also stop RDS, which takes longer to start, so repeat the drill on such a morning before setting the demo-day start time.
 
 Demo-day start time: TO RECORD, from the slowest total above plus a margin of TO RECORD minutes.
+
+## Demo day
+
+- The day before, end and start the sandbox, run the drill, and change nothing afterwards. Note the image tag in `mlflow-server/Dockerrun.aws.json`, so the version that worked can be deployed again. Keep RDS running from then until the demo is over.
+- Start the sandbox at least an hour early, and run `uv run restart-drill` from both laptops.
+- Just before presenting, click Start Lab again, which resets the session timer, so the session can't end during the demo.
+- To query RDS live, add the venue's address to port 3306, and remove it afterwards.
+- Have a fallback ready: a recording of the MLflow web UI, and a copy of the champion model on the demo laptop.
 
 ## Reaching RDS from each laptop
 
