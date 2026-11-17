@@ -27,8 +27,9 @@ def quality_reports(datasets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame
     Missingness here follows the loader's pandas inference. Numeric coercions
     exist only in temporary check Series; failures and infinities are counted.
     A count must be finite and integral; negativity is reported independently.
-    The spec defines mobile verification as True/False and labels as 0/1, but
-    provides examples rather than closed collection/payment category domains.
+    The supplied field definitions describe mobile verification as True/False
+    and labels as 0/1, but give examples rather than closed collection/payment
+    category domains.
     """
     schema, numeric, missing, copies = [], [], [], []
     for name, frame in datasets.items():
@@ -120,9 +121,9 @@ def raw_category_reports(raw_categories: dict[str, pd.DataFrame]) -> pd.DataFram
     """Inventory all raw values and formatting proposals, without semantic aliases.
 
     Read the selected CSV columns as strings with keep_default_na=False. Empty
-    fields remain visible and are classified as blank. Only spec-defined binary
-    domains are validated; country/collection/payment semantic validity remains
-    unchecked. In particular 'yes' and 'on Delivery' are never silently remapped.
+    fields remain visible and are classified as blank. Only binary domains from
+    the supplied field definitions are validated; country/collection/payment
+    semantic validity remains unchecked. In particular 'yes' and 'on Delivery' are never silently remapped.
     """
     reports = []
     for name, columns in CATEGORY_COLUMNS.items():
