@@ -87,7 +87,9 @@ Run `uv run redeploy-check record` once, from any laptop. It saves the model's p
 
 | Date | Machine and network | RDS | MLflow | Model | Total |
 | --- | --- | --- | --- | --- | --- |
-| | | | | | |
+| 17 Nov 2026 | Richard Go's laptop, network TO RECORD | 0:06 | 0:47 | 0:58 | 1:04 |
+
+On 17 Nov, ending the sandbox terminated the MLflow server's machine, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. The runs and the model were still there, because they live in RDS and S3. RDS was not stopped: it logged no events. A sandbox stopped overnight may also stop RDS, which takes longer to start, so repeat the drill on such a morning before setting the demo-day start time.
 
 Demo-day start time: TO RECORD, from the slowest total above plus a margin of TO RECORD minutes.
 
