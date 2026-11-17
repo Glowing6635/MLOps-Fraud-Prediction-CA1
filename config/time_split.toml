@@ -1,0 +1,9 @@
+# PBI #6: fixed retrospective evaluation; changes require a decision-log entry.
+train_start = "2022-11-12"
+validation_start = "2023-03-27"
+test_start = "2023-04-17"
+test_end_exclusive = "2023-05-11"
+test_locked = true
+
+# Enable only after model, threshold and preprocessing freeze. Access is logged.
+final_evaluation_enabled = false

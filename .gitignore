@@ -1,25 +1,70 @@
+# Python environments and build artifacts
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Python and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.tox/
+.nox/
+.cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Notebook outputs stay local; Python representations are tracked
+*.ipynb
+.ipynb_checkpoints/
+
+# Local source data and generated results; retain directory documentation
+/data/*
+!/data/.gitkeep
+/output/*
+!/output/.gitkeep
+*.log
+
+# Credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+/.aws/
+/.ssh/
+*.pem
+*.key
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Source datasets and supplied PDF documents
+*.csv
 *.pdf
 *.txt
 
+# Local agent instructions
 AGENTS.md
 CLAUDE.md
 
-
-# Secrets: copy .env.example to .env
-.env
-
-# Course data and run outputs stay on each laptop
-*.csv
-data/*
-!data/.gitkeep
-output/*
-!output/.gitkeep
+# MLflow runs logged without a tracking server
 mlruns/
 mlartifacts/
 
-# Python and tool caches
-.venv/
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-.ipynb_checkpoints/
+# Local workspace files
+.local/
