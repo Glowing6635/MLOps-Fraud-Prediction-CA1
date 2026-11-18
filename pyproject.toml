@@ -7,11 +7,39 @@ authors = [
     { name = "spiralsky", email = "shianastrophysics@gmail.com" }
 ]
 requires-python = "~=3.12.0"
-dependencies = []
+dependencies = [
+    "mlflow==3.18.0",
+    "pandas>=3.1.1",
+    "pymysql[rsa]>=1.2.4",
+    "python-dotenv>=1.2.4",
+    "sqlalchemy>=2.1.8",
+]
 
 [project.scripts]
 mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
+log-test-run = "mlops_fraud_prediction_ca1.log_test_run:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.4.0",
+    "jinja2>=3.1.6",
+    "jupytext>=1.19.6",
+    "matplotlib>=3.11.2",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+    "seaborn>=0.13.2",
+]
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "UP", "T20"]
+
+[tool.ruff.lint.per-file-ignores]
+# main() is the command's entry point, where printing is its output.
+"src/mlops_fraud_prediction_ca1/__init__.py" = ["T201"]
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
