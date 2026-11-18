@@ -1,0 +1,3 @@
+# False positive: customer_keys and normalize_country are Python arguments, not a credential.
+# Limit the exception to this exact historical finding.
+6882121242d4f6bfac0f3dbef0b4d4078ee3ef12:src/mlops_fraud_prediction_ca1/relationships.py:generic-api-key:207
