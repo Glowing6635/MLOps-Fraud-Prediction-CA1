@@ -4,6 +4,8 @@ name: CI
 
 on:
   pull_request:
+    # edited reruns the checks when a PR's target branch changes, so route sees the new target.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, dev]
 
