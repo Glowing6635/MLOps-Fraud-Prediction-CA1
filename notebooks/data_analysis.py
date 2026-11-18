@@ -247,7 +247,9 @@ base_data_dir: Path = project_root / "data"
 # %% [markdown]
 # ### 2.2 Import the reusable loader
 #
-# Import the package implementation directly so notebooks and later workflows share the same loading contract.
+# **PBI #6 scope:** earlier full-extract PBI #3/#4 exploration predates the test lock. Ordinary reads use `config/time_split.toml`, withholding test rows and their exclusive related payloads. Analysis may include the separately reported 11 May day and later dates; this does not establish training eligibility. Historical full-extract conclusions require review against the scoped data. See the [frozen-window evidence](../docs/time-split.md#frozen-windows-and-country-mix).
+#
+# Import the package implementation directly so notebooks and later workflows share the same guarded loading contract.
 
 # %%
 from mlops_fraud_prediction_ca1.data import load_base_data
@@ -446,18 +448,11 @@ for name, examples in duplicate_examples.items():
 # %%
 from html import escape
 
+from mlops_fraud_prediction_ca1.data import load_category_data
 from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS, raw_category_reports
 
-raw_categories = {
-    name: pd.read_csv(
-        base_data_dir / f"{name}_base.csv",
-        usecols=columns,
-        dtype="string",
-        keep_default_na=False,
-    )
-    for name, columns in CATEGORY_COLUMNS.items()
-}
-raw_category_report = raw_category_reports(raw_categories)
+scoped_category_data = load_category_data(base_data_dir)
+raw_category_report = raw_category_reports(scoped_category_data)
 category_frequencies: dict[tuple[str, str], pd.Series] = {}
 category_tables: dict[tuple[str, str], str] = {}
 
@@ -1444,9 +1439,9 @@ display(
 # %% [markdown]
 # #### 6.3.1 Weekly movement and interpretation
 #
-# The largest adjacent-week jump identifies a possible onset; it is not a test of a lasting regime change. The base snapshot also shows a broader elevation: weekly aggregate rates are roughly 9–11% through February, 11.8% in the transition week starting 6 March, and roughly 12–14% from mid-March to May (including weeks just below 12%). This persistence matters alongside the single-week screen.
+# The largest adjacent-week jump identifies a candidate boundary; it is not a test of a lasting regime change. The base snapshot also shows a broader elevation: weekly aggregate rates are roughly 9–11% through February, 11.8% in the transition week starting 6 March, and roughly 12–14% from mid-March to May (including weeks just below 12%). This persistence matters alongside the single-week screen.
 #
-# The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
+# The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 then compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
 
 # %%
 aggregate_movement = weekly_changes.loc[weekly_changes.country_code.eq("ALL")]
@@ -1503,15 +1498,24 @@ display(
 #
 # Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
 #
-# These tables describe the full historical extract. This exploration means later evaluation cannot assume unseen data.
+# The tables use the current reader scope. Locked reads flag the withheld test dates and scan only the contiguous pre-test prefix, without opening test rows. The full-history interpretation below records the earlier extract; it does not establish an untouched holdout, and its longer comparison window is unavailable in a locked rerun.
 
 # %%
 from mlops_fraud_prediction_ca1.temporal import (
     daily_order_counts,
+    parse_dates,
     weekly_country_changes,
 )
 
+split_audit = orders.attrs.get("split_audit", {})
+test_locked = bool(split_audit.get("test_locked", False))
 daily_counts = daily_order_counts(linked_orders)
+daily_counts["withheld_by_policy"] = False
+if test_locked:
+    cutoffs = split_audit["cutoffs"]
+    daily_counts["withheld_by_policy"] = daily_counts.date.ge(
+        pd.Timestamp(cutoffs["test_start"])
+    ) & daily_counts.date.lt(pd.Timestamp(cutoffs["test_end_exclusive"]))
 assert int(daily_counts.orders.sum()) == len(linked_orders)
 show_report(
     pd.DataFrame(
@@ -1523,21 +1527,29 @@ show_report(
                 "last_observed": daily_counts.date.max(),
                 "zero_count_days": int(daily_counts.orders.eq(0).sum()),
                 "date_exclusions": daily_counts.attrs["excluded_date_rows"],
+                "policy_withheld_days": int(daily_counts.withheld_by_policy.sum()),
+                "test_locked": test_locked,
             }
         ]
     ),
-    "Daily-volume reconciliation — full historical extract",
+    "Daily-volume reconciliation — current reader scope",
 )
 display(
     HTML(
-        "<details><summary>Every calendar date and boundary flags</summary>"
+        "<details><summary>Every calendar date and policy/boundary flags</summary>"
         + style_report(daily_counts, "Observed daily orders").to_html()
         + "</details>"
     )
 )
-complete_weekly_rates = weekly_country_rates.loc[
-    ~weekly_country_rates.partial_week
-].copy()
+scan_orders = linked_orders
+if test_locked:
+    scan_orders = linked_orders.loc[
+        parse_dates(linked_orders.order_date).date.lt(
+            pd.Timestamp(split_audit["cutoffs"]["test_start"])
+        )
+    ].copy()
+scan_weekly_rates = weekly_fraud_rates(scan_orders)
+complete_weekly_rates = scan_weekly_rates.loc[~scan_weekly_rates.partial_week].copy()
 country_changes = weekly_country_changes(complete_weekly_rates)
 largest_country_contrasts = (
     country_changes.loc[
@@ -1559,7 +1571,7 @@ display(
     )
 )
 # Compare complete weeks 14 Nov–26 Feb against 13 Mar–7 May.
-# Use all complete weeks after the March transition through the end of the extract.
+# Locked reads use only the available pre-test weeks within that interval.
 decomposition_counts = ["valid_labels", "fraud_labels"]
 baseline_counts = (
     complete_weekly_rates.loc[
@@ -1592,6 +1604,13 @@ country_contributions = pd.DataFrame(
     }
 ).reset_index()
 show_report(country_contributions, "March rise — within-country and mix contributions")
+display(
+    Markdown(
+        f"Comparison uses available complete weeks through "
+        f"{complete_weekly_rates.week_start.max() + pd.Timedelta(days=6):%d %B %Y}; "
+        f"test locked: {test_locked}. Historical full-period results below use the earlier extract."
+    )
+)
 
 
 # %% [markdown]

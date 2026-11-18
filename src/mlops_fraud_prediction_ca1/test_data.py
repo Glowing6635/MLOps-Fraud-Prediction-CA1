@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from mlops_fraud_prediction_ca1.data import load_base_data
+from mlops_fraud_prediction_ca1.data import _read_base_data, load_base_data
 
 
 class LoadBaseDataTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class LoadBaseDataTests(unittest.TestCase):
                 "mlops_fraud_prediction_ca1.data", level="INFO"
             ) as captured:
                 actual: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] = (
-                    load_base_data(str(directory))
+                    _read_base_data(str(directory))
                 )
 
             for name, frame, expected_frame in zip(
@@ -99,7 +99,7 @@ class LoadBaseDataTests(unittest.TestCase):
             (directory / "labels_base.csv").write_text(
                 "order_id,customer_id,is_fraud\n0007,0001,1\n"
             )
-            customers, orders, labels = load_base_data(directory)
+            customers, orders, labels = _read_base_data(directory)
             self.assertEqual(customers.customer_id.tolist(), ["0001", "0002", "0003"])
             self.assertEqual(
                 customers.mobile_verified.tolist(), ["True", "False", "yes"]

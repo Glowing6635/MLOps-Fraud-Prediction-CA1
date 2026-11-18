@@ -48,6 +48,29 @@ class EdaIntegrationTests(unittest.TestCase):
                 "is_fraud": [1, 0, 1],
             }
         )
+        secret_order = orders.iloc[[0]].copy()
+        secret_order["order_id"] = "secret"
+        secret_order["order_date"] = "2023-04-17"
+        secret_order["payment_method"] = "TEST_SECRET"
+        secret_customer = customers.iloc[[0]].copy()
+        secret_customer["customer_id"] = "secret_customer"
+        secret_customer["mobile_verified"] = "TEST_SECRET"
+        orders = pd.concat([orders, secret_order], ignore_index=True)
+        customers = pd.concat([customers, secret_customer], ignore_index=True)
+        labels = pd.concat(
+            [
+                labels,
+                pd.DataFrame(
+                    {
+                        "country_code": ["MY"],
+                        "order_id": ["secret"],
+                        "customer_id": ["secret_customer"],
+                        "is_fraud": [1],
+                    }
+                ),
+            ],
+            ignore_index=True,
+        )
         with tempfile.TemporaryDirectory(prefix="pbi3-preview-test-") as directory:
             root = Path(directory)
             for name, frame in (
@@ -58,6 +81,8 @@ class EdaIntegrationTests(unittest.TestCase):
                 frame.to_csv(root / f"{name}_base.csv", index=False)
             before = {file.name: file.read_bytes() for file in root.iterdir()}
             customers, orders, labels = load_base_data(root)
+            for frame in (customers, orders, labels):
+                self.assertNotIn("TEST_SECRET", frame.to_json())
             linked, _ = link_orders_customers(
                 orders, labels, customers, normalize_country=True
             )

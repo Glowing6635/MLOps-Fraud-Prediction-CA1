@@ -1,9 +1,9 @@
 # Decision log
 
-This log records the feature-timing assumptions and handling for PBI #4.
+This log records the feature-timing assumptions and handling for PBI #4 and the temporal policy for PBI #6.
 No Operations confirmation has been received, so every timing status remains
-unconfirmed. Decisions were recorded on 15 November 2026.
-Owner identifies the accountable engineer.
+unconfirmed. Feature-timing decisions were recorded on 15 November 2026 and
+temporal windows on 16 November. Owner identifies the accountable engineer.
 
 Sources: [live #4](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/4),
 [#14](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/14), and
@@ -160,6 +160,49 @@ record the actual evidence date, owner, reason and changed code/configuration.
 comparison and champion enforcement. Operations timing and label evidence may
 replace assumptions when field-specific evidence becomes available.
 Other #30 decisions and its engineer handover remain pending.
+
+## D6-01 — Frozen retrospective windows and protected exposure
+
+- Recorded: 2026-11-16. Accountable engineer: SpiralSky. Affected PBIs:
+  #6, #13, #14, #21, #23, #25, #30.
+- Decision: freeze half-open windows in `config/time_split.toml`: train
+  [2022-11-12, 2023-03-27), validation [2023-03-27, 2023-04-17), test
+  [2023-04-17, 2023-05-11). Incoming batches never move these dates.
+- Reason: validation and test follow the descriptive March elevation; training
+  retains 70,653 orders on/after 13 March. This is a retrospective evaluation
+  choice, not a statistically established change point. The 2,341 orders on
+  11 May are excluded conservatively; low volume does not prove a partial day.
+  Counts, country mix and target denominators appear in the
+  [frozen-window evidence](time-split.md#frozen-windows-and-country-mix).
+- Enforcement: `split_orders` shares one policy with CSV reads and parameterized
+  SQL predicates. Related labels/customers are scoped by allowed composite keys.
+  `test_locked=true` withholds the test interval from ordinary analysis. Train
+  and validation membership remains fixed after an analysis unlock.
+- Final-evaluation access additionally requires
+  `final_evaluation_enabled=true`, default false, after model, threshold and
+  preprocessing freeze. Both selection and SQL-predicate access log the test
+  interval and ordinary lock state. The setting does not unlock ordinary reads.
+  Caller-owned run logs must retain access and final results. Release training
+  is outside the current API.
+- Provenance: loader audits record purpose, both access settings, resolved ISO
+  cutoffs and aggregate membership counts. Consumers retain their code and
+  configuration revisions with this metadata in their run log.
+- Interpretation: preserve the supplied zero = not fraud definition; unmatched labels remain
+  unknown. D4-04's provisional 30 days applies to historical label-derived
+  features, not proof of historical target availability or a required gap.
+  As-of evaluation requires actual label timestamps and a separate decision.
+- Limitations: freeze and implementation were committed on 16 November, after
+  the 12 November target. External first-training chronology is unverified.
+  Earlier full-extract EDA means this is not an untouched holdout. SQLite
+  semantic tests do not establish live RDS or downstream consumer enforcement.
+  No model or final scoring was run for this implementation.
+- Code and checks: `splitting.py`, `data.py`, `test_splitting.py`,
+  `test_guarded_data.py`, `test_data.py` and `test_eda_integration.py` under
+  `src/mlops_fraud_prediction_ca1/`. Consumer contract:
+  [fixed temporal reads](time-split.md).
+
+Date or interpretation changes require a new decision before subsequent
+training. Preserve existing final-evaluation artifacts when policy changes.
 
 ## D8-01: The MLflow server keeps its data in RDS and S3
 
