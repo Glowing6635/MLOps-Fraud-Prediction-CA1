@@ -57,7 +57,11 @@ Before merging any PR:
 - Describe the change and link the task or PBI.
 - Record relevant checks and their results; checks should pass.
 - Resolve review discussions and merge conflicts.
-- Obtain another review for changes made after teammate approval.
+- Obtain another review for changes made after teammate approval. Any new
+  commit on the source branch cancels the approval, so merge as soon as it is in.
+- The approver must not be the PR's author or the last person to push to its
+  source branch. For `dev` → `main`, whoever merged into `dev` last opens the PR
+  and the other teammate approves it.
 
 ### Choose the Merge Method
 
@@ -72,7 +76,8 @@ Squash each feature into one logical commit when integrating it into a user
 branch. Active dependents do not change this merge method; rebase them as
 explained below. User-to-dev and dev-to-main integrations retain merge commits;
 there is no later squash step. GitHub's “Create a merge commit” uses
-`git merge --no-ff`.
+`git merge --no-ff`. `dev` also allows squash, for documentation PRs only, so
+check the method before merging a user → `dev` PR.
 
 ## Working on Multiple Features
 
@@ -157,9 +162,9 @@ change must meet the PR review and validation requirements before merging.
 
 ## Keeping Branches Current
 
-- **User branches:** merge or rebase the latest `dev`, resolve conflicts, and
-  rerun relevant checks. Coordinate before rebasing published commits that
-  others depend on.
+- **User branches:** merge the latest `dev`, resolve conflicts, and rerun
+  relevant checks. Never rebase a user branch: branch rules block the force
+  push that a rebase needs.
 - **Out-of-date PRs:** update the source from its target before merging, resolve
   conflicts, and rerun checks. Keep the existing PR to preserve review history.
 
