@@ -23,6 +23,7 @@
 # - [Safe linkage](#4-relationships-between-datasets): use country plus order ID, then link customers through labels. Fifteen orders have no label.
 # - [Business rules](#5-business-logic-checks): refunds exceed order values in 21.0221% of orders. Retain and flag these records for investigation.
 # - [Fraud patterns](#6-dates-and-fraud-patterns): 10.9967% of raw labels are fraud. Matched-order rates vary by country and week; the March rise is descriptive evidence.
+# - [Feature availability](#7-feature-availability-and-leakage-audit): customer snapshot timing is unconfirmed. Exclude `refund_value` from features and apply the #14 fallback to unconfirmed customer inputs.
 
 # %% [markdown]
 # ## Table of contents
@@ -39,7 +40,10 @@
 # - [6. Dates and fraud patterns](#6-dates-and-fraud-patterns)
 #   - [Date parsing](#61-date-ranges-and-formats) · [Country rates](#62-fraud-rates-by-country) · [Weekly movements](#63-weekly-fraud-rates-and-dated-movements)
 #   - [Daily volume and country changes](#64-daily-volume-and-country-changes)
-# - [7. Preparation decisions and limitations](#7-preparation-decisions-and-limitations)
+# - [7. Feature availability and leakage audit](#7-feature-availability-and-leakage-audit)
+#   - [Availability table](#71-column-availability) · [Customer timing evidence](#72-customer-timing-evidence) · [Handling and recorded decisions](#73-handling-and-recorded-decisions)
+# - [8. Preparation decisions and limitations](#8-preparation-decisions-and-limitations)
+# - [9. Reusable post-EDA cleaning](#9-reusable-post-eda-cleaning)
 
 # %% [markdown]
 # ## 1. Workflow
@@ -244,7 +248,9 @@ base_data_dir: Path = project_root / "data"
 # %% [markdown]
 # ### 2.2 Import the reusable loader
 #
-# Import the package implementation directly so notebooks and later workflows share the same loading contract.
+# **PBI #6 scope:** earlier full-extract PBI #3/#4 exploration predates the test lock. Ordinary reads use `config/time_split.toml`, withholding test rows and their exclusive related payloads. Analysis may include the separately reported 11 May day and later dates; this does not establish training eligibility. Historical full-extract conclusions require review against the scoped data. See the [frozen-window evidence](../docs/time-split.md#frozen-windows-and-country-mix).
+#
+# Import the package implementation directly so notebooks and later workflows share the same guarded loading contract.
 
 # %%
 from mlops_fraud_prediction_ca1.data import load_base_data
@@ -443,18 +449,11 @@ for name, examples in duplicate_examples.items():
 # %%
 from html import escape
 
+from mlops_fraud_prediction_ca1.data import load_category_data
 from mlops_fraud_prediction_ca1.quality import CATEGORY_COLUMNS, raw_category_reports
 
-raw_categories = {
-    name: pd.read_csv(
-        base_data_dir / f"{name}_base.csv",
-        usecols=columns,
-        dtype="string",
-        keep_default_na=False,
-    )
-    for name, columns in CATEGORY_COLUMNS.items()
-}
-raw_category_report = raw_category_reports(raw_categories)
+scoped_category_data = load_category_data(base_data_dir)
+raw_category_report = raw_category_reports(scoped_category_data)
 category_frequencies: dict[tuple[str, str], pd.Series] = {}
 category_tables: dict[tuple[str, str], str] = {}
 
@@ -1441,9 +1440,9 @@ display(
 # %% [markdown]
 # #### 6.3.1 Weekly movement and interpretation
 #
-# The largest adjacent-week jump identifies a possible onset; it is not a test of a lasting regime change. The base snapshot also shows a broader elevation: weekly aggregate rates are roughly 9–11% through February, 11.8% in the transition week starting 6 March, and roughly 12–14% from mid-March to May (including weeks just below 12%). This persistence matters alongside the single-week screen.
+# The largest adjacent-week jump identifies a candidate boundary; it is not a test of a lasting regime change. The base snapshot also shows a broader elevation: weekly aggregate rates are roughly 9–11% through February, 11.8% in the transition week starting 6 March, and roughly 12–14% from mid-March to May (including weeks just below 12%). This persistence matters alongside the single-week screen.
 #
-# The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
+# The summary dates the largest adjacent-week aggregate movement and shows PK and BD in those weeks. Section 6.4 then compares all countries across eligible boundaries and decomposes the broader March elevation; PK provides its largest positive contribution.
 
 # %%
 aggregate_movement = weekly_changes.loc[weekly_changes.country_code.eq("ALL")]
@@ -1500,15 +1499,24 @@ display(
 #
 # Compare each country's pooled valid-label rate before and after every eligible complete-week boundary, with the boundary week included in the later period. Require at least two complete weeks on each side; exclude partial boundary weeks and undefined rates. Display denominators and every comparison. These overlapping descriptive comparisons do not establish significance, a causal mechanism or an exact change-point date. Short endpoint periods can produce large contrasts.
 #
-# These tables describe the full historical extract. This exploration means later evaluation cannot assume unseen data.
+# The tables use the current reader scope. Locked reads flag the withheld test dates and scan only the contiguous pre-test prefix, without opening test rows. The full-history interpretation below records the earlier extract; it does not establish an untouched holdout, and its longer comparison window is unavailable in a locked rerun.
 
 # %%
 from mlops_fraud_prediction_ca1.temporal import (
     daily_order_counts,
+    parse_dates,
     weekly_country_changes,
 )
 
+split_audit = orders.attrs.get("split_audit", {})
+test_locked = bool(split_audit.get("test_locked", False))
 daily_counts = daily_order_counts(linked_orders)
+daily_counts["withheld_by_policy"] = False
+if test_locked:
+    cutoffs = split_audit["cutoffs"]
+    daily_counts["withheld_by_policy"] = daily_counts.date.ge(
+        pd.Timestamp(cutoffs["test_start"])
+    ) & daily_counts.date.lt(pd.Timestamp(cutoffs["test_end_exclusive"]))
 assert int(daily_counts.orders.sum()) == len(linked_orders)
 show_report(
     pd.DataFrame(
@@ -1520,21 +1528,29 @@ show_report(
                 "last_observed": daily_counts.date.max(),
                 "zero_count_days": int(daily_counts.orders.eq(0).sum()),
                 "date_exclusions": daily_counts.attrs["excluded_date_rows"],
+                "policy_withheld_days": int(daily_counts.withheld_by_policy.sum()),
+                "test_locked": test_locked,
             }
         ]
     ),
-    "Daily-volume reconciliation — full historical extract",
+    "Daily-volume reconciliation — current reader scope",
 )
 display(
     HTML(
-        "<details><summary>Every calendar date and boundary flags</summary>"
+        "<details><summary>Every calendar date and policy/boundary flags</summary>"
         + style_report(daily_counts, "Observed daily orders").to_html()
         + "</details>"
     )
 )
-complete_weekly_rates = weekly_country_rates.loc[
-    ~weekly_country_rates.partial_week
-].copy()
+scan_orders = linked_orders
+if test_locked:
+    scan_orders = linked_orders.loc[
+        parse_dates(linked_orders.order_date).date.lt(
+            pd.Timestamp(split_audit["cutoffs"]["test_start"])
+        )
+    ].copy()
+scan_weekly_rates = weekly_fraud_rates(scan_orders)
+complete_weekly_rates = scan_weekly_rates.loc[~scan_weekly_rates.partial_week].copy()
 country_changes = weekly_country_changes(complete_weekly_rates)
 largest_country_contrasts = (
     country_changes.loc[
@@ -1556,7 +1572,7 @@ display(
     )
 )
 # Compare complete weeks 14 Nov–26 Feb against 13 Mar–7 May.
-# Use all complete weeks after the March transition through the end of the extract.
+# Locked reads use only the available pre-test weeks within that interval.
 decomposition_counts = ["valid_labels", "fraud_labels"]
 baseline_counts = (
     complete_weekly_rates.loc[
@@ -1589,6 +1605,13 @@ country_contributions = pd.DataFrame(
     }
 ).reset_index()
 show_report(country_contributions, "March rise — within-country and mix contributions")
+display(
+    Markdown(
+        f"Comparison uses available complete weeks through "
+        f"{complete_weekly_rates.week_start.max() + pd.Timedelta(days=6):%d %B %Y}; "
+        f"test locked: {test_locked}. Historical full-period results below use the earlier extract."
+    )
+)
 
 
 # %% [markdown]
@@ -1602,10 +1625,233 @@ show_report(country_contributions, "March rise — within-country and mix contri
 
 
 # %% [markdown]
-# ## 7. Preparation decisions and limitations
+# ## 7. Feature availability and leakage audit
+#
+# The model must flag orders before shipping. An availability table records when each field's value could have been known, the evidence for that timing, and whether the model may use it. A value in today's historical file may have been added after the prediction would have been made. Using that later information is leakage.
+#
+# **Review date: 15 Nov 2026.** This section audits feature availability at order placement for PBI #4. No Operations confirmation has been received, so every timing status remains unconfirmed. The supplied field definitions do not establish historical availability; placement-time assumptions are identified explicitly.
+#
+# ### 7.1 Column availability
+#
+# Every column in all three source files is included, including repeated keys and the target. The inventory below preserves the unconfirmed evidence statuses; [the decision log](../docs/decision-log.md) records the adopted handling and assumptions (D4-01–D4-05, owner: SpiralSky, settled 15 Nov 2026). Key fields support linkage/grouping rather than model inputs. D4-01 assumes the four selected order attributes are their original placement-time values, including `order_value` before later adjustments. This is not Operations confirmation.
+#
+# For each customer field, the snapshot's anchor date and the order it describes are unknown. Earliest observed order dates and batch arrival order cannot resolve that question. The four 50-day fields are named separately below; their window endpoints and event timing need field-specific evidence, including for later orders. A check of `first_order_datetime` cannot validate the other customer columns.
+
+# %%
+from mlops_fraud_prediction_ca1.leakage import (
+    ASSUMED_LABEL_DELAY_DAYS,
+    ORDER_FEATURE_COLUMNS,
+    availability_inventory,
+    customer_timing_audit,
+    select_feature_inputs,
+)
+
+availability_reviewed_on = "2026-11-15"
+availability = availability_inventory(
+    customers,
+    orders,
+    labels,
+    reviewed_on=availability_reviewed_on,
+)
+for source, fields in availability.groupby("source", sort=False):
+    show_report(
+        fields[["column", "role", "when_known", "status", "proposed_use"]],
+        f"{source.title()} — field availability reviewed {availability_reviewed_on}",
+    )
+display(
+    HTML(
+        "<details><summary>Supporting evidence: full availability inventory, order scope and review date</summary>"
+        '<div style="overflow-x: auto;">'
+        + style_report(
+            availability, "Availability evidence — all source columns"
+        ).to_html()
+        + "</div></details>"
+    )
+)
+
+# Check the reusable column contract without changing the reports.
+assert select_feature_inputs(orders, source="orders").columns.tolist() == [
+    column for column in orders.columns if column in ORDER_FEATURE_COLUMNS
+]
+assert select_feature_inputs(customers, source="customers").shape[1] == 0
+assert select_feature_inputs(labels, source="labels").shape[1] == 0
+assert ASSUMED_LABEL_DELAY_DAYS == 30
+
+# %% [markdown]
+# ### 7.2 Customer timing evidence
+#
+# Reuse the validated, country-normalized order → label → customer bridge. The audit counts safe unique orders and preserves linkage exclusions. Its earliest observed order is only the earliest in this extract, not proof of a customer's true first order or the snapshot's anchor. Date-only order values cannot sequence same-day events.
+#
+# The label-mediated bridge is valid for this historical audit. It does not prove that order-to-customer linkage is available when scoring an unlabelled order; that scoring-time mapping needs confirmation too.
+
+# %%
+customer_order_evidence, customer_timing = customer_timing_audit(
+    customers,
+    orders,
+    labels,
+)
+date_evidence_counts = pd.DataFrame(
+    [
+        {
+            "date_evidence": "Before customer's first-order calendar day",
+            "orders": customer_timing["before_first_order"],
+        },
+        {
+            "date_evidence": "Same day; intraday sequence unknown",
+            "orders": customer_timing["same_day_intraday_unknown"],
+        },
+        {
+            "date_evidence": "After customer's first-order calendar day",
+            "orders": customer_timing["after_first_order_day"],
+        },
+        {
+            "date_evidence": "Unevaluable: customer linkage or usable date absent",
+            "orders": customer_timing["unevaluable"],
+        },
+        {
+            "date_evidence": "Total safe unique orders",
+            "orders": customer_timing["safe_orders"],
+        },
+    ]
+)
+show_report(
+    date_evidence_counts,
+    "Customer date evidence — safe unique orders; calendar-day precision",
+)
+repeat_customer_counts = pd.DataFrame(
+    [
+        {
+            "observation": "Safely linked customers observed",
+            "count": customer_timing["observed_linked_customers"],
+        },
+        {
+            "observation": "Customers with multiple observed orders",
+            "count": customer_timing["customers_with_multiple_observed_orders"],
+        },
+        {
+            "observation": "Orders belonging to repeat customers",
+            "count": customer_timing["orders_for_multiple_order_customers"],
+        },
+        {
+            "observation": "Orders strictly after customer's earliest observed day",
+            "count": customer_timing["orders_strictly_after_earliest_observed_day"],
+        },
+    ]
+)
+earliest_day_orders = customer_order_evidence.loc[
+    customer_order_evidence.customer_linked
+    & customer_order_evidence.order_day.eq(
+        customer_order_evidence.earliest_observed_order_day
+    )
+]
+earliest_day_counts = earliest_day_orders.groupby(
+    ["country_code", "customer_id"]
+).size()
+repeat_customer_counts.loc[len(repeat_customer_counts)] = [
+    "Customers with multiple orders on earliest observed day",
+    int(earliest_day_counts.gt(1).sum()),
+]
+show_report(
+    repeat_customer_counts,
+    "Repeat-customer evidence — observed orders do not date customer snapshots",
+)
+
+# %% [markdown]
+# **Base-data findings:** 949,101 / 949,889 safe unique orders have an evaluable first-order date comparison. Of these, 105 precede the customer's first-order calendar day, 14,274 fall on the same day, and 934,722 follow it. The other 788 are unevaluable. These checks identify inconsistencies or limited date evidence; they do not certify stored-value availability.
+#
+# There are 622,097 safely linked observed customers; 154,284 have multiple observed orders, accounting for 482,059 orders. There are 319,952 orders strictly after their customer's earliest observed day, and 6,020 customers have multiple orders on that earliest day. Reusing one undated customer snapshot across those orders requires timing evidence that this extract does not provide.
+#
+# ### 7.3 Handling and recorded decisions
+#
+# - **Feature policy (D4-01):** `refund_value` is evaluation-only; `is_fraud` is target-only. `select_feature_inputs` excludes them, identifiers and unknown columns. Under explicit placement/original-value assumptions, order inputs are `collect_type`, `payment_method`, `order_value`, and `num_items_ordered`. Retain `order_date` separately as temporal context. The selector is reusable; later training must call/enforce it and perform its own row preparation.
+# - **Customer fallback (#14; D4-02):** Keep all seven unconfirmed non-key customer columns out of the champion. Each engineer compares models with and without these columns as one group; with-column results are exploratory and report the cost/effect. Customer keys remain linkage fields. `select_feature_inputs(customers, source="customers")` excludes the group; `exploratory=True` explicitly selects it for #14. Each field's evidence gap, including all four 50-day window endpoints and unknown snapshot/order scope for later orders, is recorded individually in D4-02. Actual model experiments remain #14's work.
+# - **Date exceptions:** Retain the orders and flag inconsistent or unevaluable customer dates. Withhold the affected customer values pending resolution; do not silently repair dates or reject an entire order because of this check. Missing dates do not establish leakage.
+# - **History without labels:** Use only orders with `earlier order_date < current order_date`. Same-day history is excluded because order times are unavailable.
+# - **History using labels (D4-04):** Label delay is **30 calendar days, a provisional engineering assumption**, not a measured maturity period or Operations confirmation. Require `earlier order_date + 30 days < current order_date`, plus an actually available valid prior label; equality is excluded. Use `historical_order_mask(..., label_delay_days=ASSUMED_LABEL_DELAY_DAYS)`. The delay argument is required; pass zero explicitly for history without labels. Current selected inputs contain no label-derived features. The mask does not validate labels, match customers, establish as-of availability or impose a 50-day window. Unknown history completeness prevents reconstructing the undated window fields as if confirmed.
+# - **Target definition (D4-05):** The supplied field definitions define `is_fraud=0` as not fraud and `1` as fraud. Review completeness, finalization timing and later reversals remain unknown; those gaps are separate from the supplied binary definition.
+# - **Evidence gaps (D4-02/D4-03):** Scoring-time customer linkage remains unconfirmed despite the valid historical label bridge. Retain the unconfirmed/#14 fallback until dated field-specific evidence is available, and record its actual date in the decision log.
+#
+# **Status:** The inventory and [decision log](../docs/decision-log.md) record the feature policy and its assumptions. #14 owns model comparisons, and later preparation owns pipeline enforcement. Revisit the policy when new timing evidence or data is available.
+
+# %% [markdown]
+# ## 8. Preparation decisions and limitations
 #
 # **Preparation decisions:** Use validated composite keys and keep coverage exceptions visible. Preserve unknown categories and missing values; parse only the documented date formats. Retain unusual numeric values with investigation flags until source evidence supports correction. Learned imputation, scaling, feature selection and any resampling must fit on training data only.
 #
-# **Later workflow:** Later preparation should call shared package functions directly, with explicit configuration and audited outputs. This notebook demonstrates reporting and working-copy transformations; it does not persist a cleaned dataset or train a model. Feature availability still needs a separate leakage audit, including the customer-history fields.
+# **Later workflow:** Later preparation should call shared package functions directly, with explicit configuration and audited outputs. This notebook demonstrates reporting and working-copy transformations; it does not persist a cleaned dataset or train a model. Section 7 and the decision log record the feature policy, unconfirmed customer fallback and provisional 30-day label-delay assumption. Later feature preparation and training must enforce those decisions; Operations evidence may replace the assumptions.
 #
 # **Limitations:** The full historical label period has been explored here. A later chronological split must disclose that earlier exploration and define fixed cutoffs separately. Weekly movements, country differences and IQR screens are descriptive evidence; they establish neither causes nor data errors. The final boundary weeks are partial, and full sampling is not guaranteed elsewhere.
+
+
+# %% [markdown]
+# ## 9. Reusable post-EDA cleaning
+#
+# This demonstration calls the same reusable module intended for #13 and #20. It reads literal strings through #6's guarded analysis loader before cleaning. The before/after counts cover only exposed base rows: the locked test window stays withheld, while analysis includes dates after its end. Reader exclusions are separate from row-preserving cleaning. Historical full-extract findings above retain their original scope.
+#
+# Policy `pbi12-v3` fixes known case/date/numeric representations, retains all rows and stores originals alongside cleaned values. Unseen categories, blank payments and missing customer dates remain unknown. `yes` and `on Delivery` remain unresolved; refunds never reject a row. Unknown counts below are cells, not distinct rows. See the [rule ledger and vocabulary sources](../docs/cleaning.md): the fixed engineering vocabulary reuses the disclosed historical #3 inventory, without learning from incoming batches. Learned transformations belong in #16, fitted on training rows.
+
+# %%
+from mlops_fraud_prediction_ca1.cleaning import CLEANING_POLICY_VERSION, clean_frame
+
+cleaning_inputs = dict(
+    zip(
+        ("customers", "orders", "labels"),
+        load_base_data(base_data_dir, purpose="analysis", raw_strings=True),
+        strict=True,
+    )
+)
+cleaned_frames = {name: clean_frame(frame) for name, frame in cleaning_inputs.items()}
+cleaned_fields = {
+    "country_code",
+    "collect_type",
+    "payment_method",
+    "mobile_verified",
+    "order_date",
+    "first_order_datetime",
+    "is_fraud",
+    "num_orders_last_50days",
+    "num_cancelled_orders_last_50days",
+    "num_refund_orders_last_50days",
+    "num_associated_customers",
+    "num_items_ordered",
+    "total_payment_last_50days",
+    "order_value",
+    "refund_value",
+}
+cleaning_records = []
+for name, frame in cleaning_inputs.items():
+    cleaned = cleaned_frames[name]
+    unknowns = {
+        column: int(cleaned[column].isna().sum())
+        for column in frame.columns
+        if column in cleaned_fields
+    }
+    cleaning_records.append(
+        {
+            "table": name,
+            "before_rows": len(frame),
+            "after_rows": len(cleaned),
+            "unknown_cells": sum(unknowns.values()),
+            "unknown_by_column": ", ".join(
+                f"{column}: {count}" for column, count in unknowns.items() if count
+            )
+            or "none",
+        }
+    )
+cleaning_counts = pd.DataFrame(cleaning_records)
+assert cleaning_counts.before_rows.sub(cleaning_counts.after_rows).eq(0).all()
+display(
+    Markdown(
+        f"Cleaning policy: {CLEANING_POLICY_VERSION}; "
+        f"test locked: {cleaning_inputs['orders'].attrs['split_audit']['test_locked']}"
+    )
+)
+show_report(
+    cleaning_counts,
+    "Post-EDA cleaning — guarded base analysis rows; unknown counts are cells",
+)
+
+# %% [markdown]
+# For the recorded base files, cleaning retains 554,509 customers, 824,898 orders and 824,885 labels, with zero cleaning rejections. It reports 102 unknown mobile-verification cells, 416 unknown first-order dates and 17,009 unknown payment methods. These values are reference results for the recorded input hashes, not assertions for future batches. Raw source hashes remained unchanged.
+#
+# `cleaned_frames[name]` contains cleaned columns and originals in `raw_<column>` columns, with the protected reader's `split_audit` retained. Keep source/batch identity separately; validate cleaned keys before joins and enforce #4's feature policy separately. Numeric fields use nullable `Float64`, the target uses `Int8` and mobile verification uses nullable `boolean` (`True`, `False` or `pd.NA`); IDs stay opaque. Adoption by #13 and #20 is separate integration work.
