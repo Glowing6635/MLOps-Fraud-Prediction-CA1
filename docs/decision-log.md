@@ -211,3 +211,28 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
+
+## D27-01: Wall-clock budget for a practice batch
+
+Recorded 2026-11-20 for [the three-minute pipeline (#27)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/27)
+and [per-batch retraining (#25)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/25).
+Use these initial targets when choosing the candidate list and instrumenting the pipeline.
+
+| Stage | Target (seconds) | Work covered |
+| --- | ---: | --- |
+| Fetch and validate | 25 | Download and validate all three inputs. |
+| Clean and load | 30 | Clean the batch, capture starting counts and commit the database writes. |
+| Read training data | 15 | Read the eligible rows from RDS once for all candidates. |
+| Train and log | 85 | Fit the full candidate list, evaluate it as required and finish MLflow logging, including artifact uploads. |
+| Report | 15 | Obtain final counts and print the batch summary and filtered MLflow URL. |
+
+The five stages have 170 seconds in total. The remaining 10 seconds cover process
+startup, configuration and shutdown within the 180-second command limit. Training
+gets the largest allocation because each additional candidate requires a fit and
+an upload. The 85 seconds are shared across all candidates.
+
+For each timed rehearsal, print elapsed wall-clock seconds alongside each stage
+target and measure the whole command from invocation to exit. Record the input
+row counts for all three files with each result so the timing has a batch size.
+These allocations are planning assumptions. Verification requires three runs on
+the demo machine and network, each starting from a rebuilt rehearsal database.
