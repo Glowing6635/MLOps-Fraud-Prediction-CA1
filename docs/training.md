@@ -66,9 +66,9 @@ precision within 0.005. `same_commit` shows whether the code is at the logged co
 
 ## How the data is kept safe
 
-- Data is read only through the protected reader in `cleaning.load_clean_base_data`,
-  once for the training window and once for the validation window. The test window is
-  never loaded.
+- Data is read only through the protected reader in `data.load_base_data`, once for
+  the training window and once for the validation window, and each table is cleaned
+  with `cleaning.clean_frame`. The test window is never loaded.
 - Labels join orders by country and order ID. Orders without a valid label are left
   out of both fitting and scoring.
 - The features are the four order columns that `leakage.select_feature_inputs` allows
