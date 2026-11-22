@@ -1,6 +1,6 @@
 # Runbook
 
-How to create the team's cloud services in the AWS sandbox account, bring them back after the sandbox stops, and the checks to repeat before the demo. The MLflow server's setup is in `mlflow-server/README.md`.
+How to create the team's cloud services in the AWS sandbox account, bring them back after the sandbox stops, and the checks to repeat before the demo. The MLflow server's set-up steps are in `mlflow-server/DEPLOY.md`.
 
 Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy.
 
@@ -139,7 +139,7 @@ The database also refuses unencrypted connections, because `require_secure_trans
 
 ## Between sessions
 
-RDS keeps running, and spending the sandbox budget, after the sandbox stops. When the next session is a day or more away, stop it with `aws rds stop-db-instance --db-instance-identifier fraud-db`. RDS starts it again by itself after 7 days, so stop it again then. At the start of the next session, start it with `aws rds start-db-instance` before anything else, since it takes several minutes. The MLflow server waits up to 15 minutes for it.
+Ending the sandbox session doesn't stop RDS. On 17 Nov it kept running and logged no events, while Beanstalk's instance was terminated and replaced. So RDS keeps spending the sandbox budget until someone stops it. When the next session is a day or more away, stop it with `aws rds stop-db-instance --db-instance-identifier fraud-db`. A stopped RDS starts again by itself after 7 days, so stop it again then. At the start of the next session, start it before anything else, as the restart drill's step 2 shows, since it takes several minutes. The MLflow server waits up to 15 minutes for it.
 
 Before each deadline, back up the `fraud`, `mlflow` and `mlflow_auth` databases with `mysqldump`, and the artifact bucket with `aws s3 sync s3://<bucket> <folder>`. Pressing Reset in the sandbox deletes everything in it.
 
@@ -150,14 +150,22 @@ Run `uv run redeploy-check record` once, from any laptop. It saves the model's p
 ## Restart drill
 
 1. Start the sandbox.
-2. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times. It prints the time from its own start to each step, and gives up after 30 minutes.
-3. Add the times to the table below.
+2. If RDS was stopped, start it, and wait until it is available:
+
+   ```
+   aws rds start-db-instance --db-instance-identifier fraud-db
+   aws rds wait db-instance-available --db-instance-identifier fraud-db
+   ```
+
+   `aws rds describe-db-instances --db-instance-identifier fraud-db --query "DBInstances[0].DBInstanceStatus"` prints `stopped` when it was. Note how long the wait took, since the drill's times start after it.
+3. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times. It prints the time from its own start to each step, and gives up after 30 minutes.
+4. Add the times to the table below, with the RDS start-up wait from step 2 added to each.
 
 | Date | Machine and network | RDS | MLflow | Model | Total |
 | --- | --- | --- | --- | --- | --- |
 | 17 Nov 2026 | Richard Go's laptop, network TO RECORD | 0:06 | 0:47 | 0:58 | 1:04 |
 
-On 17 Nov, ending the sandbox terminated the MLflow server's machine, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. The runs and the model were still there, because they live in RDS and S3. RDS was not stopped: it logged no events. A sandbox stopped overnight may also stop RDS, which takes longer to start, so repeat the drill on such a morning before setting the demo-day start time.
+On 17 Nov, ending the sandbox terminated the MLflow server's machine, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. The runs and the model were still there, because they live in RDS and S3. RDS was not stopped: it logged no events. A stopped RDS takes several minutes more to start, so repeat the drill on a morning after RDS was stopped overnight before setting the demo-day start time.
 
 Demo-day start time: TO RECORD, from the slowest total above plus a margin of TO RECORD minutes.
 
