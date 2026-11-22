@@ -4,7 +4,7 @@ How to set up the MLflow server's AWS services, build its image and deploy it. `
 
 ## Set up RDS and S3, once
 
-1. MLflow's database setup creates triggers, which RDS refuses while binary logging is on. Attach a parameter group with `log_bin_trust_function_creators` set to `1`, and reboot the instance.
+1. MLflow's database setup creates triggers, which RDS refuses while binary logging is on. Attach a parameter group with `log_bin_trust_function_creators` and `require_secure_transport` both set to `1`, and reboot the instance. The second makes RDS refuse unencrypted connections.
 2. As the instance's admin user, run `CREATE DATABASE mlflow; CREATE DATABASE mlflow_auth;`, create a `mlflow` user, and grant it `ALL` on both.
 3. Let the instance's security group accept port 3306 from the Beanstalk instance's security group.
 4. Create an S3 bucket in `us-east-1` with public access blocked. `LabInstanceProfile` gives the server access.
