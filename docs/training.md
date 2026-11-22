@@ -12,6 +12,7 @@ files must be in `data/`, or in the folder given by `--data-dir`.
 
 ```
 uv run train baseline --k 50 --seed 0
+uv run train boosted-trees --k 50 --k-status "provisional: <reason>"
 uv run train rerun <run ID>
 ```
 
@@ -20,14 +21,25 @@ prints the top-K report and the run ID. `--k` is the daily review capacity, in o
 per day. It has no default, because K must be fixed before any result is seen. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
+`boosted-trees` trains histogram gradient-boosted trees twice, without and with the
+seven unconfirmed customer columns, as two child runs under one parent run (see
+"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
+on all three runs. The models are in `src/mlops_fraud_prediction_ca1/models.py`.
+
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
 
 ```python
-from mlops_fraud_prediction_ca1.training import train
+from mlops_fraud_prediction_ca1.training import compare_customer_columns, train
 
 run_id, result = train(my_pipeline, "data", k=50, seed=0)
+parent_id, without, with_columns = compare_customer_columns(
+    my_pipeline, "data", k=50, seed=0, tags={"k_status": "provisional"}
+)
 ```
+
+`train` adds any `tags` it is given to the run's tags. A run started while another is
+active is logged as its child.
 
 The model receives a DataFrame of the feature columns. Numbers and true/false values
 are floats, text is a Python string, and every missing value is NaN. Missing values must
@@ -40,7 +52,7 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 | Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
 | Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
-| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name` |
+| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, and any `tags` the caller gives |
 | Model | The fitted model, under the name `model` |
 
 The dataset version is the SHA-256 of each input file. Once incoming batches are loaded,
@@ -55,6 +67,19 @@ nothing to divide by is not logged.
 
 A run from a working tree with uncommitted changes is still logged, with `git_dirty`
 set to true and a warning, because the commit alone does not hold its code.
+
+## Comparing the customer columns
+
+Seven customer columns are unconfirmed: nobody has shown their values were known when
+the order was placed (decision D4-02 in [the decision log](decision-log.md)). Until they
+are confirmed, each candidate model is logged with `compare_customer_columns`. The
+parent run, named `customer columns compared`, has two children:
+`without customer columns` and `with customer columns (exploratory)`. Only a run
+without the columns can be a champion; the other shows what leaving them out costs.
+
+The parent logs the with-columns result minus the without result as
+`fraud_caught_at_k_difference`, `fraud_caught_at_2k_difference` and
+`average_precision_difference`. Each child is an ordinary run, so it can be re-run.
 
 ## Re-running a run
 

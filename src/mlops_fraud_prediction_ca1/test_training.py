@@ -6,11 +6,12 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.training import (
     _load_window,
-    baseline_model,
     check_feature_columns,
     check_label_history,
+    compare_customer_columns,
     fit_and_score,
     rerun,
     train,
@@ -207,3 +208,32 @@ def test_a_run_logs_every_field_and_reruns_within_tolerance(
     (data_dir / "labels_base.csv").write_text("changed", encoding="utf-8")
     with pytest.raises(ValueError, match="labels"):
         rerun(run_id, data_dir)
+
+
+def test_customer_columns_are_compared_under_one_parent_run(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    parent_id, without, with_columns = compare_customer_columns(
+        boosted_trees_model(), data_dir, k=5, seed=3, tags={"k_status": "provisional"}
+    )
+    children = {
+        run.data.params["exploratory"]: run
+        for run in mlflow.search_runs(
+            filter_string=f"tags.mlflow.parentRunId = '{parent_id}'",
+            output_format="list",
+        )
+    }
+    assert children.keys() == {"False", "True"}
+    assert "exploratory" in children["True"].data.tags["mlflow.runName"]
+    for run in (*children.values(), mlflow.get_run(parent_id)):
+        assert run.data.tags["k_status"] == "provisional"
+    assert children["False"].data.metrics["fraud_caught_at_k"] == (
+        without.report.at_k.fraud_caught
+    )
+    assert mlflow.get_run(parent_id).data.metrics["fraud_caught_at_k_difference"] == (
+        with_columns.report.at_k.fraud_caught - without.report.at_k.fraud_caught
+    )
+    assert rerun(children["True"].info.run_id, data_dir)["reproduced"]
