@@ -51,7 +51,7 @@ The keys follow the kickoff data analysis (issue #3):
 - **Orders and labels** are keyed by `country_code` and `order_id` together, because three order IDs each appear in two countries.
 - **Customers** are keyed by `customer_id` and `batch_id`. Customer IDs are unique across countries, so `country_code` is not part of the key, and a customer can have one row per batch.
 - **Labels to customers.** A label names its order's customer. This is not a foreign key, because a customer has a row for each batch and two labelled orders in the base files have no customer row.
-- **IDs are opaque text** and compare exactly, so `ab12` and `AB12` are different keys, and so are `001` and `1`.
+- **IDs are opaque text** and compare exactly, so `ab12` and `AB12` are different keys, and so are `001` and `1`. The one exception is MySQL's: trailing spaces are ignored, so `o1` and `o1 ` are the same key.
 
 A row whose key is blank or whose country is not recognised cannot be stored, so the loader rejects and counts it.
 
@@ -60,6 +60,44 @@ A row whose key is blank or whose country is not recognised cannot be stored, so
 Each source column the cleaning module (issue #12) can change is stored twice: the cleaned value under the source column's name, and the original text exactly as it arrived under the same name with `raw_` in front. The cleaned value is empty (NULL) when cleaning could not read the original. IDs are never changed by cleaning, so they have no `raw_` column.
 
 Money uses an exact decimal type with 12 decimal places, because the source amounts have up to 16 digits after the point. Counts that the source writes with a decimal point use `DOUBLE`.
+
+## Changes made before loading
+
+`uv run load-batch` cleans each file with the cleaning module (`docs/cleaning.md`, issue #12) before it stores anything. These fixed rules learn nothing from the data, so every batch gets the same treatment:
+
+| Column | Cleaned value |
+| --- | --- |
+| `country_code` | Upper case without surrounding spaces, if it is one of the five countries; otherwise empty. |
+| `collect_type`, `payment_method` | Lower case without surrounding spaces, if it is in the fixed list in `docs/cleaning.md`; otherwise empty. |
+| `mobile_verified` | True or false; anything else, such as `yes`, is empty. |
+| `order_date` | A date, read from `YYYY/MM/DD`, `YYYY-MM-DD` or `YYYY/Mon/DD`; otherwise empty. |
+| `first_order_datetime` | A date and time, read from `YYYY-MM-DD HH:MM:SS`; otherwise empty. |
+| counts and money | A number; text, infinity and numbers too large to hold exactly are empty. |
+| `is_fraud` | 0 or 1; anything else is empty. |
+
+Values learned from data, such as a column's average for filling gaps, are not applied here. They belong to the model's feature steps (issue #16), fitted on training rows only.
+
+## Loading rules
+
+`uv run load-batch` loads customers, orders and labels in one transaction, so if any part fails, none of the three tables changes. A stored row is never changed: a row whose key is already stored is skipped, so loading the same batch twice changes nothing.
+
+A row that cannot be stored is rejected and counted, and the rest of the batch still loads:
+
+- a blank ID, or an order or label whose country is unknown;
+- an ID over 64 characters, or any value over 255 characters, which the columns cannot hold;
+- a copy of an earlier row in the same file, where every cleaned value matches;
+- rows in the same file that share a key but differ, such as one order with two different labels: none of them is kept, because nothing says which is right;
+- a label whose order is in neither this batch nor the database;
+- a label whose customer is in neither this batch nor the database;
+- a label for an order that already has a different stored label. The stored label stays, so a model's training data never changes under it.
+
+Only the label is compared. An order, or a label with the same `is_fraud`, that comes again in a later batch counts as already stored, even if its other values differ.
+
+A label whose `is_fraud` is not 0 or 1 is stored with an empty `is_fraud`, and reads return it that way, so training code must drop or handle those rows.
+
+The command prints how many rows it added, how many were already stored, and how many it rejected for each reason. It never prints the rows.
+
+A customer gets a new row in each batch that includes them. `rds_reads.read_labelled_orders` gives each order the customer's row from the order's batch, or the latest batch before it, so a later customer row never supplies values to an earlier order. "Latest" means loaded latest, so batches must be loaded in the order they arrived. It applies the holdout setting (issue #6) to every read.
 
 ## Tables
 
@@ -125,4 +163,4 @@ One row per labelled order. Every label's order must already be in `orders`.
 
 ## Who can read it
 
-The admin user creates the tables and users. Each engineer has their own user, named `<name>_reader`, that can only read. `uv run rds-schema reader <name>` creates it, and the password is never in git.
+The admin user creates the tables and users. Each engineer has their own user, named `<name>_reader`, that can only read. `uv run rds-schema reader <name>` creates it, and the password is never in git. The engineer who loads batches also has `<name>_writer`, made by `uv run rds-schema writer <name>`, which can read and add rows but never change or delete them.
