@@ -10,7 +10,7 @@ A restart drill ends and restarts the AWS sandbox, then times how long the servi
 
 | Date | Source | Fault | Expected result | Observed result | Recovery time |
 | --- | --- | --- | --- | --- | --- |
-| 17 Nov 2026 | #11 restart drill, `docs/runbook.md` | The sandbox session ended and was started again. RDS was not stopped. | RDS, the MLflow server and the recorded model work again, with every run and the model still there. | Ending the session terminated the MLflow server's Beanstalk instance, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. RDS kept running and logged no events. The runs and the model were still there, since they live in RDS and S3, and the model reproduced its recorded predictions. | 1:04 in total |
+| 17 Nov 2026 | #11 restart drill, `docs/runbook.md`, MLflow run `39e1099e1d374b048c8a1d8ee4bafec9` | The sandbox session ended and was started again. RDS was not stopped. | RDS, the MLflow server and the recorded model work again, with every run and the model still there. | Ending the session terminated the MLflow server's Beanstalk instance, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. RDS kept running and logged no events. The runs and the model were still there, since they live in RDS and S3, and the model reproduced its recorded predictions. | 1:04 in total |
 | Not run yet | #29 release rehearsals | Not run yet | Not run yet | Not run yet | Not run yet |
 
 Each stage's time, from the start of the drill:
