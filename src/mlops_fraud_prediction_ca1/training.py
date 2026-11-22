@@ -285,17 +285,26 @@ def train(
 
 def compare_customer_columns(
     estimator, data_dir: str | Path, *, k: int, seed: int, tags: dict[str, str]
-) -> tuple[str, FitResult, FitResult]:
+) -> tuple[str, tuple[str, FitResult], tuple[str, FitResult]]:
     """Train `estimator` without and with the unconfirmed customer columns (issue #14).
 
-    `train` logs both runs, from copies of `estimator`, as children of one parent run;
-    the with-columns run is exploratory and never a champion. The parent logs the
-    with-columns result minus the without result for fraud caught at K and 2K and for
-    average precision. `tags` go on all three runs. Returns the parent run ID and the
-    results without, then with, the columns.
+    `train` logs both runs, from copies of `estimator`, as children of one parent run
+    named after the model. The with-columns run is exploratory and tagged
+    `champion_eligible` false. The parent logs the with-columns result minus the
+    without result for fraud caught at K and 2K and for average precision. `tags` go on
+    all three runs. Returns the parent run ID and `train`'s (run ID, result) for the
+    run without, then with, the columns.
     """
     _use_experiment()
-    with mlflow.start_run(run_name="customer columns compared", tags=tags) as parent:
+    model = estimator[-1] if hasattr(estimator, "steps") else estimator
+    with mlflow.start_run(
+        run_name=f"{type(model).__name__}: customer columns compared",
+        tags={
+            **tags,
+            "git_commit": _git("rev-parse", "HEAD"),
+            "author": _git("config", "user.name"),
+        },
+    ) as parent:
         without, with_columns = (
             train(
                 clone(estimator),
@@ -303,14 +312,18 @@ def compare_customer_columns(
                 k=k,
                 seed=seed,
                 exploratory=exploratory,
-                tags={**tags, "mlflow.runName": label},
-            )[1]
+                tags={
+                    **tags,
+                    "mlflow.runName": label,
+                    "champion_eligible": str(not exploratory),
+                },
+            )
             for exploratory, label in (
                 (False, "without customer columns"),
                 (True, "with customer columns (exploratory)"),
             )
         )
-        before, after = without.report, with_columns.report
+        before, after = without[1].report, with_columns[1].report
         mlflow.log_metrics(
             {
                 "fraud_caught_at_k_difference": after.at_k.fraud_caught
@@ -453,16 +466,17 @@ def main() -> None:
         print(format_report(result.report))
         print(f"Logged run {run_id}.")
     elif args.command == "boosted-trees":
-        run_id, *results = compare_customer_columns(
+        parent_id, *children = compare_customer_columns(
             boosted_trees_model(),
             args.data_dir,
             k=args.k,
             seed=args.seed,
             tags={"k_status": args.k_status},
         )
-        for label, result in zip(("Without", "With"), results, strict=True):
+        for label, (run_id, result) in zip(("Without", "With"), children, strict=True):
             print(f"{label} the customer columns:\n{format_report(result.report)}")
-        print(f"Logged parent run {run_id}.")
+            print(f"Logged run {run_id}.")
+        print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
     else:
         for name, value in rerun(args.run_id, args.data_dir).items():
             print(f"{name}: {value}")

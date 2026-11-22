@@ -11,20 +11,24 @@ The run goes to the MLflow server named by `MLFLOW_TRACKING_URI`, in the experim
 files must be in `data/`, or in the folder given by `--data-dir`.
 
 ```
-uv run train baseline --k 50 --seed 0
-uv run train boosted-trees --k 50 --k-status "provisional: <reason>"
+uv run train baseline --k 250 --seed 0
+uv run train boosted-trees --k 250 --k-status "provisional: <reason>"
 uv run train rerun <run ID>
 ```
 
 `baseline` trains the baseline model, a logistic regression on the order columns, and
 prints the top-K report and the run ID. `--k` is the daily review capacity, in orders
-per day. It has no default, because K must be fixed before any result is seen. Add
+per day. It has no default, because K must be fixed before any result is seen. Every
+candidate must use the same K, or the runs can't be compared. No capacity has come from
+Trust & Safety yet, so the runs use a provisional 250 orders a day, about 5% of daily
+orders, until the product owner confirms it. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
 `boosted-trees` trains histogram gradient-boosted trees twice, without and with the
 seven unconfirmed customer columns, as two child runs under one parent run (see
-"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
-on all three runs. The models are in `src/mlops_fraud_prediction_ca1/models.py`.
+"Comparing the customer columns"). `--k-status` says where K comes from and why, and is
+tagged on all three runs. It prints both children's run IDs. The models are in
+`src/mlops_fraud_prediction_ca1/models.py`.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
@@ -32,9 +36,9 @@ pipeline that has `predict_proba`:
 ```python
 from mlops_fraud_prediction_ca1.training import compare_customer_columns, train
 
-run_id, result = train(my_pipeline, "data", k=50, seed=0)
-parent_id, without, with_columns = compare_customer_columns(
-    my_pipeline, "data", k=50, seed=0, tags={"k_status": "provisional"}
+run_id, result = train(my_pipeline, "data", k=250, seed=0)
+parent_id, (without_id, without), (with_id, with_columns) = compare_customer_columns(
+    my_pipeline, "data", k=250, seed=0, tags={"k_status": "provisional: <reason>"}
 )
 ```
 
@@ -73,13 +77,22 @@ set to true and a warning, because the commit alone does not hold its code.
 Seven customer columns are unconfirmed: nobody has shown their values were known when
 the order was placed (decision D4-02 in [the decision log](decision-log.md)). Until they
 are confirmed, each candidate model is logged with `compare_customer_columns`. The
-parent run, named `customer columns compared`, has two children:
-`without customer columns` and `with customer columns (exploratory)`. Only a run
-without the columns can be a champion; the other shows what leaving them out costs.
+parent run, named after the model's class, such as
+`HistGradientBoostingClassifier: customer columns compared`, carries the `author` and
+`git_commit` tags. It has two children: `without customer columns` and
+`with customer columns (exploratory)`. Only a run without the columns can be a
+champion, so each child has the tag `champion_eligible`, `True` or `False`. The exploratory
+run shows what leaving the columns out costs.
+
+The with-columns run adds seven columns, one of them a date (`first_order_datetime`),
+and their values are NaN for orders whose customer dates fail the D4-03 checks. A
+pipeline that picks columns by type, as both models in `models.py` do, handles them;
+one that names its columns must name these too.
 
 The parent logs the with-columns result minus the without result as
 `fraud_caught_at_k_difference`, `fraud_caught_at_2k_difference` and
-`average_precision_difference`. Each child is an ordinary run, so it can be re-run.
+`average_precision_difference`. The parent holds no model, so re-run a child by its own
+run ID.
 
 ## Re-running a run
 
