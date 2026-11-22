@@ -1,10 +1,11 @@
 """The shared training harness (issue #13): fit a model on the training window, score the
 validation window with the top-K evaluator and log the run to MLflow.
 
-Data comes only through the protected reader (`cleaning.load_clean_base_data`), once for
-the training window and once for the validation window, so the locked test window is
-never loaded. Labels join orders by country and order ID through
-`relationships.link_orders_customers`, and orders without a valid label are left out.
+Data comes only through the protected reader (`data.load_base_data`), once for the
+training window and once for the validation window, so the locked test window is never
+loaded. `cleaning.clean_frame` then cleans each table. Labels join orders by country and
+order ID through `relationships.link_orders_customers`, and orders without a valid label
+are left out.
 The features are the order columns `leakage.select_feature_inputs` allows. An exploratory
 run adds the seven customer columns (decision D4-02), withholding them for orders whose
 customer dates are inconsistent or cannot be checked (D4-03).
@@ -38,10 +39,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from mlops_fraud_prediction_ca1.cleaning import (
-    CLEANING_POLICY_VERSION,
-    load_clean_base_data,
-)
+from mlops_fraud_prediction_ca1.cleaning import CLEANING_POLICY_VERSION, clean_frame
+from mlops_fraud_prediction_ca1.data import load_base_data
 from mlops_fraud_prediction_ca1.leakage import (
     ASSUMED_LABEL_DELAY_DAYS,
     customer_timing_audit,
@@ -114,8 +113,12 @@ def _load_window(
     data_dir: str | Path, purpose: str, exploratory: bool
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The labelled orders of one window: their keys and label, and their features."""
-    batch = load_clean_base_data(data_dir, purpose=purpose)
-    customers, orders, labels = (batch.tables[name].cleaned for name in TABLES)
+    frames = load_base_data(data_dir, purpose=purpose, raw_strings=True)
+    raw = dict(zip(TABLES, frames, strict=True))
+    # clean_frame adds raw_<column> copies; the harness keeps only the cleaned columns.
+    customers, orders, labels = (
+        clean_frame(raw[name])[raw[name].columns] for name in TABLES
+    )
     joined, _ = link_orders_customers(orders, labels, customers)
     joined = joined.loc[
         joined.label_link.eq("both") & joined.is_fraud.notna()
@@ -125,7 +128,7 @@ def _load_window(
         extra = select_feature_inputs(
             joined[customers.columns], source="customers", exploratory=True
         )
-        timing, _ = customer_timing_audit(*(batch.tables[name].raw for name in TABLES))
+        timing, _ = customer_timing_audit(*(raw[name] for name in TABLES))
         flagged = timing.loc[
             timing.date_evidence.isin(["before_first_order", "unevaluable"]),
             ["country_code", "order_id"],
