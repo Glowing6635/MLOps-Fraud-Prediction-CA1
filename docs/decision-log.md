@@ -458,3 +458,40 @@ its logged fraud caught at K and average precision.
 | Logistic regression | `balanced` | 2,479 | 3,933 | 0.322586 |
 | Boosted trees | `None` | 2,893 | 4,370 | 0.371637 |
 | Boosted trees | `balanced` | 2,856 | 4,395 | 0.371064 |
+
+## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
+
+- Recorded: 2026-11-23. Accountable engineer: SpiralSky. Affected PBIs: #18
+  (criteria 1–3), with inputs to #5, #15 and #125. No value was fitted, no
+  order value was examined and no model or rule was scored for this entry.
+- Settled: (a) the rule is `order_value > X` strictly and account age under one
+  day (age 0), unusable inputs never flag and are counted by status; (b) account
+  age is calendar days between `order_date` and the date part of
+  `first_order_datetime`, an exception to D4-02 because today's rule already
+  uses that field; (c) a loyal order has at least 2 distinct orders of the
+  same (country, customer) on strictly earlier calendar dates, with `unknown`
+  kept separate from `not_loyal` and loyalty used for reporting only; (d) X is
+  chosen by the predeclared procedure in
+  [the threshold protocol](baseline-rule.md#threshold-x-candidate-grid-and-selection-protocol):
+  grid 50, 100, 200, 500, 1000, 2000 SGD, fitted on the frozen D6-01 validation
+  window only, objective and tie-breaks as written there.
+- Source of X: `spec.txt:135` gives only the symbol X, and no value has been
+  received from Trust & Safety, so any X used is a validation-tuned proxy and
+  is labelled as one. A confirmed value replaces it as the headline.
+- Rationale: fixing the grid, the objective and the loyal count before results
+  prevents tuning the baseline or the loyal group after seeing outcomes. The
+  age and loyalty definitions follow the data limits in D4-02 to D4-04.
+- Alternatives not taken: age in elapsed hours (clock times are unconfirmed);
+  `num_orders_last_50days` or `first_order_datetime` as loyalty evidence
+  (both withheld, D4-02); a loyal count of 1 (a single earlier order could be a
+  failed first attempt); a grid or X chosen after seeing results.
+- Impact: the rule is a labelled proxy baseline; loyalty left-censoring from the
+  2022-11-12 history start is a stated limit; the loyal count of 2 is a project
+  assumption Operations may replace by a new dated entry before results.
+- Open, not settled here: **#5 K and the selection grouping** (owner: Glowing6635, the #5
+  assignee, to fix before any results); **X** (deciding owner: Trust &
+  Safety supplies the deployed value, otherwise the procedure above selects the
+  proxy once the #5 evaluator exists); **#15 champion** (deciding owner: SpiralSky, the #15
+  assignee, not decided here and not affected by this entry).
+- Code and checks: `rules.py`, `loyalty.py`, `test_rules.py`, `test_loyalty.py`;
+  rule and loyalty reference in [baseline-rule.md](baseline-rule.md).

@@ -183,6 +183,7 @@ prior and its comparison rows are `unknown` (`unsafe_order_key`); identical
 overlaps stay valid. A date outside the parser range is unusable for that row only. It is a
 report input only: it is not a model feature, and criterion 5 still needs the
 evaluator and report (#124, #125).
+
 ## Threshold X: candidate grid and selection protocol
 
 Status: **protocol only, written before any order value was examined.** No real
@@ -242,5 +243,7 @@ Trust & Safety provides it.
 `load_base_data(data_dir, purpose="validation")` returns the frozen window
 (`docs/time-split.md`). Fitting still waits for (a) the shared #5 evaluator and
 (b) the frozen #5 capacity K and selection grouping, neither of which is
-recorded yet. The loyal definition (criterion 3) must also be written in
-numbers before results are seen.
+recorded yet. The loyal definition is already frozen in numbers (see
+[Loyal customer](#loyal-customer-criterion-3)), so it no longer blocks fitting;
+it is applied to the comparison through `loyalty.loyalty_status` and does not
+enter the selection objective.
