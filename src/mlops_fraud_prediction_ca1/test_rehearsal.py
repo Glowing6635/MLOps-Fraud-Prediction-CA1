@@ -90,6 +90,40 @@ class RehearsalBatchTests(unittest.TestCase):
             self.assertTrue(t["labels"].is_fraud.isin({"0", "1"}).all())
             self.assertTrue(t["orders"].order_id.str.startswith("SYN-").all())
 
+    def test_valid_batch_customer_counts_match_batch_orders(self) -> None:
+        # The 50-day window ends after the batch's last order date, so a
+        # customer's window counts include every one of their batch orders.
+        for batch in rehearsal.VALID_BATCHES:
+            t = self.frames[batch]
+            owner = dict(
+                zip(t["labels"].order_id, t["labels"].customer_id, strict=True)
+            )
+            orders = t["orders"].assign(
+                customer_id=t["orders"].order_id.map(owner),
+                value=t["orders"].order_value.astype(float),
+                refunded=t["orders"].refund_value.astype(float) > 0,
+            )
+            by_customer = orders.groupby("customer_id")
+            for row in t["customers"].itertuples():
+                n = int(row.num_orders_last_50days)
+                cancelled = int(row.num_cancelled_orders_last_50days)
+                refunds = int(row.num_refund_orders_last_50days)
+                if row.customer_id in by_customer.groups:
+                    group = by_customer.get_group(row.customer_id)
+                    batch_n, batch_refunds = len(group), int(group.refunded.sum())
+                    batch_value = group.value.sum()
+                else:
+                    batch_n = batch_refunds = 0
+                    batch_value = 0.0
+                self.assertGreaterEqual(n, batch_n, (batch, row.customer_id))
+                self.assertGreaterEqual(refunds, batch_refunds, row.customer_id)
+                self.assertLessEqual(cancelled + refunds, n, (batch, row.customer_id))
+                self.assertGreaterEqual(
+                    float(row.total_payment_last_50days) + 0.01,
+                    batch_value,
+                    (batch, row.customer_id),
+                )
+
     def test_valid_batches_are_distinct(self) -> None:
         a, b = (self.frames[name] for name in rehearsal.VALID_BATCHES)
         for name in rehearsal.TABLE_COLUMNS:

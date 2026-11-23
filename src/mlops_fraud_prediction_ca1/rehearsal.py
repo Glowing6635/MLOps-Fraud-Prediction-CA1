@@ -103,20 +103,25 @@ def _add_linked(
                 "country_code": country,
                 "customer_id": customer_id,
                 "mobile_verified": rng.choice(("True", "False")),
-                "num_orders_last_50days": rng.randint(0, 9),
-                "num_cancelled_orders_last_50days": rng.randint(0, 2),
-                "num_refund_orders_last_50days": rng.randint(0, 2),
-                "total_payment_last_50days": f"{rng.uniform(0, 900):.2f}",
+                "num_orders_last_50days": 0,
+                "num_cancelled_orders_last_50days": 0,
+                "num_refund_orders_last_50days": 0,
+                "total_payment_last_50days": "0.00",
                 "num_associated_customers": rng.randint(0, 3),
                 "first_order_datetime": first.strftime("%Y-%m-%d %H:%M:%S"),
             }
         )
     customer_ids = list(countries)
+    batch_orders: dict[str, list[float]] = {cid: [] for cid in customer_ids}
+    batch_refunds: dict[str, int] = dict.fromkeys(customer_ids, 0)
     for index in range(1, order_count + 1):
         order_id = f"SYN-{tag}-O{index:05d}"
         customer_id = rng.choice(customer_ids)
         country = countries[customer_id]
         value = rng.uniform(5, 400)
+        refunded = rng.random() < 0.05
+        batch_orders[customer_id].append(value)
+        batch_refunds[customer_id] += refunded
         batch.orders.append(
             {
                 "country_code": country,
@@ -125,7 +130,7 @@ def _add_linked(
                 "payment_method": rng.choice(PAYMENT_METHODS),
                 "order_value": f"{value:.2f}",
                 "num_items_ordered": rng.randint(1, 6),
-                "refund_value": f"{(value if rng.random() < 0.05 else 0):.2f}",
+                "refund_value": f"{(value if refunded else 0):.2f}",
                 "order_date": (start + timedelta(days=rng.randint(0, 20))).isoformat(),
             }
         )
@@ -137,6 +142,24 @@ def _add_linked(
                 "is_fraud": int(rng.random() < 0.08),
             }
         )
+    # The 50-day window is read as of the end of the batch's order dates
+    # (``start`` + 20 days), so every batch order falls inside it. Each count
+    # is the batch's own orders plus earlier history in the same window;
+    # cancelled and refunded orders are distinct members of the order count.
+    for customer in batch.customers:
+        customer_id = customer["customer_id"]
+        history = rng.randint(0, 4)
+        cancelled = rng.randint(0, history)
+        history_refunds = rng.randint(0, history - cancelled)
+        customer["num_orders_last_50days"] = len(batch_orders[customer_id]) + history
+        customer["num_cancelled_orders_last_50days"] = cancelled
+        customer["num_refund_orders_last_50days"] = (
+            batch_refunds[customer_id] + history_refunds
+        )
+        paid = sum(batch_orders[customer_id]) + sum(
+            rng.uniform(5, 400) for _ in range(history - cancelled)
+        )
+        customer["total_payment_last_50days"] = f"{paid:.2f}"
 
 
 def build_valid_batch(batch_id: str) -> Batch:
