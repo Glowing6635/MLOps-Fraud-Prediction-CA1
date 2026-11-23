@@ -4,6 +4,7 @@ import unittest
 
 import pandas as pd
 
+from mlops_fraud_prediction_ca1.cleaning import clean_frame
 from mlops_fraud_prediction_ca1.loyalty import loyalty_status
 
 CUSTOMERS = pd.DataFrame({"country_code": ["MY", "SG"], "customer_id": [1, 1]})
@@ -223,6 +224,46 @@ class LoyaltyTests(unittest.TestCase):
             )
             self.assertEqual(result.reason.tolist(), ["", "order_date_unavailable", ""])
             self.assertEqual(result.prior_order_count.tolist()[::2], [3, 2])
+
+    def test_conflict_inside_one_input_survives_a_narrower_other_input(self):
+        # s40 finding 2: history versions differ only in a column the comparison
+        # lacks, so the shared-column check saw one identical record.
+        for version in ([1, 2], [1, None]):
+            history = _orders(
+                [
+                    ("MY", 1, "2023-03-30"),
+                    ("MY", 1, "2023-03-30"),
+                    ("MY", 2, "2023-03-31"),
+                ]
+            ).assign(extra=[*version, 0])
+            comparison = _orders([("MY", 100, "2023-04-01"), ("my ", 1, "2023-03-30")])
+            labels = _labels([("MY", o, 1) for o in (1, 2, 100)])
+            result = loyalty_status(history, comparison, labels, CUSTOMERS)
+            self.assertEqual(result.loyalty_status.tolist(), ["not_loyal", "unknown"])
+            self.assertEqual(result.reason.tolist(), ["", "unsafe_order_key"])
+            # The conflicting version confers no loyalty on the later order.
+            self.assertEqual(result.prior_order_count.tolist()[0], 1)
+
+    def test_country_format_copies_count_the_same_before_and_after_clean_frame(self):
+        # s40 finding 3: clean_frame's raw_country_code made copies look different.
+        history = _orders(
+            [("MY", 1, "2023-03-30"), ("my ", 1, "2023-03-30"), ("MY", 2, "2023-03-31")]
+        )
+        comparison = _orders([("MY", 100, "2023-04-01")])
+        labels = _labels([("MY", o, 1) for o in (1, 2, 100)])
+        raw = loyalty_status(history, comparison, labels, CUSTOMERS)
+        cleaned = loyalty_status(
+            clean_frame(history), clean_frame(comparison), labels, CUSTOMERS
+        )
+        self.assertIn("raw_country_code", clean_frame(history))
+        self.assertEqual(raw.prior_order_count.tolist(), [2])
+        pd.testing.assert_frame_equal(cleaned, raw)
+        # A genuine conflict is still excluded after cleaning.
+        conflict = history.assign(order_date=["2023-03-30", "2023-03-29", "2023-03-31"])
+        after = loyalty_status(
+            clean_frame(conflict), clean_frame(comparison), labels, CUSTOMERS
+        )
+        self.assertEqual(after.prior_order_count.tolist(), [1])
 
     def test_threshold_is_fixed_by_the_definition(self):
         # Finding 3: the two-prior-order threshold cannot be lowered by callers.

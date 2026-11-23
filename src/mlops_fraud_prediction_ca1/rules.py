@@ -18,6 +18,28 @@ def _days(values: pd.Series) -> pd.Series:
     return days.astype("Int64").mask(values.isna())
 
 
+def _parse_rows(values: pd.Series, kind: str) -> pd.DataFrame:
+    """``parse_dates`` that survives text beyond the datetime64[ns] range.
+
+    A well-formed value such as 9999-12-31 cannot be held by the shared parser's
+    nanosecond dtype and makes it raise for the whole batch. Bisect so only those
+    rows become an impossible date (status ``invalid``, NaT) and every other row
+    is parsed exactly as before.
+    """
+    try:
+        return parse_dates(values, kind=kind)
+    except pd.errors.OutOfBoundsDatetime:
+        if len(values) == 1:
+            result = parse_dates(values.iloc[:0], kind=kind).reindex(values.index)
+            result["status"] = "invalid"
+            result["original"] = values
+            return result
+    mid = len(values) // 2
+    return pd.concat(
+        [_parse_rows(values.iloc[:mid], kind), _parse_rows(values.iloc[mid:], kind)]
+    )
+
+
 def _dates(
     values: pd.Series, kind: str, raw: pd.Series | None
 ) -> tuple[pd.Series, pd.Series]:
@@ -28,14 +50,14 @@ def _dates(
     without it, or if it contradicts the NaT, the status is ``unavailable``.
     """
     if not is_datetime64_any_dtype(values):
-        parsed = parse_dates(values, kind=kind)
+        parsed = _parse_rows(values, kind)
         return _days(parsed["date"]), parsed["status"]
     status = pd.Series("valid", index=values.index, dtype=object)
     status[values.isna()] = "unavailable"
     if raw is not None:
         if not raw.index.equals(values.index):
             raise ValueError("raw dates must share the index of the cleaned dates")
-        reason = parse_dates(raw, kind=kind)["status"]
+        reason = _parse_rows(raw, kind)["status"]
         known = values.isna() & reason.isin(["missing", "unrecognized", "invalid"])
         status[known] = reason[known]
     return _days(values), status
@@ -62,7 +84,9 @@ def account_age_days(
     Cleaned datetimes cannot tell a missing date from a malformed one (both are
     NaT). Pass ``clean_frame``'s ``raw_order_date`` / ``raw_first_order_datetime``
     to recover the reason; otherwise a NaT is ``unavailable_*``: no age, and no
-    claim that the value was truly missing. Ages use calendar day numbers, so the
+    claim that the value was truly missing. Text the parser recognises but whose
+    date is beyond the representable range (for example 9999-12-31) is an
+    impossible date for that row only: ``unusable_*``, never an abort. Ages use calendar day numbers, so the
     whole parser range (1677-09-21 to 2262-04-11) is safe.
 
     Policy: a missing, unusable or negative age is NA, never zero and never

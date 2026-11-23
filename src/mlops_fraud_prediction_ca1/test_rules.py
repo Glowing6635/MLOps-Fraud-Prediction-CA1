@@ -198,6 +198,25 @@ class AccountAgeTests(unittest.TestCase):
                 ),
             )
 
+    def test_date_beyond_the_parser_range_is_unusable_for_that_row_only(self):
+        # s40 finding 1: a well-formed 9999-12-31 used to abort the whole batch.
+        index = [5, 5, 7, 2]
+        order = pd.Series(
+            ["2023-01-02", "9999-12-31", "2023/Jan/03", "2023-01-02"], index=index
+        )
+        first = pd.Series(
+            ["2023-01-01 10:00:00", "2023-01-01 10:00:00"]
+            + ["9999-12-31 00:00:00", "2023-01-01 10:00:00"],
+            index=index,
+        )
+        result = account_age_days(order, first)
+        self.assertEqual(result.index.tolist(), index)
+        self.assertEqual(result.account_age_days.tolist(), [1, pd.NA, pd.NA, 1])
+        self.assertEqual(
+            result.account_age_status.tolist(),
+            ["valid", "unusable_order_date", "unusable_first_order", "valid"],
+        )
+
     def test_index_is_preserved_and_mismatch_raises(self):
         order = pd.Series(["2022/11/14"], index=[7])
         first = pd.Series(["2022-11-13 01:00:00"], index=[7])

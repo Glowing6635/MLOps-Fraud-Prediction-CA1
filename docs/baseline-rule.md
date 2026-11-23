@@ -32,9 +32,18 @@ before is age 1. Input may be raw text (the explicit formats of
 `temporal.parse_dates`) or the datetimes produced by `clean_frame`; both give
 identical results for valid dates. Ages use calendar day numbers, so the whole
 parser range (1677-09-21 to 2262-04-11) is safe, including a first order at
-12:00:00 on the earliest day. Cleaning and model-scoring eligibility are unchanged.
+12:00:00 on the earliest day. A well-formed date beyond that range (for example
+9999-12-31) cannot be represented, so that row alone is `unusable_order_date` or
+`unusable_first_order` (an impossible date) and the other rows are calculated
+as usual. Cleaning and model-scoring eligibility are unchanged.
 
 ## Exception to the timing decisions
+
+Provenance: the age-only restriction is anchored at definition freeze 466f080
+(`docs(rules): freeze the loyal-customer definition before results`, #18, #123).
+That commit fixed the loyalty definition to exclude `first_order_datetime`, so
+the field is read for account age alone; later edits to this page correct
+wording and checks and do not widen its use.
 
 `first_order_datetime` is unconfirmed in #4 and withheld from champion inputs
 (D4-02). The baseline rule uses it anyway because today's rule already does, so
@@ -177,10 +186,14 @@ comparison row (same index and order) with `customer_id`, `prior_order_count`,
 `loyalty_status` and, for `unknown`, a `reason` (`unsafe_order_key`,
 `no_label_link`, `no_customer_link`, `order_date_unavailable`). Prior orders
 start at the frozen training start from `config/time_split.toml`. The threshold
-of 2 is fixed and is not a parameter. An order key whose records differ between
-history and comparison is unsafe across both inputs: it counts as no order's
-prior and its comparison rows are `unknown` (`unsafe_order_key`); identical
-overlaps stay valid. A date outside the parser range is unusable for that row only. It is a
+of 2 is fixed and is not a parameter. An order key whose records differ, within
+either input (compared on all of that input's columns, even when the other input
+lacks one) or between the two inputs (compared on the shared columns), is unsafe
+across both: it counts as no order's prior and its comparison rows are `unknown`
+(`unsafe_order_key`); identical overlaps stay valid. Country spelling is
+normalised first and `clean_frame`'s `raw_country_code` is ignored, so copies
+that differ only in country format collapse to one order before and after
+cleaning. A date outside the parser range is unusable for that row only. It is a
 report input only: it is not a model feature, and criterion 5 still needs the
 evaluator and report (#124, #125).
 

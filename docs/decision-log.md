@@ -478,6 +478,8 @@ its logged fraud caught at K and average precision.
 - Source of X: `spec.txt:135` gives only the symbol X, and no value has been
   received from Trust & Safety, so any X used is a validation-tuned proxy and
   is labelled as one. A confirmed value replaces it as the headline.
+- Provenance: the age-only use of `first_order_datetime` (excluded from loyalty)
+  is anchored at the definition freeze 466f080, before any result.
 - Rationale: fixing the grid, the objective and the loyal count before results
   prevents tuning the baseline or the loyal group after seeing outcomes. The
   age and loyalty definitions follow the data limits in D4-02 to D4-04.
@@ -488,10 +490,13 @@ its logged fraud caught at K and average precision.
 - Impact: the rule is a labelled proxy baseline; loyalty left-censoring from the
   2022-11-12 history start is a stated limit; the loyal count of 2 is a project
   assumption Operations may replace by a new dated entry before results.
-- Open, not settled here: **#5 K and the selection grouping** (owner: Glowing6635, the #5
-  assignee, to fix before any results); **X** (deciding owner: Trust &
-  Safety supplies the deployed value, otherwise the procedure above selects the
-  proxy once the #5 evaluator exists); **#15 champion** (deciding owner: SpiralSky, the #15
+- Open, not settled here: **#5 implementation** (owner: Glowing6635, the #5
+  assignee: the shared evaluator, and K and the selection grouping fixed before
+  any results); **Trust & Safety capacity confirmation** (the real capacity K
+  and deployed X are not received; until then K is a Product Owner (PO)
+  assumption, to be confirmed or replaced by a dated entry); **X** (deciding
+  owner: Trust & Safety supplies the deployed value, otherwise the procedure
+  above selects the proxy once the #5 evaluator exists); **#15 champion** (deciding owner: SpiralSky, the #15
   assignee, not decided here and not affected by this entry).
 - Code and checks: `rules.py`, `loyalty.py`, `test_rules.py`, `test_loyalty.py`;
   rule and loyalty reference in [baseline-rule.md](baseline-rule.md).

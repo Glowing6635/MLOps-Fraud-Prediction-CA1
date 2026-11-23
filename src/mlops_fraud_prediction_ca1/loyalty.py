@@ -61,13 +61,36 @@ def _normalised_keys(frame: pd.DataFrame) -> pd.DataFrame:
     return keys
 
 
-def _cross_input_conflicts(history, comparison) -> pd.MultiIndex:
-    """Keys whose records differ between the inputs (identical overlaps are fine).
+def _without_raw_country(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop ``clean_frame``'s ``raw_country_code`` so country spelling is not a record.
 
-    Each input is already reduced to safe keys on its own; the same key may still
-    carry different records (for example another date) in the other input, so an
-    earlier version of an order could count as its own prior. Records are compared
-    on the columns both inputs share, with country and date canonicalised.
+    Country formatting is normalised before comparing records (D4-03), so copies
+    that differ only in how the country was written must collapse the same way
+    before and after ``clean_frame``, which keeps the raw text in this column.
+    """
+    return frame.drop(columns="raw_country_code", errors="ignore")
+
+
+def _own_conflicts(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keys that carry differing records inside one input, on all its columns.
+
+    ``unique_records`` drops such keys from the safe orders, so without this the
+    evidence is lost whenever the other input lacks the column that differs.
+    """
+    data = frame.copy().reset_index(drop=True)
+    data[_ORDER_KEYS] = _normalised_keys(data)
+    distinct = data.loc[data[_ORDER_KEYS].notna().all(axis=1)].drop_duplicates()
+    conflict = distinct.duplicated(_ORDER_KEYS, keep=False)
+    return distinct.loc[conflict, _ORDER_KEYS].drop_duplicates()
+
+
+def _conflicting_keys(history, comparison) -> pd.MultiIndex:
+    """Order keys whose records differ, inside either input or between them.
+
+    Within an input the whole record is compared, so a conflict is kept even when
+    the other input has fewer columns. Between inputs, records are compared on the
+    columns both share (identical overlaps are fine), with country and date
+    canonicalised, so an earlier version of an order cannot count as its own prior.
     """
     shared = [c for c in history.columns if c in comparison.columns]
     parts = []
@@ -79,7 +102,11 @@ def _cross_input_conflicts(history, comparison) -> pd.MultiIndex:
     both = pd.concat(parts, ignore_index=True)
     both = both.loc[both[_ORDER_KEYS].notna().all(axis=1)].drop_duplicates()
     conflict = both.duplicated(_ORDER_KEYS, keep=False)
-    return pd.MultiIndex.from_frame(both.loc[conflict, _ORDER_KEYS].drop_duplicates())
+    keys = pd.concat(
+        [both.loc[conflict, _ORDER_KEYS], _own_conflicts(history)]
+        + [_own_conflicts(comparison)]
+    ).drop_duplicates()
+    return pd.MultiIndex.from_frame(keys)
 
 
 def _in_keys(frame: pd.DataFrame, keys: pd.MultiIndex) -> np.ndarray:
@@ -111,13 +138,16 @@ def loyalty_status(
     ``order_date_unavailable``). Unknown is never loyal and rows are never
     dropped or multiplied; exact duplicate comparison rows share one result.
     The two-prior-order threshold is the frozen definition and is not a parameter.
-    An order key whose records differ between ``history`` and ``comparison`` is
+    An order key whose records differ within either input or between them is
     unsafe: it counts as no one's prior and its comparison rows are unknown.
     """
     start = pd.Timestamp(load_policy(config_path).train_start)
+    history, comparison, labels, customers = map(
+        _without_raw_country, (history, comparison, labels, customers)
+    )
     hist = _safe_orders(history, labels, customers)
     comp = _safe_orders(comparison, labels, customers)
-    unsafe_keys = _cross_input_conflicts(history, comparison)
+    unsafe_keys = _conflicting_keys(history, comparison)
     hist = hist.loc[~_in_keys(hist, unsafe_keys)]
 
     prior = hist.loc[
