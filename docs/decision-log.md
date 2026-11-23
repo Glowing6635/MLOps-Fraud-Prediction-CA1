@@ -214,10 +214,18 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 
 ## D34-01 — Criterion for reading the model-versus-rule result
 
-- Recorded: 2026-11-23, before any #34 comparison and before any test-window
-  access or scoring. Accountable engineer: SpiralSky. Affected PBIs: #34 (first
+- Recorded: 2026-11-23, before any #34 comparison or formal test-window
+  scoring. Accountable engineer: SpiralSky. Affected PBIs: #34 (first
   checklist item), #18, #23, #5, #30. Status: **decided as a pre-result reading
   rule, not a finding.** It claims no result and picks no champion.
+- Chronology: this is not an untouched holdout. The notebook's full-extract EDA
+  predates the test lock and covered the whole extract, so test-window rows were
+  seen at that stage ([D6-01](#d6-01--frozen-retrospective-windows-and-protected-exposure),
+  [time-split.md](time-split.md#evidence-and-notebook-provenance)). The
+  claim here is narrower: no model or rule has been formally scored on the test
+  window for #34. Whether any earlier comparison exists is not asserted in this
+  entry; the run records must establish the prior comparisons, and the report
+  states their number from those records.
 - Scope: this entry fixes how the #34 numbers will be read. It is separate from
   the #23 commit that freezes K, X and the loyal definition, and from #23's
   record of whether the champion is trained or refit. Neither is decided here.
@@ -228,7 +236,8 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   1. **Fraud exposure identified, in SGD**: the sum of `order_value` over flagged
      fraud orders. It is not savings or prevented loss.
   2. **Distinct loyal customers wrongly flagged**: customers, not orders. One
-     customer with several flagged orders counts once.
+     customer counts once within one bootstrap draw however many orders were
+     flagged (see Intervals for repeated draws).
   The number of fraud orders in the window is reported beside them as context.
   It is not a third difference.
 - Favourable direction: the model is favourable when exposure identified is
@@ -240,7 +249,19 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   The interval is the 2.5th to 97.5th percentile of the resampled differences
   (an assumption; the issue does not name the interval type). Resampling is over
   customers, with the flagged selection held fixed, so orders from one customer
-  stay together. An interval that includes 0 is reported as "no difference was
+  stay together. A customer drawn m times in a resample keeps that multiplicity
+  on both measures: their exposure is counted m times, and, if they are a loyal
+  customer flagged by the policy, they count once per draw, so m times in all.
+  Each resample is drawn once and applied to the rule and the model alike, so
+  both policies and both differences are computed on identical draws.
+  Worked example (hand-calculated, illustrative numbers only, not data): four
+  customers A, B, C, D. Rule: A has 2 flagged orders, fraud exposure SGD 100,
+  loyal and flagged; B is loyal and flagged, exposure 0. Model: A is loyal and
+  flagged, exposure 0; B has exposure SGD 50, not a loyal customer flagged.
+  C and D are never flagged. Draw A, A, B, B: rule exposure 200, model 100,
+  difference -100; rule loyal flagged 2+2 = 4, model 2, difference -2. Counting
+  distinct customers over the whole resample would give 2 and 1, difference -1,
+  which is not used. An interval that includes 0 is reported as "no difference was
   shown on that measure". It is not reported as "equal" or "no effect".
 - Reading the outcomes:
   - Both differences favourable, both intervals exclude 0: the model is shown to
@@ -274,13 +295,12 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Implications: the result cannot be read as savings, as a count of orders in
   place of customers, or as a champion choice. The report also states the #30
   label meaning, completeness and delay assumptions, that review costs are
-  excluded, and the number of test-window comparisons made before the final one.
+  excluded, and the number of test-window comparisons made before the final one, taken from the
+  run records.
   Those statements belong to the report, not to this entry.
 - Open questions: (1) bootstrap seed value, to be fixed and logged by SpiralSky
-  before scoring; (2) whether a customer drawn more than once in a resample is
-  counted once or once per draw for the distinct-loyal-customer measure; the
-  default is once, matching "distinct". SpiralSky decides this before scoring.
-  (3) Whether the rule or loyal definition changes after Trust & Safety
+  before scoring; (2) settled here, no longer open: repeated draws keep their multiplicity
+  as described under Intervals. (3) Whether the rule or loyal definition changes after Trust & Safety
   confirmation (owner: Trust & Safety for X; PO for assumptions). Such a change
   reopens #23's freeze and #18's comparison, and this criterion is reread then.
 - Sources: [#34](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/34),
@@ -288,4 +308,6 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   [#23](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/23),
   [#5](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/5),
   [#30](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/30),
-  checked 2026-11-23. No code is added or run; no test-window data was read.
+  [D6-01](#d6-01--frozen-retrospective-windows-and-protected-exposure),
+  [time-split.md](time-split.md), checked 2026-11-23. No code is added or run;
+  no test-window data was read for this entry.
