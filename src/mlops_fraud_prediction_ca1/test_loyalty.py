@@ -1,0 +1,183 @@
+"""Loyalty status follows the documented examples on small synthetic frames."""
+
+import unittest
+
+import pandas as pd
+
+from mlops_fraud_prediction_ca1.loyalty import loyalty_status
+
+CUSTOMERS = pd.DataFrame({"country_code": ["MY", "SG"], "customer_id": [1, 1]})
+
+
+def _orders(rows):
+    return pd.DataFrame(rows, columns=["country_code", "order_id", "order_date"])
+
+
+def _labels(rows):
+    return pd.DataFrame(rows, columns=["country_code", "order_id", "customer_id"])
+
+
+def _run(prior, current, links=None, customers=CUSTOMERS):
+    """Prior rows are (country, order_id, date); every order links to customer 1."""
+    history = _orders(prior)
+    comparison = _orders(current)
+    both = pd.concat([history, comparison])
+    labels = _labels(
+        links
+        if links is not None
+        else [(c, o, 1) for c, o in zip(both.country_code, both.order_id, strict=True)]
+    )
+    return loyalty_status(history, comparison, labels, customers)
+
+
+NOW = [("MY", 100, "2023-04-01")]
+
+
+class LoyaltyTests(unittest.TestCase):
+    def test_documented_threshold_examples(self):
+        cases = {
+            "loyal": [("MY", 1, "2023-03-10"), ("MY", 2, "2023-03-31")],
+            "not_loyal": [("MY", 1, "2023-03-31")],
+        }
+        for expected, prior in cases.items():
+            result = _run(prior, NOW)
+            self.assertEqual(result.loyalty_status.tolist(), [expected])
+
+    def test_same_day_orders_never_count_but_one_earlier_day_counts_twice(self):
+        same = _run([("MY", 1, "2023-04-01"), ("MY", 2, "2023/04/01")], NOW)
+        self.assertEqual(same.prior_order_count.tolist(), [0])
+        self.assertEqual(same.loyalty_status.tolist(), ["not_loyal"])
+        two = _run([("MY", 1, "2023-03-31"), ("MY", 2, "2023-03-31")], NOW)
+        self.assertEqual(two.loyalty_status.tolist(), ["loyal"])
+
+    def test_future_rows_and_pre_start_rows_do_not_count(self):
+        result = _run(
+            [
+                ("MY", 1, "2023-04-02"),
+                ("MY", 2, "2023-05-01"),
+                ("MY", 3, "2022-11-11"),  # before the frozen training start
+                ("MY", 4, "2022-11-12"),
+            ],
+            NOW,
+        )
+        self.assertEqual(result.prior_order_count.tolist(), [1])
+
+    def test_exact_copies_collapse_and_conflicts_are_excluded(self):
+        copy_plus = _run(
+            [
+                ("MY", 1, "2023-03-30"),
+                ("my ", 1, "2023-03-30"),
+                ("MY", 2, "2023-03-31"),
+            ],
+            NOW,
+        )
+        self.assertEqual(copy_plus.prior_order_count.tolist(), [2])
+        self.assertEqual(copy_plus.loyalty_status.tolist(), ["loyal"])
+        copy_only = _run([("MY", 1, "2023-03-30"), ("MY", 1, "2023-03-30")], NOW)
+        self.assertEqual(copy_only.prior_order_count.tolist(), [1])
+        conflict = _run(
+            [("MY", 1, "2023-03-30"), ("MY", 1, "2023-03-29"), ("MY", 2, "2023-03-31")],
+            NOW,
+        )
+        self.assertEqual(conflict.prior_order_count.tolist(), [1])
+        self.assertEqual(conflict.loyalty_status.tolist(), ["not_loyal"])
+
+    def test_unusable_or_missing_prior_dates_are_not_counted(self):
+        result = _run(
+            [("MY", 1, "2023-03-31"), ("MY", 2, "31/03/2023"), ("MY", 3, None)], NOW
+        )
+        self.assertEqual(result.prior_order_count.tolist(), [1])
+
+    def test_same_customer_id_in_another_country_is_a_different_customer(self):
+        result = _run(
+            [("SG", 1, "2023-03-30"), ("SG", 2, "2023-03-31")],
+            NOW,
+            links=[("SG", 1, 1), ("SG", 2, 1), ("MY", 100, 1)],
+        )
+        self.assertEqual(result.prior_order_count.tolist(), [0])
+        self.assertEqual(result.loyalty_status.tolist(), ["not_loyal"])
+        sg = _run(
+            [("SG", 1, "2023-03-30"), ("SG", 2, "2023-03-31")],
+            [("SG", 100, "2023-04-01")],
+            links=[("SG", 1, 1), ("SG", 2, 1), ("SG", 100, 1)],
+        )
+        self.assertEqual(sg.loyalty_status.tolist(), ["loyal"])
+
+    def test_unknown_for_missing_conflicting_or_unlisted_links_and_bad_dates(self):
+        prior = [("MY", 1, "2023-03-30"), ("MY", 2, "2023-03-31")]
+        current = [
+            ("MY", 100, "2023-04-01"),  # missing customer_id
+            ("MY", 101, "2023-04-01"),  # conflicting labels
+            ("MY", 102, "2023-04-01"),  # customer not in the customer table
+            ("MY", 103, "not a date"),
+            ("MY", 104, "2023-04-01"),  # no label
+            (None, 105, "2023-04-01"),  # unsafe key
+        ]
+        links = [
+            ("MY", 1, 1),
+            ("MY", 2, 1),
+            ("MY", 100, None),
+            ("MY", 101, 1),
+            ("MY", 101, 2),
+            ("MY", 102, 9),
+            ("MY", 103, 1),
+        ]
+        result = _run(prior, current, links=links)
+        self.assertEqual(result.loyalty_status.eq("unknown").tolist(), [True] * 6)
+        self.assertTrue(result.prior_order_count.isna().all())
+        self.assertEqual(
+            result.reason.tolist(),
+            [
+                "no_customer_link",
+                "no_label_link",
+                "no_customer_link",
+                "order_date_unavailable",
+                "no_label_link",
+                "unsafe_order_key",
+            ],
+        )
+
+    def test_unlinked_prior_orders_do_not_count(self):
+        result = _run(
+            [("MY", 1, "2023-03-30"), ("MY", 2, "2023-03-31")],
+            NOW,
+            links=[("MY", 1, 1), ("MY", 100, 1)],
+        )
+        self.assertEqual(result.prior_order_count.tolist(), [1])
+
+    def test_rows_are_neither_lost_nor_multiplied_and_keep_index_and_order(self):
+        prior = [("MY", 1, "2023-03-30"), ("MY", 2, "2023-03-31")]
+        history = _orders(prior)
+        comparison = _orders(
+            [
+                ("MY", 100, "2023-04-01"),
+                ("MY", 100, "2023-04-01"),
+                ("MY", 7, "2023-04-01"),
+                ("MY", 200, "2023-03-31"),
+            ]
+        )
+        comparison.index = [5, 5, 3, 9]
+        labels = _labels([("MY", o, 1) for o in (1, 2, 100, 200)])
+        before = comparison.copy()
+        result = loyalty_status(history, comparison, labels, CUSTOMERS)
+        pd.testing.assert_frame_equal(comparison, before)
+        self.assertEqual(result.index.tolist(), [5, 5, 3, 9])
+        self.assertEqual(result.order_id.tolist(), [100, 100, 7, 200])
+        self.assertEqual(
+            result.loyalty_status.tolist(), ["loyal", "loyal", "unknown", "not_loyal"]
+        )
+        self.assertEqual(result.prior_order_count.tolist(), [2, 2, pd.NA, 1])
+
+    def test_empty_inputs(self):
+        empty = _orders([])
+        result = loyalty_status(empty, empty, _labels([]), CUSTOMERS)
+        self.assertTrue(result.empty)
+
+    def test_customer_id_on_orders_is_rejected(self):
+        orders = _orders(NOW).assign(customer_id=1)
+        with self.assertRaises(ValueError):
+            loyalty_status(orders, orders, _labels([]), CUSTOMERS)
+
+
+if __name__ == "__main__":
+    unittest.main()

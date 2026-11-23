@@ -154,3 +154,12 @@ result was therefore available to influence this definition. The decision log
 generally, but none examined loyalty, so this is not claimed as an untouched
 holdout. The evaluator and the report that applies this definition are
 separate work (#124, #125).
+
+**Calculation.** `loyalty.loyalty_status(history, comparison, labels, customers)`
+applies this definition to already-scoped frames and returns one row per
+comparison row (same index and order) with `customer_id`, `prior_order_count`,
+`loyalty_status` and, for `unknown`, a `reason` (`unsafe_order_key`,
+`no_label_link`, `no_customer_link`, `order_date_unavailable`). Prior orders
+start at the frozen training start from `config/time_split.toml`. It is a
+report input only: it is not a model feature, and criterion 5 still needs the
+evaluator and report (#124, #125).
