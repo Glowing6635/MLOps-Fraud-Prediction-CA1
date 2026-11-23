@@ -12,7 +12,7 @@ files must be in `data/`, or in the folder given by `--data-dir`.
 
 ```
 uv run train baseline --k 250 --seed 0
-uv run train boosted-trees --k 250 --k-status "provisional: <reason>"
+uv run train boosted-trees --k 250 --k-status "<where K comes from>"
 uv run train rerun <run ID>
 ```
 
@@ -20,8 +20,9 @@ uv run train rerun <run ID>
 prints the top-K report and the run ID. `--k` is the daily review capacity, in orders
 per day. It has no default, because K must be fixed before any result is seen. Every
 candidate must use the same K, or the runs can't be compared. No capacity has come from
-Trust & Safety yet, so the runs use a provisional 250 orders a day, about 5% of daily
-orders, until the product owner confirms it. Add
+Trust & Safety yet, so the runs use 250 orders a day, about 5% of daily orders. That is a
+product owner assumption, confirmed on 23 Nov 2026, and it holds until Trust & Safety
+gives a capacity. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
 `boosted-trees` trains histogram gradient-boosted trees twice, without and with the
@@ -38,7 +39,7 @@ from mlops_fraud_prediction_ca1.training import compare_customer_columns, train
 
 run_id, result = train(my_pipeline, "data", k=250, seed=0)
 parent_id, (without_id, without), (with_id, with_columns) = compare_customer_columns(
-    my_pipeline, "data", k=250, seed=0, tags={"k_status": "provisional: <reason>"}
+    my_pipeline, "data", k=250, seed=0, tags={"k_status": "<where K comes from>"}
 )
 ```
 
