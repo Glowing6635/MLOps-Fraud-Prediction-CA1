@@ -160,6 +160,10 @@ applies this definition to already-scoped frames and returns one row per
 comparison row (same index and order) with `customer_id`, `prior_order_count`,
 `loyalty_status` and, for `unknown`, a `reason` (`unsafe_order_key`,
 `no_label_link`, `no_customer_link`, `order_date_unavailable`). Prior orders
-start at the frozen training start from `config/time_split.toml`. It is a
+start at the frozen training start from `config/time_split.toml`. The threshold
+of 2 is fixed and is not a parameter. An order key whose records differ between
+history and comparison is unsafe across both inputs: it counts as no order's
+prior and its comparison rows are `unknown` (`unsafe_order_key`); identical
+overlaps stay valid. A date outside the parser range is unusable for that row only. It is a
 report input only: it is not a model feature, and criterion 5 still needs the
 evaluator and report (#124, #125).

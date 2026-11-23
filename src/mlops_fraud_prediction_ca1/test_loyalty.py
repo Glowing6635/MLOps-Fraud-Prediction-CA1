@@ -17,7 +17,7 @@ def _labels(rows):
     return pd.DataFrame(rows, columns=["country_code", "order_id", "customer_id"])
 
 
-def _run(prior, current, links=None, customers=CUSTOMERS):
+def _run(prior, current, links=None, customers=CUSTOMERS, **kwargs):
     """Prior rows are (country, order_id, date); every order links to customer 1."""
     history = _orders(prior)
     comparison = _orders(current)
@@ -27,7 +27,7 @@ def _run(prior, current, links=None, customers=CUSTOMERS):
         if links is not None
         else [(c, o, 1) for c, o in zip(both.country_code, both.order_id, strict=True)]
     )
-    return loyalty_status(history, comparison, labels, customers)
+    return loyalty_status(history, comparison, labels, customers, **kwargs)
 
 
 NOW = [("MY", 100, "2023-04-01")]
@@ -167,6 +167,70 @@ class LoyaltyTests(unittest.TestCase):
             result.loyalty_status.tolist(), ["loyal", "loyal", "unknown", "not_loyal"]
         )
         self.assertEqual(result.prior_order_count.tolist(), [2, 2, pd.NA, 1])
+
+    def test_key_with_different_records_across_inputs_is_unsafe(self):
+        # Finding 1: order 1 is dated 03-29 in history but 04-01 in comparison,
+        # so the earlier version must not count as a prior of the later one.
+        history = _orders(
+            [("MY", 1, "2023-03-29"), ("MY", 2, "2023-03-30"), ("MY", 3, "2023-03-31")]
+        )
+        comparison = _orders(
+            [
+                ("MY", 1, "2023-04-01"),  # differs from history: unsafe
+                ("MY", 2, "2023-03-30"),  # exact overlap: still valid
+                ("MY", 100, "2023-04-01"),  # neighbour
+                ("MY", 100, "2023-04-01"),  # identical repeat
+            ]
+        )
+        comparison.index = [7, 3, 7, 1]
+        labels = _labels([("MY", o, 1) for o in (1, 2, 3, 100)])
+        result = loyalty_status(history, comparison, labels, CUSTOMERS)
+        self.assertEqual(result.index.tolist(), [7, 3, 7, 1])
+        self.assertEqual(result.order_id.tolist(), [1, 2, 100, 100])
+        self.assertEqual(
+            result.loyalty_status.tolist(), ["unknown", "not_loyal", "loyal", "loyal"]
+        )
+        self.assertEqual(result.reason.tolist(), ["unsafe_order_key", "", "", ""])
+        # The unsafe key is excluded from every prior count: only orders 2 and 3.
+        self.assertEqual(result.prior_order_count.tolist(), [pd.NA, 0, 2, 2])
+
+    def test_exact_overlap_between_inputs_stays_valid_in_both_roles(self):
+        history = _orders([("MY", 1, "2023-03-30"), ("MY", 2, "2023-03-31")])
+        comparison = _orders([("my ", 2, pd.Timestamp("2023-03-31")), *NOW])
+        labels = _labels([("MY", o, 1) for o in (1, 2, 100)])
+        result = loyalty_status(history, comparison, labels, CUSTOMERS)
+        self.assertEqual(result.loyalty_status.tolist(), ["not_loyal", "loyal"])
+        self.assertEqual(result.prior_order_count.tolist(), [1, 2])
+
+    def test_out_of_range_dates_do_not_abort_the_batch(self):
+        # Finding 2: 9999-12-31 is outside the supported range in either input.
+        for bad in ("9999-12-31", __import__("datetime").date(9999, 12, 31)):
+            history = _orders(
+                [
+                    ("MY", 1, "2023-03-30"),
+                    ("MY", 2, "2023-03-31"),
+                    ("MY", 3, bad),
+                    ("MY", 4, "2023-03-29"),
+                ]
+            )
+            comparison = _orders(
+                [("MY", 100, "2023-04-01"), ("MY", 101, bad), ("MY", 102, "2023-03-31")]
+            )
+            labels = _labels([("MY", o, 1) for o in (1, 2, 3, 4, 100, 101, 102)])
+            result = loyalty_status(history, comparison, labels, CUSTOMERS)
+            self.assertEqual(
+                result.loyalty_status.tolist(), ["loyal", "unknown", "loyal"]
+            )
+            self.assertEqual(result.reason.tolist(), ["", "order_date_unavailable", ""])
+            self.assertEqual(result.prior_order_count.tolist()[::2], [3, 2])
+
+    def test_threshold_is_fixed_by_the_definition(self):
+        # Finding 3: the two-prior-order threshold cannot be lowered by callers.
+        with self.assertRaises(TypeError):
+            _run([("MY", 1, "2023-03-31")], NOW, min_prior_orders=1)
+        self.assertEqual(
+            _run([("MY", 1, "2023-03-31")], NOW).loyalty_status.tolist(), ["not_loyal"]
+        )
 
     def test_empty_inputs(self):
         empty = _orders([])
