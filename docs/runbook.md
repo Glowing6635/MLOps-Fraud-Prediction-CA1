@@ -150,24 +150,23 @@ Run `uv run redeploy-check record` once, from any laptop. It saves the model's p
 ## Restart drill
 
 1. Start the sandbox.
-2. If RDS was stopped, start it, and wait until it is available:
+2. Check whether RDS was stopped. If this prints `stopped`, start it and time how long it takes to become available, since the drill's times start after it:
 
    ```
+   aws rds describe-db-instances --db-instance-identifier fraud-db --query "DBInstances[0].DBInstanceStatus"
    aws rds start-db-instance --db-instance-identifier fraud-db
-   aws rds wait db-instance-available --db-instance-identifier fraud-db
+   time aws rds wait db-instance-available --db-instance-identifier fraud-db
    ```
 
-   `aws rds describe-db-instances --db-instance-identifier fraud-db --query "DBInstances[0].DBInstanceStatus"` prints `stopped` when it was. Note how long the wait took, since the drill's times start after it.
+   The MLflow server gives up if RDS isn't ready within about 15 minutes of its start, and then it stays down. If the MLflow URL still fails once RDS is `available`, restart the server, which starts it again and waits for RDS again:
+
+   ```
+   aws elasticbeanstalk restart-app-server --environment-name mlflow
+   ```
 3. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times. It prints the time from its own start to each step, and gives up after 30 minutes.
-4. Add the times to the table below, with the RDS start-up wait from step 2 added to each.
+4. Record the drill's times in `docs/failure-log.md` (added by #31), with the RDS start-up wait from step 2 as its own stage, not added to the other times.
 
-| Date | Machine and network | RDS | MLflow | Model | Total |
-| --- | --- | --- | --- | --- | --- |
-| 17 Nov 2026 | Richard Go's laptop, network TO RECORD | 0:06 | 0:47 | 0:58 | 1:04 |
-
-On 17 Nov, ending the sandbox terminated the MLflow server's machine, and Beanstalk launched a new one when the sandbox started, about a minute before the drill. The runs and the model were still there, because they live in RDS and S3. RDS was not stopped: it logged no events. A stopped RDS takes several minutes more to start, so repeat the drill on a morning after RDS was stopped overnight before setting the demo-day start time.
-
-Demo-day start time: TO RECORD, from the slowest total above plus a margin of TO RECORD minutes.
+Demo-day start time: TO RECORD, from the slowest total in `docs/failure-log.md` for a drill after RDS was stopped overnight, plus a margin of TO RECORD minutes.
 
 ## Demo day
 
