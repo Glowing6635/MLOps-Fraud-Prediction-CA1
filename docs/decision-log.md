@@ -211,3 +211,20 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
+
+## D16-01 — Skew and outlier handling for scoring inputs
+
+- Recorded: 2026-11-23. Owner: SpiralSky. Affected PBIs: #16 (criterion 2), #119.
+- Decision: the two numeric scoring inputs from D4-01, `order_value` and
+  `num_items_ordered`, receive a fixed signed `log1p` (`skew_outliers.transform_skewed_features`),
+  appended as `<feature>_log1p`. Raw cleaned values are kept; nothing is capped, removed or imputed.
+- Reason: notebook section 3.5.4 shows every numeric feature right-skewed (items ordered
+  41.04), with a largest item count of 1,600 against a median of 2 and P99 of 22, and no
+  negative or infinite values. The extremes are located but not established as errors, and
+  large orders may carry fraud signal, so the log scale limits leverage without discarding them.
+- Training-only fitting: the transform learns nothing, so no threshold is fitted and a
+  held-out row's output never depends on other rows. Missing values stay missing;
+  infinities become missing. Missing-value imputation remains a later, train-fitted step.
+- Not transformed: `collect_type`/`payment_method` (categorical), `refund_value`
+  (evaluation-only, D4-01) and the customer fields (withheld, D4-02). `skew_outliers.TREATMENTS`
+  holds the per-feature reasons. This does not claim model performance, #118/#120 or registration.
