@@ -211,3 +211,11 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
+
+## D5-01: The top-K measure uses K = 250 orders a day
+
+- Settled: 2026-11-23, when the product owner confirmed it. Owner: Glowing6635. Affected PBIs: #5, #13, #14, #15, #30.
+- Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each run tags it as `k_status`.
+- Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and at most 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and Thailand's about 19 fraud a day would cap a shared per-country K.
+- Set before any model result was seen, from the training and validation windows' daily order and fraud counts only.
+- If Trust & Safety gives a capacity that differs, the candidates are re-run at the new K and the change is logged here, as #5 says.
