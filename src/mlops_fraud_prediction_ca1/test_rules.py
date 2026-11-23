@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 
 from mlops_fraud_prediction_ca1.cleaning import clean_frame
-from mlops_fraud_prediction_ca1.rules import account_age_days
+from mlops_fraud_prediction_ca1.rules import account_age_days, baseline_rule_flags
 
 
 def _age(order, first):
@@ -204,6 +204,59 @@ class AccountAgeTests(unittest.TestCase):
         self.assertEqual(account_age_days(order, first).index.tolist(), [7])
         with self.assertRaises(ValueError):
             account_age_days(order, first.reset_index(drop=True))
+
+
+class BaselineRuleFlagTests(unittest.TestCase):
+    def _flags(self, values, ages, x=100):
+        return baseline_rule_flags(
+            pd.Series(values, dtype="Float64"), pd.Series(ages, dtype="Int64"), x
+        )
+
+    def test_strictly_above_threshold_and_day_zero_only(self):
+        result = self._flags([100, 100.01, 99.99, 500, 500, 500], [0, 0, 0, 0, 1, 30])
+        self.assertEqual(
+            result.rule_flag.tolist(), [False, True, False, True, False, False]
+        )
+        self.assertEqual(result.rule_status.tolist()[:2], ["not_flagged", "flagged"])
+
+    def test_missing_inputs_never_flag_and_keep_reason(self):
+        result = self._flags([pd.NA, float("inf"), 500, pd.NA], [0, 0, pd.NA, pd.NA])
+        self.assertEqual(result.rule_flag.tolist(), [False] * 4)
+        self.assertEqual(
+            result.rule_status.tolist(),
+            ["unusable_amount", "unusable_amount", "unusable_age", "unusable_amount"],
+        )
+
+    def test_rows_stay_aligned_to_a_custom_index(self):
+        amount = pd.Series([500, 1, 500], index=[9, 3, 9], dtype="Float64")
+        age = pd.Series([0, 0, 2], index=[9, 3, 9], dtype="Int64")
+        result = baseline_rule_flags(amount, age, 100)
+        self.assertEqual(result.index.tolist(), [9, 3, 9])
+        self.assertEqual(result.rule_flag.tolist(), [True, False, False])
+
+    def test_composes_with_account_age_on_raw_text(self):
+        ages = account_age_days(
+            pd.Series(["2022-11-14", "2022-11-14"]),
+            pd.Series(["2022-11-14 23:59:59", "2022-11-13 00:00:00"]),
+        )
+        result = baseline_rule_flags(
+            pd.Series([500.0, 500.0], dtype="Float64"), ages.account_age_days, 100
+        )
+        self.assertEqual(result.rule_flag.tolist(), [True, False])
+
+    def test_threshold_must_be_explicit_finite_non_negative(self):
+        s = pd.Series([1.0], dtype="Float64")
+        a = pd.Series([0], dtype="Int64")
+        for bad in (float("nan"), float("inf"), -1):
+            with self.assertRaises(ValueError):
+                baseline_rule_flags(s, a, bad)
+        for bad in (None, "100", True):
+            with self.assertRaises(TypeError):
+                baseline_rule_flags(s, a, bad)
+        with self.assertRaises(ValueError):
+            baseline_rule_flags(
+                s, a.reset_index(drop=True).rename(index=lambda i: i + 1), 1
+            )
 
 
 if __name__ == "__main__":
