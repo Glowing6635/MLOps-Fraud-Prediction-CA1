@@ -1,6 +1,6 @@
 # Decision log
 
-This log records the feature-timing assumptions and handling for PBI #4 and the temporal policy for PBI #6.
+This log records the feature-timing assumptions and handling for PBI #4, the temporal policy for PBI #6 and the #34 reading criterion.
 No Operations confirmation has been received, so every timing status remains
 unconfirmed. Feature-timing decisions were recorded on 15 November 2026 and
 temporal windows on 16 November. Owner identifies the accountable engineer.
@@ -211,3 +211,81 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
+
+## D34-01 — Criterion for reading the model-versus-rule result
+
+- Recorded: 2026-11-23, before any #34 comparison and before any test-window
+  access or scoring. Accountable engineer: SpiralSky. Affected PBIs: #34 (first
+  checklist item), #18, #23, #5, #30. Status: **decided as a pre-result reading
+  rule, not a finding.** It claims no result and picks no champion.
+- Scope: this entry fixes how the #34 numbers will be read. It is separate from
+  the #23 commit that freezes K, X and the loyal definition, and from #23's
+  record of whether the champion is trained or refit. Neither is decided here.
+  Comparison method, K and the loyal definition come from #18, #5 and #23.
+- Measures read: the two model-minus-rule differences in #34, each taken at a
+  matched number of flags per #5 selection group (the rule's count where the rule
+  flags fewer than K, K otherwise, as #18 defines).
+  1. **Fraud exposure identified, in SGD**: the sum of `order_value` over flagged
+     fraud orders. It is not savings or prevented loss.
+  2. **Distinct loyal customers wrongly flagged**: customers, not orders. One
+     customer with several flagged orders counts once.
+  The number of fraud orders in the window is reported beside them as context.
+  It is not a third difference.
+- Favourable direction: the model is favourable when exposure identified is
+  higher and loyal customers wrongly flagged is lower, so the differences are
+  read as positive and negative respectively. The two are never added up or
+  converted into one another.
+- Intervals: each difference gets a 95% interval from 1,000 customer-level
+  bootstrap resamples, with the seed logged in the run record as #34 requires.
+  The interval is the 2.5th to 97.5th percentile of the resampled differences
+  (an assumption; the issue does not name the interval type). Resampling is over
+  customers, with the flagged selection held fixed, so orders from one customer
+  stay together. An interval that includes 0 is reported as "no difference was
+  shown on that measure". It is not reported as "equal" or "no effect".
+- Reading the outcomes:
+  - Both differences favourable, both intervals exclude 0: the model is shown to
+    be better on both measures in this window.
+  - One favourable with its interval excluding 0, the other including 0: report
+    a gain on one measure and no difference shown on the other. Do not describe
+    this as an overall improvement.
+  - Any interval that excludes 0 in the unfavourable direction: report it as a
+    cost of the model on that measure, whatever the other measure shows.
+  - Both intervals include 0: no difference was shown on either measure.
+  - One favourable, one unfavourable, both excluding 0: a trade-off. The report
+    states both and gives no combined verdict. No SGD value is put on a loyal
+    customer or on a review.
+- Context kept out of the decision: the model at K (shown where the rule flags
+  fewer than K) is displayed beside the matched comparison. It informs, and no
+  verdict is drawn from it. The capacity chart (fraud caught by count and SGD
+  exposure across capacities) is also context. Only the matched differences above
+  are read against this criterion.
+- Reason: a reading rule written before the result stops the interpretation
+  being chosen to suit it. Reporting two measures separately matches the
+  analyst's question (money and loyal customers) without inventing a financial
+  exchange rate that nobody has supplied. Treating an interval that includes 0 as
+  "no difference shown" follows #34 and avoids claiming equivalence.
+- Alternatives considered: (a) a single combined SGD score, rejected because the
+  cost of a wrongly flagged loyal customer is not supplied; (b) a minimum
+  worthwhile difference, rejected for the same reason, so no margin is set;
+  (c) adjusting the two intervals for testing two measures, not applied because
+  #34 asks for each 95% interval as stated, and the report will note that two
+  measures are read; (d) recommending a switch from the result, rejected: the
+  decision stays with the Trust & Safety analyst, and this report only informs it.
+- Implications: the result cannot be read as savings, as a count of orders in
+  place of customers, or as a champion choice. The report also states the #30
+  label meaning, completeness and delay assumptions, that review costs are
+  excluded, and the number of test-window comparisons made before the final one.
+  Those statements belong to the report, not to this entry.
+- Open questions: (1) bootstrap seed value, to be fixed and logged by SpiralSky
+  before scoring; (2) whether a customer drawn more than once in a resample is
+  counted once or once per draw for the distinct-loyal-customer measure; the
+  default is once, matching "distinct". SpiralSky decides this before scoring.
+  (3) Whether the rule or loyal definition changes after Trust & Safety
+  confirmation (owner: Trust & Safety for X; PO for assumptions). Such a change
+  reopens #23's freeze and #18's comparison, and this criterion is reread then.
+- Sources: [#34](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/34),
+  [#18](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/18),
+  [#23](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/23),
+  [#5](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/5),
+  [#30](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/30),
+  checked 2026-11-23. No code is added or run; no test-window data was read.
