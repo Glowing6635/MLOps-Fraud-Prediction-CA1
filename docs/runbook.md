@@ -90,15 +90,20 @@ Run `uv run redeploy-check record` once, from any laptop. It saves the model's p
 ## Restart drill
 
 1. Start the sandbox.
-2. Check whether RDS was stopped. If this prints `stopped`, start it and time how long it takes to become available, since the drill's times start after it:
+2. Check whether RDS was stopped:
 
    ```
-   aws rds describe-db-instances --db-instance-identifier fraud-db --query "DBInstances[0].DBInstanceStatus"
+   aws rds describe-db-instances --db-instance-identifier fraud-db --query "DBInstances[0].DBInstanceStatus" --output text
+   ```
+
+   If it prints `stopped`, start it and time how long it takes to become available, since the drill's times start after it:
+
+   ```
    aws rds start-db-instance --db-instance-identifier fraud-db
    time aws rds wait db-instance-available --db-instance-identifier fraud-db
    ```
 
-   The MLflow server gives up if RDS isn't ready within about 15 minutes of its start, and then it stays down. If the MLflow URL still fails once RDS is `available`, restart the server, which starts it again and waits for RDS again:
+   The MLflow server gives up if RDS isn't ready within about 15 minutes of its start, and may then stay down. If the MLflow URL still fails once RDS is `available`, restart the server, which starts it again and waits for RDS again:
 
    ```
    aws elasticbeanstalk restart-app-server --environment-name mlflow
