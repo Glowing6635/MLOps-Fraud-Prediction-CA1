@@ -21,7 +21,7 @@ prints the top-K report and the run ID. `--k` is the daily review capacity, in o
 per day. It has no default, because K must be fixed before any result is seen. Every
 candidate must use the same K, or the runs can't be compared. No capacity has come from
 Trust & Safety yet, so the runs use 250 orders a day, about 5% of daily orders. That is a
-product owner assumption, confirmed on 23 Nov 2026, and it holds until Trust & Safety
+product owner assumption, confirmed on 23 Nov 2026 (decision D5-01 in [the decision log](decision-log.md)), and it holds until Trust & Safety
 gives a capacity. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
