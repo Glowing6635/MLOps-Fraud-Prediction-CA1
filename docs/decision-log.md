@@ -1,9 +1,11 @@
 # Decision log
 
-This log records the feature-timing assumptions and handling for PBI #4 and the temporal policy for PBI #6.
-No Operations confirmation has been received, so every timing status remains
-unconfirmed. Feature-timing decisions were recorded on 15 November 2026 and
-temporal windows on 16 November. Owner identifies the accountable engineer.
+This log records the feature-timing assumptions and handling for PBI #4, the temporal policy for PBI #6,
+the daily review capacity K for PBI #5 (D5-01) and where the MLflow server keeps its data (D8-01).
+No Operations confirmation has been received, so every timing status in D4-01 to D4-05 remains
+unconfirmed. The product owner confirmed K on 23 November 2026. Feature-timing decisions were
+recorded on 15 November 2026, temporal windows on 16 November and the MLflow server's storage
+on 18 November. Owner identifies the accountable engineer.
 
 Sources: [live #4](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/4),
 [#14](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/14), and
@@ -161,6 +163,14 @@ comparison and champion enforcement. Operations timing and label evidence may
 replace assumptions when field-specific evidence becomes available.
 Other #30 decisions and its engineer handover remain pending.
 
+## D5-01: The top-K measure uses K = 250 orders a day
+
+- Settled: 2026-11-23, when the product owner confirmed it. Owner: Glowing6635. Affected PBIs: #5, #13, #14, #15, #30.
+- Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each #14 candidate run records where K comes from in its `k_status` tag.
+- Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and about 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and a single K applied to every country wouldn't work, since Thailand has only about 19 fraud a day, so any K above 19 could never be filled with fraud there.
+- Set before any model result was seen, from the training and validation windows' daily order and fraud counts only.
+- If Trust & Safety gives a capacity that differs, the candidates are re-run at the new K and the change is logged here, as #5 says.
+
 ## D6-01 — Frozen retrospective windows and protected exposure
 
 - Recorded: 2026-11-16. Accountable engineer: SpiralSky. Affected PBIs:
@@ -211,11 +221,3 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
-
-## D5-01: The top-K measure uses K = 250 orders a day
-
-- Settled: 2026-11-23, when the product owner confirmed it. Owner: Glowing6635. Affected PBIs: #5, #13, #14, #15, #30.
-- Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each run tags it as `k_status`.
-- Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and at most 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and Thailand's about 19 fraud a day would cap a shared per-country K.
-- Set before any model result was seen, from the training and validation windows' daily order and fraud counts only.
-- If Trust & Safety gives a capacity that differs, the candidates are re-run at the new K and the change is logged here, as #5 says.
