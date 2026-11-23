@@ -76,12 +76,14 @@ strictly earlier calendar date** than this order's `order_date`. Otherwise it is
 not loyal: either `not_loyal` (fewer than 2 such orders, identity known) or
 `unknown` (see below).
 
-Reason: the spec gives no number, so the cut is the smallest one that shows
-repeat purchasing across separate days (one earlier order could be a failed
-first attempt; two on earlier days is a pattern) while leaving the bulk of
-multi-order customers eligible (D4-02: 154,284 of 622,097 linked customers have
-more than one order). It is a judgment, not a fitted or tuned value, and the
-count is not chosen from outcome distributions.
+Reason: the spec gives no number, so the cut is a project assumption: the
+smallest count that, by judgment, shows repeat purchasing across separate days
+(one earlier order could be a failed first attempt; two on earlier days is a
+pattern). How many customers or orders it covers is **unknown** and is not
+inferred here: D4-02 counts customers with more than one order (154,284 of
+622,097 linked), which says nothing about how many have two strictly earlier
+orders. It is not fitted or tuned, and the count is not chosen from outcome
+distributions.
 
 **Which history is observable.** Only orders in the supplied extract, dated on
 or after the frozen training start 2022-11-12 (D6-01). Earlier activity is not
@@ -96,15 +98,22 @@ whether it was later labelled fraud or not.
 
 **Identity linkage.** A customer is the safe (`country_code`, `customer_id`)
 pair, reached from the order through the label bridge of
-`relationships.link_orders_customers` (D4-03); a bare `customer_id` is not
-enough. This holds for historical analysis only, since the scoring-time
+`relationships.link_orders_customers` (D4-03), called with
+`normalize_country=True` so country formatting is the same on every side of the
+linkage; a bare `customer_id` is not enough. This holds for historical analysis only, since the scoring-time
 mapping is unconfirmed (D4-02). Prior orders are counted from the same linkage.
 `first_order_datetime` and `num_orders_last_50days` are **not** used: both are
 unconfirmed and withheld (D4-02), and the 50-day field is not a lifetime count.
 
-**Duplicates.** Orders are counted by distinct (`country_code`, `order_id`).
-Source rows with a duplicated or conflicting key are not "safe" under D4-03
-and neither count as prior orders nor receive a loyalty value of `loyal`.
+**Duplicates.** Orders are counted by distinct (`country_code`, `order_id`),
+using the safe records the helper (`relationships.unique_records`, via
+`link_orders_customers`) returns. Identical records, including rows identical
+after country normalization, collapse to one safe distinct order, which counts
+once. Only a key shared by *differing* records (a conflict) is excluded: all of
+its rows are dropped and none is picked, so that key neither counts as a prior
+order nor can itself receive `loyal`. The same collapse and exclusion apply to
+the label and customer records of the bridge, so a conflicting label gives no
+customer link and the order is `unknown`.
 
 **Same-day orders.** Orders on the same calendar date as the current order are
 never prior, and intraday order is not used (it is unknown, D4-03). Two orders
@@ -123,7 +132,9 @@ an unlinked loyal customer would look new.
 | One short | one on 2023-03-31 | `not_loyal` (1) |
 | Same-day only | two others on 2023-04-01 | `not_loyal` (0) |
 | One earlier day, two orders | two on 2023-03-31 | `loyal` (2) |
-| Duplicate key | the same (country, order id) twice on 2023-03-30 plus one on 2023-03-31 | `not_loyal` (1; the duplicated key is excluded) |
+| Exact copy plus another order | the same record (same country, order id and fields) twice on 2023-03-30, plus a different order on 2023-03-31 | `loyal` (2; the copies collapse to one order) |
+| Exact copy only | the same record twice on 2023-03-30 | `not_loyal` (1) |
+| Conflicting key | two differing records sharing one (country, order id), dated 2023-03-30, plus a different order on 2023-03-31 | `not_loyal` (1; the conflicting key is excluded) |
 | Unknown identity | `customer_id` missing or no safe link | `unknown`, not loyal |
 | Unusable prior date | one on 2023-03-31, one with an unparseable date | `not_loyal` (1) |
 
