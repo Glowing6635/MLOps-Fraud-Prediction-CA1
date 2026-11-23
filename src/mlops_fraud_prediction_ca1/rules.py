@@ -1,5 +1,6 @@
 """Baseline-rule inputs: account age in whole calendar days (PBI #18, #123)."""
 
+import numpy as np
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype
 
@@ -91,3 +92,38 @@ def account_age_days(
     status[order_status.eq("unavailable")] = "unavailable_order_date"
     age = age.mask(status.ne("valid"), pd.NA)
     return pd.DataFrame({"account_age_days": age, "account_age_status": status})
+
+
+def baseline_rule_flags(
+    order_value: pd.Series, account_age: pd.Series, threshold: float
+) -> pd.DataFrame:
+    """Flag orders with order_value strictly above ``threshold`` (SGD) and age < 1 day.
+
+    ``order_value`` is the cleaned amount (SGD, spec.txt:521); ``account_age`` is
+    ``account_age_days(...).account_age_days``. Both conditions are strict: an
+    amount equal to the threshold is not flagged, and only age 0 qualifies (age
+    1 does not). ``threshold`` must be one explicit finite number >= 0.
+
+    Returns a frame on the input index and row order with ``rule_flag`` (bool)
+    and ``rule_status``: ``flagged``, ``not_flagged``, ``unusable_amount`` (NA,
+    non-numeric or non-finite amount) or ``unusable_age`` (NA age). An unusable
+    value never flags, so a row the rule cannot judge counts as unflagged. When
+    both are unusable the status is ``unusable_amount``. Inputs are unchanged.
+    """
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        raise TypeError("threshold must be a real number")
+    if not np.isfinite(threshold) or threshold < 0:
+        raise ValueError("threshold must be finite and >= 0 (SGD)")
+    if not order_value.index.equals(account_age.index):
+        raise ValueError("order_value and account_age must share an index")
+    amount = pd.to_numeric(order_value, errors="coerce").astype("Float64")
+    amount_ok = amount.notna() & np.isfinite(amount.fillna(0).astype(float))
+    age = pd.to_numeric(account_age, errors="coerce").astype("Float64")
+    age_ok = age.notna()
+    hit = (amount.gt(threshold) & age.lt(1)).fillna(False).astype(bool)
+    hit &= (amount_ok & age_ok).to_numpy()
+    status = pd.Series("not_flagged", index=order_value.index, dtype=object)
+    status[hit] = "flagged"
+    status[~age_ok] = "unusable_age"
+    status[~amount_ok] = "unusable_amount"
+    return pd.DataFrame({"rule_flag": hit, "rule_status": status})
