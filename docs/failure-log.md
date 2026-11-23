@@ -6,7 +6,7 @@ Times are written as minutes and seconds, so 1:04 is one minute and four seconds
 
 ## Restart drills and rehearsals
 
-A restart drill ends and restarts the AWS sandbox, then times how long the services take to work again. `uv run restart-drill` measures it, as the runbook's "Restart drill" section describes, and logs an MLflow run named `restart-drill` with the times. Each #29 rehearsal adds a row here.
+A restart drill ends and restarts the AWS sandbox, then times how long the services take to work again. `uv run restart-drill` measures it, as the runbook's "Restart drill" section describes, and logs an MLflow run named `restart-drill` with the times. Each #29 rehearsal adds a row to the summary table and a row to the table of each stage's time. This log is the one place the drills' times are recorded.
 
 | Date | Source | Fault | Expected result | Observed result | Recovery time |
 | --- | --- | --- | --- | --- | --- |
@@ -19,7 +19,9 @@ Each stage's time, from the start of the drill:
 | --- | --- | --- | --- | --- |
 | 17 Nov 2026 | 0:06 | 0:47 | 0:58 | 1:04 |
 
-So on 17 Nov RDS took 0:06, the MLflow server 0:41 more, and the model check 0:11 more, and the drill ended 0:06 after the model check. These times don't include the minute Beanstalk took to replace its instance before the drill started, or an RDS start-up wait, since RDS was not stopped. A drill after RDS was stopped overnight would take several minutes longer.
+So on 17 Nov RDS took 0:06, the MLflow server 0:41 more, and the model check 0:11 more, and the drill ended 0:06 after the model check. These times don't include the minute Beanstalk took to replace its instance before the drill started, or an RDS start-up wait, since RDS was not stopped. A drill after RDS was stopped overnight would take several minutes longer. A later drill that starts a stopped RDS adds a column, `RDS start-up wait`, to the table of each stage's time, with the time `time aws rds wait db-instance-available` printed. That wait is not added into the other times.
+
+The 17 Nov drill ran from Richard Go's laptop, on a network that is TO RECORD.
 
 ## Failure tests
 
@@ -27,7 +29,8 @@ Each test injects a fault and checks the result, and runs in `uv run pytest`. Th
 
 | Source | Fault | Expected result | Observed result | Recovery time | Test |
 | --- | --- | --- | --- | --- | --- |
-| #19 | A file's download fails: the server answers 404, keeps answering 503, stops answering, or can't be reached. | The batch stops with `DownloadFailed`, naming the file. A 404 isn't retried, and other failures are retried at most 3 times. | As expected | Not applicable: automated test | `test_a_failed_download_stops_after_at_most_three_retries`, `test_an_unreachable_host_fails_after_three_retries` in `test_batch_files.py` |
+| #19 | A file's download fails: the server answers 404, keeps answering 503, or stops answering. | The batch stops with `DownloadFailed`, naming the file. A 404 isn't retried, and other failures are retried at most 3 times. | As expected | Not applicable: automated test | `test_a_failed_download_stops_after_at_most_three_retries` in `test_batch_files.py` |
+| #19 | A file's download fails because the server can't be reached. | The batch stops with `DownloadFailed` after 3 retries. | As expected | Not applicable: automated test | `test_an_unreachable_host_fails_after_three_retries` in `test_batch_files.py` |
 | #19 | A file is not CSV text: an HTML page, binary data, JSON, or text that can't be parsed. | The batch stops with `NotCsv`, naming the file. | As expected | Not applicable: automated test | `test_a_bad_file_stops_the_batch_with_a_named_error` in `test_batch_files.py` |
 | #19 | A required column is missing or renamed. | The batch stops with `MissingColumns`, naming the file. | As expected | Not applicable: automated test | `test_a_bad_file_stops_the_batch_with_a_named_error` in `test_batch_files.py` |
 | #19 | A file has only a header, or is empty. | The batch stops with `NoRows`, naming the file. | As expected | Not applicable: automated test | `test_a_bad_file_stops_the_batch_with_a_named_error` in `test_batch_files.py` |
@@ -41,11 +44,11 @@ Each test injects a fault and checks the result, and runs in `uv run pytest`. Th
 
 ## Real failures
 
-These failures showed up while the features were built. Each links to the commit that fixed it. None was measured for recovery time, since each was found and fixed during development, before any release.
+These failures showed up while the features were built. The three #20 failures were found in review before #20's first commit and are fixed in it, so each links to that commit. The #13 failure links to the commit that fixed it. None was measured for recovery time, since each was found and fixed during development, before any release.
 
 | Source | Fault | Expected result | Observed result | Fix |
 | --- | --- | --- | --- | --- |
 | #20 | A database error during a load. | The error text names the failure without showing data. | The error text printed the data rows the failed statement sent. | [2656580](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/commit/265658072ec27d822cbb5c29b7e0cbb6b5b11dcc): `config.create_db_engine` sets `hide_parameters`, and `test_a_failure_on_the_third_table_leaves_all_three_unchanged_and_shows_no_rows` checks it. |
 | #20 | A later batch has an ID that differs from a stored one only by trailing spaces, such as `o1 ` for `o1`. MySQL compares IDs ignoring trailing spaces. | The row counts as already stored. | The whole load stopped. | [2656580](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/commit/265658072ec27d822cbb5c29b7e0cbb6b5b11dcc): IDs are compared without trailing spaces, and `test_a_later_batch_keeps_stored_orders_and_labels_and_adds_customer_rows` checks it. |
 | #20 | A row has an ID longer than the database's 64-character limit. | The row is rejected and counted, and the rest of the batch loads. | The whole load stopped. | [2656580](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/commit/265658072ec27d822cbb5c29b7e0cbb6b5b11dcc): such rows are rejected as "order_id longer than 64 characters", and `test_rows_that_cannot_be_stored_are_rejected_and_counted_without_stopping` checks it. |
-| #13 | The training harness branch was rebased onto `dev`, whose final cleaning code replaced `load_clean_base_data` with `clean_frame`. | The harness reads and cleans each time window. | The harness broke, since it still called `load_clean_base_data`. | [aafcdd6](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/commit/aafcdd62dc03e3fe43079063c3c357c180f94486): the harness reads each window with `data.load_base_data` and cleans each table with `clean_frame`. |
+| #13 | The training harness branch was rebased onto `dev`, whose final cleaning code replaced `load_clean_base_data` with `clean_frame`. | The harness reads and cleans each time window. | The harness broke, since it still called `load_clean_base_data`. | [0d7a7e9](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/commit/0d7a7e999ba126759a38983cd4bcf10b20acabda): the harness reads each window with `data.load_base_data` and cleans each table with `clean_frame`. |
