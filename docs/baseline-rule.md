@@ -198,13 +198,15 @@ sensitivity row.
 **Units.** `order_value` is in SGD (spec.txt:521). Candidates are SGD amounts on
 cleaned order values; the strict `>` comparison is applied after cleaning.
 
-**Candidate grid (SGD), fixed now:** 50, 100, 200, 500, 1000, 2000. The scale of
-order values has not been inspected, so the grid is round amounts a rule author
-would plausibly write, spaced roughly geometrically over 1.5 orders of
-magnitude so that it can neither be fine-tuned to the validation window nor
-fall entirely on one side of it. Any change to the grid, including adding
-values because every candidate looks poor, is made before the next evaluation
-and recorded in the decision log (#30); it is never made after seeing a result.
+**Candidate grid (SGD), fixed now:** 50, 100, 200, 500, 1000, 2000. This is a
+finite, predeclared set of round amounts a rule author would plausibly write,
+spaced roughly geometrically. The scale of order values has not been inspected,
+so the grid is not claimed to cover the region where the best threshold lies or
+to bracket it; the selected X is only the best of these six. The grid is kept
+even if every candidate performs poorly: the result is reported with that
+limitation and X is not retuned or widened to rescue it. Any change to the
+grid is made before the next evaluation and recorded in the decision log
+(#30); it is never made after seeing a result.
 
 **Fitting data.** Only the frozen #6 validation window `[2023-03-27, 2023-04-17)`
 (D6-01, `config/time_split.toml`). Training rows are not used for selection and
@@ -220,8 +222,10 @@ country), with the #5 K fixed before results are seen:
    ties by (country_code, order_id), and cut at K (#18 criterion 4).
 2. Primary: total labelled fraud caught across all groups after the cut.
    Higher is better.
-3. Tie-break, applied in order: fewer total flags after the cut (fewer false
-   flags); then the larger X. The final rule picks exactly one X.
+3. Tie-break, applied in order: fewer total flags after the cut (lower review
+   volume at equal labelled fraud caught; this does not claim fewer false
+   flags, because an unlabelled flagged order is not known to be non-fraud,
+   D6-01); then the larger X. The final rule picks exactly one X.
 
 Results at 2K are reported but are not used for selection. Rows with unusable
 amounts or ages are unflagged and stay in the denominators; their counts are
@@ -234,6 +238,9 @@ evidence about it. A model that beats this proxy has beaten a rule tuned on the
 same window; one that does not should be checked against the confirmed X once
 Trust & Safety provides it.
 
-**Deferred.** Fitting waits for (a) the shared #5 evaluator, (b) the recorded K
-and grouping, and (c) the #6 validation reader. The loyal definition (criterion
-3) must also be written in numbers before results are seen.
+**Deferred.** The validation reader already exists: #6
+`load_base_data(data_dir, purpose="validation")` returns the frozen window
+(`docs/time-split.md`). Fitting still waits for (a) the shared #5 evaluator and
+(b) the frozen #5 capacity K and selection grouping, neither of which is
+recorded yet. The loyal definition (criterion 3) must also be written in
+numbers before results are seen.
