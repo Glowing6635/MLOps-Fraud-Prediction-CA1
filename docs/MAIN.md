@@ -17,3 +17,7 @@
   counts and MLflow evidence.
 - [Champion selection and rollback](champion.md) — compare validation runs,
   register the top two and manage aliases.
+
+
+- [Baseline rule inputs](baseline-rule.md) — account age for the hard-coded
+  rule, and how missing or negative ages are handled.
