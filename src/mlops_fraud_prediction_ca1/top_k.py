@@ -23,6 +23,10 @@ from itertools import groupby
 
 ORDER_COLUMNS = ("order_date", "country_code", "order_id", "is_fraud")
 
+# The daily review capacity, a product owner assumption with its reason in D5-01 of
+# docs/decision-log.md. Change it only together with that entry.
+K = 250
+
 
 @dataclass(frozen=True)
 class TopKResult:
