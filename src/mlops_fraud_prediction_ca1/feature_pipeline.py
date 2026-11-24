@@ -74,7 +74,7 @@ def build_pipeline(estimator, group: str = "order_log") -> Pipeline:
                 SimpleImputer(strategy="constant", fill_value="missing"),
                 OneHotEncoder(handle_unknown="ignore"),
             ),
-            make_column_selector(dtype_include=object),
+            make_column_selector(dtype_include=["object", "string"]),
         ),
     )
     return Pipeline(
