@@ -12,16 +12,22 @@ the artifact chosen and its metrics. Each alias move records the previous champi
 version on the new one (`previous_champion_version`), so rollback is a move back.
 """
 
+import argparse
+import os
+import sys
 from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 from re import fullmatch
 
+from dotenv import load_dotenv
+from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 
 CHAMPION = "champion"
 CHALLENGER = "challenger"
 TOP_TWO = 2
+MAX_MODEL_SIZE_BYTES = 50 * 1024 * 1024
 DATASET_HASHES = tuple(
     f"dataset_sha256_{table}" for table in ("customers", "orders", "labels")
 )
@@ -59,6 +65,9 @@ def eligible_candidates(client, experiment_ids, k: int) -> list[Candidate]:
         if "k" not in params:
             raise ValueError(f"Run {run_id} has no recorded K.")
         if params["k"] != str(k):
+            continue
+        model_size = metrics.get("model_size_bytes")
+        if model_size is not None and model_size > MAX_MODEL_SIZE_BYTES:
             continue
         provenance = _validation_provenance(run_id, params, metrics)
         if window is not None and provenance != window:
@@ -135,7 +144,7 @@ def _name(client, run) -> str:
 def comparison_table(candidates: list[Candidate]) -> str:
     """Markdown table of the ranked candidates with the reason for the order."""
     lines = [
-        "| Rank | Run | Fraud caught at K | Average precision | Registered |",
+        "| Rank | Run | Fraud caught at K | Average precision | Top two |",
         "|---|---|---|---|---|",
     ]
     for rank, c in enumerate(candidates, 1):
@@ -234,3 +243,31 @@ def _registered_aliases(client, model_name: str) -> dict[str, str] | None:
             raise
         return None
     return {alias: str(version) for alias, version in model.aliases.items()}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compare eligible MLflow models.")
+    parser.add_argument("--k", type=int, required=True, help="Daily review capacity.")
+    parser.add_argument(
+        "--register",
+        metavar="MODEL_NAME",
+        help="Register the top two under MODEL_NAME and update the aliases.",
+    )
+    args = parser.parse_args()
+
+    load_dotenv()
+    uri = os.getenv("MLFLOW_TRACKING_URI")
+    experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME")
+    if not uri or not experiment_name:
+        parser.error("Set MLFLOW_TRACKING_URI and MLFLOW_EXPERIMENT_NAME.")
+    client = MlflowClient(tracking_uri=uri, registry_uri=uri)
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        parser.error(f"MLflow experiment {experiment_name!r} does not exist.")
+
+    candidates = eligible_candidates(client, [experiment.experiment_id], args.k)
+    sys.stdout.write(comparison_table(candidates) + "\n")
+    if args.register:
+        versions = register_top_two(client, args.register, candidates)
+        for alias, version in versions.items():
+            sys.stdout.write(f"{args.register} {alias}: version {version}\n")

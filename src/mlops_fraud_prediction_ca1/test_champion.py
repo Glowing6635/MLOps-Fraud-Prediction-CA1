@@ -41,6 +41,7 @@ def _log(
     dirty="False",
     provenance=PROVENANCE,
     nested=False,
+    model_size_bytes=None,
 ):
     with mlflow.start_run(run_name=name, nested=nested) as run:
         mlflow.log_params({"k": k, "exploratory": exploratory, **provenance})
@@ -53,6 +54,8 @@ def _log(
                 "total_fraud_at_k": 1000,
             }
         )
+        if model_size_bytes is not None:
+            mlflow.log_metric("model_size_bytes", model_size_bytes)
         mlflow.log_text("model", "model/MLmodel")
     return run.info.run_id
 
@@ -82,6 +85,15 @@ def test_exploratory_other_k_and_ineligible_runs_are_not_candidates(client):
     _log("dirty", 600, 0.9, dirty="True", provenance={})
     candidates = eligible_candidates(client, _experiment(client), 250)
     assert [c.run_id for c in candidates] == [good_a, good_b]
+
+
+def test_model_size_limit_excludes_oversized_runs(client):
+    at_limit = _log("at limit", 100, 0.3, model_size_bytes=52_428_800)
+    below_limit = _log("below limit", 90, 0.4, model_size_bytes=52_428_799)
+    _log("oversized", 200, 0.9, model_size_bytes=52_428_801)
+
+    candidates = eligible_candidates(client, _experiment(client), 250)
+    assert [candidate.run_id for candidate in candidates] == [at_limit, below_limit]
 
 
 def test_ties_on_fraud_caught_go_to_average_precision(client):

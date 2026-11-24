@@ -22,12 +22,14 @@ Exploratory (with-customer-columns) runs are not eligible. Differences with and
 without those columns: boosted trees +161, random forest +14, extra trees -81 fraud
 caught at K (PR #164).
 
-## 2. Rule versus model (PR #157, post-hoc proxy rule)
+## 2. Rule versus model (#18, PR #157)
 
-The rule (proxy X = 13.36 SGD, account age 0 days) flags 132 validation orders and
-catches 73. The boosted-trees model cut to the same 132 flags catches 102, with 30 false
-flags (rule: 59) and 6 false flags on loyal orders (rule: 0). The original-grid result
-was a 5-5 tie at 7 flags. See PR #157 for the tables and limits.
+The final #18 validation-tuned proxy rule flags orders above X = 13.36 SGD
+from accounts aged 0 days. It flags 132 validation orders and catches 73 fraud
+cases. The boosted-trees model cut to the same 132 flags catches 102, with 30
+false flags (rule: 59) and 6 false flags on loyal orders (rule: 0). The
+original-grid result was a 5-5 tie at 7 flags. See PR #157 for the tables and
+limits.
 
 ## 3. Questions for the analyst
 
@@ -50,12 +52,11 @@ defaults:
    v2 (RandomForestClassifier, run `9a40f8f5e35a48ddb39a97f9f052dcad`, 2,811
    caught, AP 0.3495) as challenger.
 
-Final integration into `dev` still waits on #148, #151, and #152.
-
 ## 5. Team registry status
 
 At the Product Owner's request, the top two runs above were registered as
 `fraud-candidate` versions 1 and 2 on the team server. Version 1 is the
-`champion` after the rollback check. See the
+`champion` after the rollback check. The recorded challenger, version 2,
+exceeds the current 50 MiB size cap. See the
 [team registry record](champion.md#team-registry-record) for the run IDs and
 rollback evidence.

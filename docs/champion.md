@@ -2,7 +2,8 @@
 
 The selector ranks finished #13 harness runs tagged `champion_eligible=True`
 with `exploratory=False` and `git_dirty=False`. It considers only the requested
-daily K. At that K, all candidates must have matching input SHA-256 hashes,
+daily K and skips runs with a recorded model size above 50 MiB (52,428,800
+bytes). At that K, all candidates must have matching input SHA-256 hashes,
 validation start and end (the test start), cleaning policy version, and
 validation order and fraud counts. Missing, invalid, or conflicting provenance
 stops selection. The order follows #5: most fraud caught at K, then average
@@ -13,33 +14,16 @@ precision, with run ID breaking exact ties.
 Copy `.env.example` to `.env` and set `MLFLOW_TRACKING_URI` to the intended MLflow
 server and `MLFLOW_EXPERIMENT_NAME` to the existing experiment containing the
 validation runs. Supply the server credentials if required. From the repository
-root, run `uv run python` and print the comparison for the Trust & Safety
-analyst to review:
+root, print the comparison for the Trust & Safety analyst to review:
 
-```python
-import os
-
-from dotenv import load_dotenv
-from mlflow import MlflowClient
-
-from mlops_fraud_prediction_ca1 import champion
-
-load_dotenv(".env")
-uri = os.environ["MLFLOW_TRACKING_URI"]
-client = MlflowClient(tracking_uri=uri, registry_uri=uri)
-experiment_name = os.environ["MLFLOW_EXPERIMENT_NAME"]
-experiment = client.get_experiment_by_name(experiment_name)
-if experiment is None:
-    raise ValueError(f"MLflow experiment {experiment_name!r} does not exist.")
-
-runs = champion.eligible_candidates(client, [experiment.experiment_id], k=250)
-print(champion.comparison_table(runs))  # paste into the review record
+```sh
+uv run champion-pick --k 250
 ```
 
-After approval, register the top two in the same session:
+After approval, select and register the top two from the same experiment:
 
-```python
-champion.register_top_two(client, "fraud-candidate", runs)
+```sh
+uv run champion-pick --k 250 --register fraud-candidate
 ```
 
 Each version is tagged with `source_run_id`, `artifact` (`runs:/<run>/model`), `k`
@@ -50,6 +34,9 @@ the new champion records the prior version in `previous_champion_version`.
 ## Move the alias and roll back
 
 ```python
+from mlops_fraud_prediction_ca1 import champion
+
+# Use an MlflowClient configured for the target registry.
 champion.move_champion(client, "fraud-candidate", "<version>", "reason")
 ```
 
@@ -84,19 +71,5 @@ to version 2 and restored it to version 1. Both aliases resolved to the expected
 ready versions and source runs after each move. The destination version recorded
 the previous champion version on each move.
 
-## Criterion 3 acting-analyst sign-off
-
-On 2026-11-24 at 15:45 UTC (23:45 SGT), SpiralSky (Product Owner) acted as the
-Trust & Safety analyst (course persona per D18-04) and approved all three
-defaults:
-
-1. Use fraud caught at K = 250 orders per day as the primary measure (D5-01).
-2. Accept the 6 loyal-customer false flags in the X = 13.36 SGD proxy comparison
-   in exchange for the extra fraud caught. Monitor loyal-customer false flags.
-3. Confirm `fraud-candidate` v1 (HistGradientBoostingClassifier, run
-   `9c3a59771cf8499d92972f5c7873e280`, 2,893 caught, AP 0.3716) as champion and
-   v2 (RandomForestClassifier, run `9a40f8f5e35a48ddb39a97f9f052dcad`, 2,811
-   caught, AP 0.3495) as challenger.
-
-Final integration into `dev` still waits on #148, #151, and #152. See the
-[model review record](model-review.md#4-criterion-3-acting-analyst-sign-off).
+See the [acting-analyst sign-off](model-review.md#4-criterion-3-acting-analyst-sign-off).
+The recorded random forest challenger exceeds the current size cap.
