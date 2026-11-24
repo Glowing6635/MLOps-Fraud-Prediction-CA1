@@ -100,21 +100,20 @@ Observed on the existing environment `mlflow` (read-only `aws elasticbeanstalk d
 
 Further read-only observations (2026-11-24): `GET /health` returned 200 without a login; `GET /version` returned 401 "You are not authenticated", so the running server already requires a login. The environment properties set are `MLFLOW_ARTIFACTS_DESTINATION`, `MLFLOW_SERVER_ALLOWED_HOSTS` and `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` (names only; values not read).
 
-Cost: the t3.small Linux on-demand price in US East (N. Virginia) is **USD 0.0208 per hour**, read on 2026-11-24 from AWS's public price list file `https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/ec2/USD/current/ec2-ondemand-without-sec-sel/US%20East%20(N.%20Virginia)/Linux/index.json` (about USD 15 per 30-day month if left running; this is arithmetic on that price, and the Learner Lab bills against its credit budget, not this list price). The gp3 volume price could not be read from a public file and is **pending**: take it from the AWS EBS pricing page.
+The table uses AWS on-demand list prices for US East (N. Virginia). The
+stopped column assumes the EC2 instance is stopped and the root volume remains
+provisioned at baseline gp3 performance. RDS, S3, ECR and any retained public
+IPv4 address can have separate charges. The Learner Lab uses a credit budget.
 
-| Item | Running | Sandbox stopped |
+| Item | Running | EC2 instance stopped |
 | --- | --- | --- |
-| t3.small compute | USD 0.0208 per hour | No compute charge while the instance is stopped (AWS EC2 billing rule: to be confirmed against the pricing page when sourcing; instance state while stopped is not yet observed) |
-| Root EBS volume, 8 GB gp3 | PENDING (GB-month price) | Still charged: volumes persist while the instance is stopped |
-| Load balancer | none | none |
+| t3.small compute | USD 0.0208 per hour | USD 0 per hour |
+| Root EBS volume, 8 GiB gp3 | USD 0.08 per GiB-month × 8 = USD 0.64 per month | USD 0.64 per month while retained |
+| Load balancer | None | None |
+
+Sources: [AWS regional t3.small pricing](https://aws.amazon.com/disaster-recovery/pricing/),
+[AWS regional gp3 pricing](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-plan-storage-compare-volume-types.html),
+[AWS EBS pricing](https://aws.amazon.com/ebs/pricing/), and
+[AWS stopped-instance billing](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html#lifecycle-stopped).
 
 Read-only commands used: `aws ec2 describe-instances --filters Name=tag:elasticbeanstalk:environment-name,Values=mlflow --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,BlockDeviceMappings[0].Ebs.VolumeId]'` and `aws ec2 describe-volumes --volume-ids <id> --query 'Volumes[].[Size,VolumeType]'`.
-
-## Acceptance evidence for #26 (to complete)
-
-| Criterion | State |
-| --- | --- |
-| One script, clean checkout, no IAM resource | Script `mlflow-server/deploy.sh` written; not run live |
-| Environment type and stopped cost recorded | Type and resources recorded from the live environment (read-only); t3.small price recorded, gp3 price and stopped-instance observation pending |
-| Engineer who did not write it deploys from this runbook | Pending: a teammate follows Quickstart and reports |
-| Every service/value named, diagram, followed quickstart | Written here; "followed successfully" pending the teammate run |
