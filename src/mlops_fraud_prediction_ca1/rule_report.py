@@ -18,6 +18,7 @@ from mlops_fraud_prediction_ca1.data import load_base_data
 from mlops_fraud_prediction_ca1.loyalty import loyalty_status
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.rule_comparison import (
+    THRESHOLD_GRID,
     compare,
     format_comparison,
     select_threshold,
@@ -32,6 +33,16 @@ def _clean(data_dir, purpose):
     return {
         name: clean_frame(frame) for name, frame in zip(_TABLES, frames, strict=True)
     }
+
+
+TRAINING_QUANTILES = (0.90, 0.95, 0.99, 0.995, 0.999, 0.9999)
+
+
+def training_quantile_grid(data_dir) -> tuple[float, ...]:
+    """The D18-03 grid: quantiles of the training window's order_value, no labels."""
+    value = pd.to_numeric(_clean(data_dir, "train")["orders"]["order_value"])
+    grid = value.dropna().quantile(list(TRAINING_QUANTILES)).round(2)
+    return tuple(sorted(set(grid.tolist())))
 
 
 def validation_inputs(data_dir) -> dict:
@@ -73,6 +84,12 @@ def main(argv=None) -> None:
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--scores", required=True)
     parser.add_argument("--k", type=int, required=True)
+    parser.add_argument(
+        "--grid",
+        choices=("original", "training-quantiles"),
+        default="original",
+        help="Candidate X values: D18-01's fixed grid or D18-03's training quantiles.",
+    )
     parser.add_argument("--threshold", type=float)
     parser.add_argument("--threshold-source")
     args = parser.parse_args(argv)
@@ -91,8 +108,13 @@ def main(argv=None) -> None:
     if merged["score"].isna().any():
         sys.exit(f"{int(merged['score'].isna().sum())} orders have no score.")
     if args.threshold is None:
-        fit = select_threshold(orders, inputs["age"], args.k)
-        print("Candidate X values (validation-tuned proxy):")  # noqa: T201
+        grid = (
+            training_quantile_grid(args.data_dir)
+            if args.grid == "training-quantiles"
+            else THRESHOLD_GRID
+        )
+        fit = select_threshold(orders, inputs["age"], args.k, grid)
+        print(f"Candidate X values ({args.grid} grid, validation-tuned proxy):")  # noqa: T201
         print(fit["candidates"].to_string(index=False))  # noqa: T201
         threshold, source = fit["x"], "validation-tuned proxy, not the deployed value"
     else:
