@@ -48,6 +48,20 @@ def test_preserves_opaque_ids_and_isolates_out_of_range_age(report_csvs, capsys)
     assert metric_rows == [["Model", "at", "K", "2", "2", "111.00", "0", "0"]]
 
 
+def test_rejects_customer_raw_timestamp_column_collision(report_csvs, capsys):
+    labels, _, args = report_csvs
+    (labels.parent / "customers_base.csv").write_text(
+        "customer_id,country_code,first_order_datetime,raw_first_order_datetime\n"
+        "a,MY,2023-04-01 00:00:00,2022-01-01 00:00:00\n"
+    )
+
+    with pytest.raises(
+        ValueError, match="Input columns conflict with generated raw_ columns"
+    ):
+        main(args)
+    assert capsys.readouterr().out == ""
+
+
 @pytest.mark.parametrize("bad_score", ["", "NA", "bad", "inf", "-inf", "1e309"])
 def test_rejects_invalid_scores_separately_from_keys(report_csvs, bad_score):
     _, scores, args = report_csvs

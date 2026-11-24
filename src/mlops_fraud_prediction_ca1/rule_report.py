@@ -14,7 +14,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from mlops_fraud_prediction_ca1.cleaning import clean_frame
+from mlops_fraud_prediction_ca1.cleaning import clean_frame, raw_column_names
 from mlops_fraud_prediction_ca1.data import load_base_data
 from mlops_fraud_prediction_ca1.loyalty import loyalty_status
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
@@ -34,6 +34,7 @@ def _clean(data_dir, purpose):
     customers, orders, labels = load_base_data(
         data_dir, purpose=purpose, raw_strings=True
     )
+    raw_column_names(customers.columns)
     first_order = customers["first_order_datetime"]
     # Keep the raw timestamp for link disambiguation and account-age diagnostics.
     parsed = parse_date_rows(first_order, kind="customer")
