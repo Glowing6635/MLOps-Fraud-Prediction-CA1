@@ -200,7 +200,8 @@ def train(
     """Run `fit_and_score` and log the run to MLflow; return the run ID and the result.
 
     MLflow reads MLFLOW_TRACKING_URI from the environment or `.env`, and the run goes to
-    the experiment MLFLOW_EXPERIMENT_NAME. The author is git's `user.name`. A run from a
+    the experiment MLFLOW_EXPERIMENT_NAME. The author is git's `user.name`, or "unknown"
+    when git has none. A run from a
     tree with uncommitted changes is logged with `git_dirty` set to true and a warning,
     because its commit alone does not reproduce it.
     """
@@ -257,7 +258,8 @@ def train(
             {
                 "git_commit": _git("rev-parse", "HEAD"),
                 "git_dirty": dirty,
-                "author": _git("config", "user.name"),
+                # CI runners and new laptops often have no git identity.
+                "author": _git("config", "--default", "unknown", "user.name"),
             }
         )
         # An undefined ratio (no order selected, or no fraud) is left out, not logged as 0.
