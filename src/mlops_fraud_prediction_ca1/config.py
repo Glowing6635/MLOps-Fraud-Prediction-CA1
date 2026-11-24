@@ -103,9 +103,12 @@ def create_db_engine(settings: Settings) -> Engine:
         port=settings.db_port,
         database=settings.db_name,
     )
+    # hide_parameters keeps the values a failed statement sent, which are data
+    # rows, out of the error text that commands print and logs keep.
     return create_engine(
         url,
         pool_pre_ping=True,
+        hide_parameters=True,
         connect_args={
             "connect_timeout": _CONNECT_TIMEOUT,
             "ssl": {"ca": str(RDS_CA_BUNDLE)},

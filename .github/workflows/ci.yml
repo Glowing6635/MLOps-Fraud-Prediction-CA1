@@ -16,6 +16,19 @@ jobs:
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # A throwaway MySQL of the version RDS runs, so the loading tests run here too.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_MYSQL_URL: mysql+pymysql://root@127.0.0.1:3306
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
