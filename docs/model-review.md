@@ -1,10 +1,9 @@
-# First model review: materials (PBI #15)
+# First model review (PBI #15)
 
 The review picks the top 2 eligible candidates and the champion. The owner or a
 teammate acts as the Trust & Safety analyst: Trust & Safety is a persona in the
 course brief, so no outside analyst is available, and K = 250 orders a day is a
-Product Owner assumption with no source (D5-01, D18-04). Record who acted as the
-analyst below.
+Product Owner assumption with no source (D5-01, D18-04).
 
 ## 1. Candidates on the table (validation window, K = 250, seed 0)
 
@@ -37,19 +36,26 @@ was a 5-5 tie at 7 flags. See PR #157 for the tables and limits.
    comparison) acceptable for the extra fraud caught?
 3. Do you accept the top-ranked model as champion, with the second as challenger?
 
-## 4. Record of the review (fill in at the review)
+## 4. Criterion 3 acting-analyst sign-off
 
-- Date and attendees:
-- Who acted as the analyst:
-- Champion (run ID, registered version):
-- Challenger:
-- Reason (from the table above, plus the analyst's view):
-- Disagreements or follow-ups:
+On 2026-11-24 at 15:45 UTC (23:45 SGT), SpiralSky (Product Owner) acted as the
+Trust & Safety analyst (course persona per D18-04) and approved all three
+defaults:
+
+1. Use fraud caught at K = 250 orders per day as the primary measure (D5-01).
+2. Accept the 6 loyal-customer false flags in the X = 13.36 SGD proxy comparison
+   in exchange for the extra fraud caught. Monitor loyal-customer false flags.
+3. Confirm `fraud-candidate` v1 (HistGradientBoostingClassifier, run
+   `9c3a59771cf8499d92972f5c7873e280`, 2,893 caught, AP 0.3716) as champion and
+   v2 (RandomForestClassifier, run `9a40f8f5e35a48ddb39a97f9f052dcad`, 2,811
+   caught, AP 0.3495) as challenger.
+
+Final integration into `dev` still waits on #148, #151, and #152.
 
 ## 5. Team registry status
 
 At the Product Owner's request, the top two runs above were registered as
 `fraud-candidate` versions 1 and 2 on the team server. Version 1 is the
-`champion` after the rollback check. The analyst review is pending. See the
+`champion` after the rollback check. See the
 [team registry record](champion.md#team-registry-record) for the run IDs and
 rollback evidence.
