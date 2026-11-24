@@ -131,6 +131,12 @@ def _load_window(
         extra = select_feature_inputs(
             joined[customers.columns], source="customers", exploratory=True
         )
+        # The model pipelines drop date columns, so the customer's first order becomes
+        # a number: whole days from it to this order. Order dates have no time of day.
+        first_order = extra.pop("first_order_datetime").dt.normalize()
+        extra["days_since_first_order"] = (
+            pd.to_datetime(joined.order_date) - first_order
+        ).dt.days
         timing, _ = customer_timing_audit(*(raw[name] for name in TABLES))
         flagged = timing.loc[
             timing.date_evidence.isin(["before_first_order", "unevaluable"]),

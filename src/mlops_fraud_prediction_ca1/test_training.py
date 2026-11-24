@@ -131,6 +131,13 @@ def test_exploratory_runs_add_customer_columns_only_on_request(data_dir):
     assert with_customers.loc[withheld, "mobile_verified"].isna().all()
     assert with_customers.loc[~withheld, "mobile_verified"].eq(1.0).all()
     assert with_customers.loc[~withheld, "num_refund_orders_last_50days"].eq(0).all()
+    # The pipelines drop date columns, so the first order date must arrive as a number.
+    assert "first_order_datetime" not in with_customers
+    assert with_customers.loc[withheld, "days_since_first_order"].isna().all()
+    first_train_day = pd.Timestamp(WINDOWS["train"][0]) - pd.Timestamp("2022-01-01")
+    assert (
+        with_customers.loc[~withheld, "days_since_first_order"] >= first_train_day.days
+    ).all()
 
 
 @pytest.mark.parametrize(

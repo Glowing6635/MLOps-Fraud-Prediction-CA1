@@ -114,8 +114,9 @@ precision within 0.005. `same_commit` shows whether the code is at the logged co
 - The features are the four order columns that `leakage.select_feature_inputs` allows
   (decision D4-01 in [the decision log](decision-log.md)). An exploratory run adds the
   seven customer columns, and withholds them for orders whose customer dates are
-  inconsistent or cannot be checked (D4-02 and D4-03). An exploratory model is never a
-  champion.
+  inconsistent or cannot be checked (D4-02 and D4-03). The customer's first order date
+  becomes `days_since_first_order`, the whole days from it to the order, because the
+  models drop date columns. An exploratory model is never a champion.
 - Before fitting, `check_feature_columns` stops the run if a column's name contains
   `is_fraud`, `refund_value`, `order_id`, `customer_id` or `batch_id`.
 - A feature built from a customer's earlier labels must pass `check_label_history`.
