@@ -500,8 +500,9 @@ its logged fraud caught at K and average precision.
 - Capacity and grouping: D5-01 fixes K = 250 orders per day as a Product
   Owner assumption. The #148 evaluator also supports day/country groups for
   per-country capacities.
-- Outcome: D18-03 records X = 50 SGD as the original validation-tuned proxy.
-  D18-04 confirms the proxy as the #18 baseline. There was no final-test
+- Outcome: the earlier predeclared coarse grid selected X = 50 SGD, with a
+  5–5 tie at 7 matched flags. D18-03 records the run. D18-04 adopts the later
+  training-quantile result as the #18 baseline. There was no final-test
   evaluation for this decision. Champion selection remains under #15.
 - Code and checks: `rules.py`, `loyalty.py`, `test_rules.py`, `test_loyalty.py`;
   rule and loyalty reference in [baseline-rule.md](baseline-rule.md).
@@ -537,9 +538,10 @@ its logged fraud caught at K and average precision.
   unchanged (D18-01 objective and tie-breaks, fitted on the validation window,
   K = 250 from D5-01). The grid rule was written here before the values were
   computed, so the quantile list is not tuned to results.
-- Status: the result is a **post-hoc, validation-tuned proxy** comparison. It is
-  not the deployed threshold and does not replace the original result. The real
-  X from Trust & Safety, when it arrives, supersedes both.
+- Outcome: the **post-hoc, validation-tuned proxy** selected X = 13.36 SGD.
+  At 132 matched flags, the rule caught 73 fraud orders and the model caught
+  102. D18-04 adopts this result. The D18-01 coarse-grid result remains in the
+  record.
 - Limit: the grid is still chosen after seeing that the first grid failed, and
   it is fitted on the same validation window that scores the comparison, so it
   favours the rule and a model win would be conservative.
@@ -550,8 +552,9 @@ its logged fraud caught at K and average precision.
   by the coordinator. Affected PBIs: #18 (criterion 1), #5/D5-01 (K).
 - Settled: Trust & Safety is a persona in the course brief, not a team that can be
   asked, so the deployed X and the real review capacity cannot be obtained. The
-  validation-tuned proxy X (D18-01 and D18-03) is the final rule for #18, and
-  K = 250 orders a day (D5-01) stays a Product Owner assumption. Neither has a
-  source; both are stated as assumptions wherever results are reported.
+  active #18 rule uses the D18-03 validation-tuned proxy X = 13.36 SGD. At
+  132 matched flags, the rule caught 73 fraud orders and the model caught 102.
+  K = 250 orders a day (D5-01) stays a Product Owner assumption.
 - Replaces: the earlier expectation of a confirmed deployed threshold or review
-  capacity. The original grid remains recorded in D18-01.
+  capacity. D18-01 retains the earlier predeclared coarse-grid result at
+  X = 50 SGD, with a 5–5 tie at 7 matched flags.

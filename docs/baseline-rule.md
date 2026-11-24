@@ -195,25 +195,22 @@ report input used by the comparison to count false flags on loyal customers.
 
 The original grid and objective were fixed before order values were examined.
 D18-03 records the first validation comparison and the later training-quantile
-sensitivity grid. D18-04 establishes the validation proxy as the #18 baseline.
-The deployed threshold is unknown.
+grid. D18-04 adopts the training-quantile result as the #18 baseline. The
+deployed threshold is unknown.
 
-**Units.** `order_value` is in SGD (spec.txt:521). Candidates are SGD amounts on
-cleaned order values; the strict `>` comparison is applied after cleaning.
+**Units.** `order_value` is in SGD (spec.txt:521). The rule applies a strict
+`>` comparison to cleaned order values.
 
-**Original candidate grid (SGD):** 50, 100, 200, 500, 1000, 2000. This is a
-finite, predeclared set of round amounts a rule author would plausibly write,
-spaced roughly geometrically. The scale of order values has not been inspected,
-so the grid is not claimed to cover the region where the best threshold lies or
-to bracket it; the selected X is only the best of these six. The grid is kept
-even if every candidate performs poorly: the result is reported with that
-limitation and X is not retuned or widened to rescue it. Any change to the
-grid is made before the next evaluation and recorded in the decision log
-(#30); it is never made after seeing a result.
+**Candidate grids.** D18-01 predeclared the coarse grid of 50, 100, 200, 500,
+1000 and 2000 SGD before order values were examined. After that first run,
+D18-03 recorded a second grid before its rerun. It uses the 0.90, 0.95, 0.99,
+0.995, 0.999 and 0.9999 quantiles of cleaned training order values, rounded
+to two decimal places and deduplicated.
 
-**Fitting data.** Only the frozen #6 validation window `[2023-03-27, 2023-04-17)`
-(D6-01, `config/time_split.toml`). Training rows are not used for selection and
-the protected test window `[2023-04-17, 2023-05-11)` is never read for it.
+**Fitting data.** Both grids use the frozen #6 validation window
+`[2023-03-27, 2023-04-17)` to select X (D6-01, `config/time_split.toml`).
+The training window supplies only the quantile candidates. The protected test
+window `[2023-04-17, 2023-05-11)` is excluded.
 
 **Selection objective (identical to the #5 measure, so the rule and the model
 are compared on the same footing).** Using the shared #5 evaluator and the #5
@@ -234,12 +231,15 @@ The comparison reports performance at the matched count and at K. Rows with unus
 amounts or ages are unflagged and stay in the denominators; their counts are
 reported.
 
-**Recorded validation proxy.** The original grid selected X = 50 SGD at
-K = 250 orders per day (D5-01). In the recorded D18-03 validation run, the
-rule and model each caught 5 fraud orders at 7 matched flags. The rule
-flagged zero orders at X = 100 SGD or higher. The fitted X and the comparison
-use the same validation window. D18-03's training-quantile grid is a separate
-sensitivity check. No final-test evaluation was run for #18.
+**Active #18 validation-tuned proxy.** D18-03 selected X = 13.36 SGD from
+the training-quantile grid at K = 250 orders per day (D5-01). The rule caught
+73 fraud orders at 132 flags and the model caught 102 at the same flag count.
+D18-04 adopts this result as the #18 baseline. Selection and comparison used
+the same validation window. No final-test evaluation was run for #18.
+
+**Earlier predeclared coarse-grid result.** D18-01's grid selected X = 50 SGD.
+The rule and model each caught 5 fraud orders at 7 matched flags. The rule
+flagged zero orders at X = 100 SGD or higher.
 
 ## Comparison with a model (criteria 4 to 6)
 
@@ -249,7 +249,7 @@ country), with K = 250 a day (D5-01, a Product Owner assumption, not a Trust &
 Safety figure).
 
 - `select_threshold(orders, account_age, k)` fits X on the supplied validation
-  window over the fixed grid and returns the chosen X and the candidate table.
+  window over the supplied candidate grid and returns the chosen X and the candidate table.
   The result is a **validation-tuned proxy**.
 - `compare(...)` cuts the rule's flags to K per group by `order_value`, cuts the
   model to the rule's count per group, and also reports the model at K. It gives
@@ -264,20 +264,12 @@ The public #148 evaluator supplies candidate flag and fraud counts and the model
 counts at K. The comparison currently builds row masks locally for the rule cut,
 matched model cut, exposure, and loyal false flags.
 
-**API request for Glowing6635 (#148).** Please expose a public
-`select_top_k(orders, scores, k, *, eligible=None, group_limits=None)` returning
-a boolean mask in input row order. Use the evaluator's validation, daily or
-day/country grouping, and score-descending, country/order ascending tie-break.
-`eligible` optionally limits selection to a positional boolean mask (rule
-flags). `group_limits` optionally overrides the limit by the same group key
-used by the evaluator, including zero for groups with no rule flags, up to the
-group's K. The evaluator and #18 can then share the same selection logic.
-
 Run the report with the base CSVs and a score for every labelled validation
 order. The scores file has `country_code`, `order_id` and `score` columns.
 
 ```sh
-uv run python -m mlops_fraud_prediction_ca1.rule_report --data-dir data --scores scores.csv --k 250
+uv run rule-report --data-dir data --scores scores.csv --k 250 --grid training-quantiles
 ```
 
+Use `--grid original` to reproduce the earlier coarse-grid run.
 The report reads training history and validation via the #6 protected loader.

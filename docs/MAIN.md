@@ -23,4 +23,7 @@
   rule, and how missing or negative ages are handled.
 
 - [Baseline rule and model comparison](baseline-rule.md) — account age, historical
-  loyalty, and the validation-only comparison at K = 250 and proxy X = 50 SGD.
+  loyalty, and the active #18 validation-tuned proxy at X = 13.36 SGD (D18-03).
+  At K = 250 per day and 132 matched flags, the rule caught 73 fraud orders
+  and the model caught 102. The earlier D18-01 coarse grid selected X = 50 SGD
+  and produced a 5–5 tie at 7 matched flags.

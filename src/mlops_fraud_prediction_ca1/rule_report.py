@@ -1,7 +1,7 @@
 """Run the #18 comparison on the validation window from a file of model scores.
 
-    uv run python -m mlops_fraud_prediction_ca1.rule_report --data-dir data \\
-        --scores scores.csv --k 250 [--threshold X --threshold-source "..."]
+    uv run rule-report --data-dir data \\
+        --scores scores.csv --k 250 --grid training-quantiles
 
 `scores.csv` has `country_code`, `order_id` and `score` for every labelled validation
 order (higher means riskier). Without `--threshold`, X is fitted on the validation
