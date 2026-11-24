@@ -44,7 +44,8 @@ secrets_namespace="aws:elasticbeanstalk:application:environmentsecrets"
 
 valid_artifact_uri() {
   local uri="$1" bucket LC_ALL=C
-  [[ $uri == s3://*/artifacts ]] || return 1
+  # MLflow parses raw query and fragment delimiters before choosing the S3 key.
+  [[ $uri == s3://*/artifacts && $uri != *'?'* && $uri != *'#'* ]] || return 1
 
   # Keep control characters and YAML line breaks out of the saved configuration.
   case "$uri" in

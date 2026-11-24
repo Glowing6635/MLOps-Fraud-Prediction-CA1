@@ -87,8 +87,10 @@ seven settings in the deployed Beanstalk configuration. Both creation and
 redeploy require an artifact destination of `s3://<bucket>/artifacts` or
 `s3://<bucket>/<prefix>/artifacts`. The script checks the bucket name against
 the [S3 general purpose naming rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html)
-locally on both paths. The optional key prefix can have multiple levels and must
-be free of control characters and line breaks. On redeploy, the artifact
+locally on both paths. The optional key prefix can have multiple levels. Use
+the literal S3 key prefix without control characters, line breaks, or raw
+`?` or `#`. MLflow interprets those delimiters as the start of a URI query or
+fragment and would write under a different key. On redeploy, the artifact
 destination must appear exactly once in the deployed application environment
 namespace. The allowed host and origin must match the CNAME, and the secret
 settings must refer to the four documented Parameter Store paths in the current
