@@ -263,6 +263,16 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   distinct customers over the whole resample would give 2 and 1, difference -1,
   which is not used. An interval that includes 0 is reported as "no difference was
   shown on that measure". It is not reported as "equal" or "no effect".
+- Mock-stage interval assumption (2026-11-24, before final scoring): linked
+  customers are keyed by country code and customer ID. Flagged fraud without
+  a linked customer still contributes its full order value to exposure. Its
+  contribution is shown separately and held fixed in the resamples because
+  its customer clustering is unknown. The interval is conditional on that
+  contribution; it does not measure uncertainty from unlinked orders. Do not
+  count unlinked orders as distinct loyal customers. If no linked customers
+  are available, report the point estimates but no customer bootstrap interval.
+  Confirm this treatment with the #34 reviewer before using it for the final
+  report. Synthetic checks are not final comparison runs.
 - Reading the outcomes:
   - Both differences favourable, both intervals exclude 0: the model is shown to
     be better on both measures in this window.

@@ -74,7 +74,9 @@ def test_bootstrap_multiplicity_matches_decision_example():
         }
     )  # fmt: skip
     sel = impact.select_flags(frame, k=2)
-    custs = pd.Index(["A", "B", "C", "D"])
+    custs = pd.MultiIndex.from_product(
+        [["SG"], ["A", "B", "C", "D"]], names=["country_code", "customer_id"]
+    )
     tabs = impact.customer_table(sel, custs)
     diff = tabs["model"].to_numpy(float) - tabs["rule"].to_numpy(float)
     total = diff[[0, 0, 1, 1]].sum(axis=0)
@@ -104,3 +106,51 @@ def test_render_report_marks_pending_and_seed():
     diffs = impact.bootstrap_differences(sel, seed=3, n_boot=50)
     text = impact.render_report(est, diffs, "capacity.png", None)
     assert "PENDING" in text and "seed 3" in text and "excludes review costs" in text
+
+
+def test_mocked_report_keeps_composite_customers_and_all_fraud_exposure():
+    # Use preselected flags, not a second implementation of #5/#18's ranking.
+    # A appears in two countries and places two orders within SG.
+    selected = pd.DataFrame(
+        {
+            "country_code": ["SG", "SG", "MY", "SG", "MY", "SG", "MY"],
+            "customer_id": ["A", "A", "A", None, None, "B", None],
+            "order_value": [2.0, 3.0, 4.0, 70.0, 20.0, 40.0, 30.0],
+            "is_fraud": [0, 0, 0, 1, 1, 1, 0],
+            "loyal": [True, True, True, False, False, False, True],
+            "rule_sel": [True, True, True, False, True, False, False],
+            "model_sel": [False, False, True, True, False, True, True],
+            "model_k_sel": [False, False, True, True, True, True, True],
+        },
+        index=[10, 20, 30, 40, 50, 60, 70],
+    )
+    estimates = impact.point_estimates(selected)
+    differences = impact.bootstrap_differences(selected, seed=7, n_boot=200)
+    report = impact.render_report(
+        estimates, differences, "capacity.png", None, mocked_inputs=True
+    )
+
+    assert "| Rule | 4 | 20.00 | 1 | 20.00 | 2 |" in report
+    assert "| Model, rule's count | 4 | 110.00 | 1 | 70.00 | 1 |" in report
+    assert "| Model at K | 5 | 130.00 | 2 | 90.00 | 1 |" in report
+    assert "Fraud orders in the window: 3 (2 without a linked customer)." in report
+    assert "**Synthetic dry run only.**" in report
+    assert "not final-window or holdout evidence" in report
+    assert "Unlinked exposure is held fixed across draws" in report
+    assert "30-calendar-day delay" in report and "D4-05" in report
+    assert differences["meta"]["n_customers"] == 3
+    assert differences["loyal_wrongly_flagged"]["difference"] == -1
+    exposure = differences["exposure_sgd"]
+    assert exposure["difference"] == 90.0
+    # Independently calculate the paired percentile from linked effects only,
+    # then add the fixed 70 - 20 SGD unlinked difference.
+    draws = np.random.default_rng(7).integers(0, 3, size=(200, 3))
+    expected = np.percentile(50 + 40 * (draws == 2).sum(axis=1), [2.5, 97.5])
+    np.testing.assert_allclose([exposure["ci_low"], exposure["ci_high"]], expected)
+
+    only_unlinked = selected.loc[selected["customer_id"].isna()]
+    estimates = impact.point_estimates(only_unlinked)
+    differences = impact.bootstrap_differences(only_unlinked, seed=7)
+    report = impact.render_report(estimates, differences, "capacity.png", None)
+    assert "fraud exposure identified (SGD): 50.00 (no interval:" in report
+    assert "No customer-level resampling was possible" in report

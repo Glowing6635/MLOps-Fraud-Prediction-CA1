@@ -6,6 +6,10 @@ columns ``group`` (#5 selection group), ``customer_id``, ``order_id``,
 loyal definition frozen under #23), ``score`` (champion score, higher = riskier)
 and ``rule_flag`` (bool, baseline rule from #18). Reading rules are those of
 decision D34-01 in docs/decision-log.md.
+
+The reporting stage accepts preselected flags. Until the shared #5/#18 selector
+and #23 scored frame are available, tests supply synthetic flags directly; this
+does not verify selection, threshold policy, or final-window integration.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ REQUIRED = (
     "order_value", "is_fraud", "loyal", "score", "rule_flag",
 )  # fmt: skip
 MEASURES = ("exposure_sgd", "loyal_wrongly_flagged")
+CUSTOMER_KEY = ["country_code", "customer_id"]
 
 
 def _check(frame: pd.DataFrame) -> None:
@@ -57,18 +62,29 @@ def select_flags(frame: pd.DataFrame, k: int) -> pd.DataFrame:
     return f.assign(rule_sel=rule_sel, model_sel=model_sel, model_k_sel=model_k)
 
 
+def _linked(frame: pd.DataFrame) -> pd.Series:
+    return frame[CUSTOMER_KEY].notna().all(axis=1)
+
+
 def _per_customer(sel: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Per-customer exposure and loyal-wrongly-flagged indicator for ``col``."""
-    s = sel[sel[col]]
+    """Return exposure and loyal false flags for linked customers only."""
+    s = sel.loc[sel[col] & _linked(sel)].set_index(CUSTOMER_KEY)
     fraud = s["is_fraud"] == 1
-    exposure = s["order_value"].where(fraud, 0.0).groupby(s["customer_id"]).sum()
+    exposure = s["order_value"].where(fraud, 0.0).groupby(level=CUSTOMER_KEY).sum()
     wrong = (
-        (s["loyal"].astype(bool) & ~fraud).groupby(s["customer_id"]).any().astype(int)
+        (s["loyal"].astype(bool) & ~fraud).groupby(level=CUSTOMER_KEY).any().astype(int)
     )
     return pd.DataFrame({"exposure_sgd": exposure, "loyal_wrongly_flagged": wrong})
 
 
-def customer_table(sel: pd.DataFrame, customers: pd.Index) -> dict[str, pd.DataFrame]:
+def _unlinked_fraud(sel: pd.DataFrame) -> pd.DataFrame:
+    return sel.loc[~_linked(sel) & (sel["is_fraud"] == 1)]
+
+
+def customer_table(
+    sel: pd.DataFrame, customers: pd.MultiIndex
+) -> dict[str, pd.DataFrame]:
+    """Align each policy to the same population of composite customer keys."""
     out = {}
     for name, col in (
         ("rule", "rule_sel"),
@@ -82,51 +98,78 @@ def customer_table(sel: pd.DataFrame, customers: pd.Index) -> dict[str, pd.DataF
 def point_estimates(sel: pd.DataFrame) -> dict[str, dict[str, float]]:
     """Unresampled values: exposure SGD and distinct loyal customers flagged."""
     result = {}
+    unlinked = _unlinked_fraud(sel)
     for name, col in (
         ("rule", "rule_sel"),
         ("model", "model_sel"),
         ("model_k", "model_k_sel"),
     ):
         t = _per_customer(sel, col)
+        unlinked_hits = unlinked.loc[unlinked[col]]
+        unlinked_exposure = float(unlinked_hits["order_value"].sum())
         result[name] = {
-            "exposure_sgd": float(t["exposure_sgd"].sum()),
+            "exposure_sgd": float(t["exposure_sgd"].sum()) + unlinked_exposure,
+            "unlinked_exposure_sgd": unlinked_exposure,
+            "unlinked_fraud_caught": len(unlinked_hits),
             "loyal_wrongly_flagged": int(t["loyal_wrongly_flagged"].sum()),
             "flags": int(sel[col].sum()),
             "fraud_caught": int((sel[col] & (sel["is_fraud"] == 1)).sum()),
         }
-    result["window"] = {"fraud_orders": int((sel["is_fraud"] == 1).sum())}
+    result["window"] = {
+        "fraud_orders": int((sel["is_fraud"] == 1).sum()),
+        "unlinked_fraud_orders": len(unlinked),
+    }
     return result
 
 
 def bootstrap_differences(
     sel: pd.DataFrame, seed: int, n_boot: int = 1000
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, float | None]]:
     """Model-minus-rule differences with 95% percentile intervals.
 
     Customers are resampled with replacement; a customer drawn m times keeps
     multiplicity m on both measures (D34-01). The same draw is applied to the
-    rule and the model. Returns also the logged seed and draw count.
+    rule and the model. Unlinked fraud exposure is held fixed in each draw:
+    its customer clustering is unknown. No interval is reported without linked
+    customers. Returns also the logged seed and draw count.
     """
-    customers = pd.Index(sorted(sel["customer_id"].unique()))
+    keys = (
+        sel.loc[_linked(sel), CUSTOMER_KEY].drop_duplicates().sort_values(CUSTOMER_KEY)
+    )
+    customers = pd.MultiIndex.from_frame(keys)
     tabs = customer_table(sel, customers)
     rule = tabs["rule"][list(MEASURES)].to_numpy(dtype=float)
     model = tabs["model"][list(MEASURES)].to_numpy(dtype=float)
     diff = model - rule  # per customer, shape (n, 2)
+    unlinked = _unlinked_fraud(sel)
+    fixed = np.array(
+        [
+            unlinked.loc[unlinked["model_sel"], "order_value"].sum()
+            - unlinked.loc[unlinked["rule_sel"], "order_value"].sum(),
+            0.0,
+        ]
+    )
     rng = np.random.default_rng(seed)
     n = len(customers)
     draws = np.empty((n_boot, 2))
-    for b in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        draws[b] = diff[idx].sum(axis=0)
-    out: dict[str, dict[str, float]] = {}
+    if n:
+        for b in range(n_boot):
+            idx = rng.integers(0, n, size=n)
+            draws[b] = diff[idx].sum(axis=0) + fixed
+    out: dict[str, dict[str, float | None]] = {}
     for j, m in enumerate(MEASURES):
-        lo, hi = np.percentile(draws[:, j], [2.5, 97.5])
-        out[m] = {
-            "difference": float(diff[:, j].sum()),
-            "ci_low": float(lo),
-            "ci_high": float(hi),
-            "includes_zero": bool(lo <= 0 <= hi),
+        result = {
+            "difference": float(diff[:, j].sum() + fixed[j]),
+            "ci_low": None,
+            "ci_high": None,
+            "includes_zero": None,
         }
+        if n:
+            lo, hi = np.percentile(draws[:, j], [2.5, 97.5])
+            result.update(
+                ci_low=float(lo), ci_high=float(hi), includes_zero=bool(lo <= 0 <= hi)
+            )
+        out[m] = result
     out["meta"] = {"seed": seed, "n_boot": n_boot, "n_customers": n}
     return out
 
@@ -162,6 +205,7 @@ def capacity_curve(frame: pd.DataFrame, capacities: list[int]) -> pd.DataFrame:
 
 
 def plot_capacity(curve: pd.DataFrame, path: str) -> None:
+    """Save the count and exposure capacity comparison as a plot."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -183,13 +227,19 @@ def plot_capacity(curve: pd.DataFrame, path: str) -> None:
 
 
 def render_report(
-    est: dict, diffs: dict, curve_path: str, prior_comparisons: int | None
+    est: dict,
+    diffs: dict,
+    curve_path: str,
+    prior_comparisons: int | None,
+    *,
+    mocked_inputs: bool = False,
 ) -> str:
     """Markdown report body; run-dependent items stay marked as placeholders.
 
     Fill ``prior_comparisons`` from the MLflow run records (never from memory);
     None renders a PENDING marker. Label and delay assumptions are cited from
-    #30 / D4-04 / D4-05 and are not restated as findings.
+    #30 / D4-04 / D4-05 and are not restated as findings. Use
+    ``mocked_inputs=True`` for a synthetic report with preselected flags.
     """
     prior = (
         "PENDING (count from MLflow run records)"
@@ -199,8 +249,22 @@ def render_report(
     lines = [
         "# SGD impact report (#34)",
         "",
-        "| Policy | Flags | Fraud exposure identified (SGD) | Distinct loyal customers wrongly flagged |",
-        "| --- | ---: | ---: | ---: |",
+    ]
+    if mocked_inputs:
+        lines += [
+            (
+                "**Synthetic dry run only.** Policy selections and inputs are mocked; "
+                "this is not final-window or holdout evidence."
+            ),
+            "",
+        ]
+    lines += [
+        (
+            "| Policy | Flags | Fraud exposure identified (SGD) | Unlinked fraud caught "
+            "(orders) | Unlinked fraud exposure (SGD, included in total) | Distinct "
+            "loyal customers wrongly flagged |"
+        ),
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for key, label in (
         ("rule", "Rule"),
@@ -209,21 +273,53 @@ def render_report(
     ):
         e = est[key]
         lines.append(
-            f"| {label} | {e['flags']} | {e['exposure_sgd']:.2f} | {e['loyal_wrongly_flagged']} |"
+            f"| {label} | {e['flags']} | {e['exposure_sgd']:.2f} | "
+            f"{e['unlinked_fraud_caught']} | {e['unlinked_exposure_sgd']:.2f} | "
+            f"{e['loyal_wrongly_flagged']} |"
         )
-    lines += ["", f"Fraud orders in the window: {est['window']['fraud_orders']}.", ""]
+    window = est["window"]
+    lines += [
+        "",
+        (
+            f"Fraud orders in the window: {window['fraud_orders']} "
+            f"({window['unlinked_fraud_orders']} without a linked customer)."
+        ),
+        "",
+    ]
     meta = diffs["meta"]
-    for m in MEASURES:
+    for m, label in zip(
+        MEASURES,
+        ("fraud exposure identified (SGD)", "distinct loyal customers wrongly flagged"),
+        strict=True,
+    ):
         d = diffs[m]
-        lines.append(
-            f"- Model minus rule, {m}: {d['difference']:.2f} "
-            f"(95% interval {d['ci_low']:.2f} to {d['ci_high']:.2f}). {wording(m, d)}."
-        )
+        prefix = f"- Model minus rule, {label}: {d['difference']:.2f}"
+        if d["ci_low"] is None:
+            lines.append(f"{prefix} (no interval: no linked customers).")
+        else:
+            lines.append(
+                f"{prefix} (95% interval {d['ci_low']:.2f} to {d['ci_high']:.2f}). "
+                f"{wording(label, d)}."
+            )
     lines += [
         "",
         (
             f"Interval: {meta['n_boot']} customer-level bootstrap resamples over "
-            f"{meta['n_customers']} customers, seed {meta['seed']}."
+            f"{meta['n_customers']} linked customers, seed {meta['seed']}."
+            if meta["n_customers"]
+            else f"No customer-level resampling was possible; seed {meta['seed']}."
+        ),
+        (
+            "Unlinked exposure is held fixed across draws because customer "
+            "clustering is unknown. The interval does not quantify its "
+            "uncertainty; unlinked orders do not count as distinct customers."
+        ),
+        (
+            "#30 assumptions (D4-04 and D4-05): use a provisional "
+            "30-calendar-day delay for eligible historical label-derived features, "
+            "not a measured review delay. Supplied "
+            "labels use 1 for fraud and 0 for not fraud; review coverage and "
+            "finalization remain unverified."
         ),
         (
             "Exposure is order value of flagged fraud orders, not savings or "
