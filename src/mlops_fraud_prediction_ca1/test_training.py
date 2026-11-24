@@ -1,5 +1,6 @@
 """Tests for the training harness on small made-up base files in a temporary folder."""
 
+import re
 import sys
 
 import mlflow
@@ -263,16 +264,20 @@ def test_customer_columns_are_compared_under_one_parent_run(
     assert rerun(with_id, data_dir)["reproduced"]
 
 
-def test_the_train_command_uses_the_decided_k_by_default(
+def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
     data_dir, tmp_path, monkeypatch, capsys
 ):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
     monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
-    monkeypatch.setattr(sys, "argv", ["train", "baseline", "--data-dir", str(data_dir)])
+    monkeypatch.setattr(
+        sys, "argv", ["train", "boosted-trees", "--data-dir", str(data_dir)]
+    )
     main()
-    run_id = capsys.readouterr().out.rsplit("Logged run ", 1)[1].strip().rstrip(".")
-    assert mlflow.get_run(run_id).data.params["k"] == str(K)
+    run_id = re.findall(r"Logged run (\w+)\.", capsys.readouterr().out)[-1]
+    run = mlflow.get_run(run_id)
+    assert run.data.params["k"] == str(K)
+    assert run.data.tags["k_status"] == f"D5-01: product owner assumption, K = {K}"
 
 
 def test_rerun_without_mlflow_settings_says_what_to_set(

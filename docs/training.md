@@ -12,7 +12,7 @@ files must be in `data/`, or in the folder given by `--data-dir`.
 
 ```
 uv run train baseline --seed 0
-uv run train boosted-trees --k-status "confirmed PO assumption (23 Nov 2026): 250 orders a day, about 5% of daily orders; no Trust & Safety capacity received yet"
+uv run train boosted-trees
 uv run train rerun <run ID>
 ```
 
@@ -26,9 +26,10 @@ compared. Add
 
 `boosted-trees` trains histogram gradient-boosted trees twice, without and with the
 seven unconfirmed customer columns, as two child runs under one parent run (see
-"Comparing the customer columns"). `--k-status` says where K comes from and why, and is
-tagged on all three runs. K is a confirmed product owner assumption, so its value starts
-with `confirmed`, as above; for a K that isn't confirmed, write `provisional: <reason>`. It prints both children's run IDs. The models are in
+"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
+`k_status` on all three runs. It defaults to `D5-01: product owner assumption, K = 250`;
+with another `--k`, say where that K comes from, such as `provisional: <reason>`. It
+prints both children's run IDs. The models are in
 `src/mlops_fraud_prediction_ca1/models.py`.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or

@@ -447,8 +447,9 @@ def main() -> None:
     )
     trees.add_argument(
         "--k-status",
-        required=True,
-        help="Where K comes from, such as 'confirmed' or 'provisional: <reason>'.",
+        default=f"D5-01: product owner assumption, K = {K}",
+        help="Where K comes from, tagged on every run (default: %(default)s). Change it"
+        " when --k differs from D5-01.",
     )
     for command in (baseline, trees):
         command.add_argument(
