@@ -24,6 +24,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.add_argument(
             f"{table}_url", type=_csv_url, help=f"URL of the {table} CSV"
         )
+    # parse_args would echo extra URLs and expose their signed query strings.
     _, extra = parser.parse_known_args(argv)
     if extra:
         parser.error("expected exactly three CSV URLs")

@@ -15,10 +15,16 @@
 
 ### Batch command
 
-With the database and MLflow settings configured, pass the customers, orders, and labels CSV URLs in that order. Quote each URL to preserve its query string.
+From the repository root, run `uv sync` and configure `.env` or your environment
+using `.env.example`. The preflight requires the database host, name, username
+and password, plus the MLflow tracking URI, experiment name, username
+(`MLFLOW_TRACKING_USERNAME`) and password (`MLFLOW_TRACKING_PASSWORD`).
+
+Set `CUSTOMERS_URL`, `ORDERS_URL` and `LABELS_URL` to the corresponding CSV URLs.
+Pass them in that order and quote each URL to preserve its query string.
 
 ```sh
-uv run --no-sync python -m mlops_fraud_prediction_ca1.batch "$CUSTOMERS_URL" "$ORDERS_URL" "$LABELS_URL"
+uv run run-batch "$CUSTOMERS_URL" "$ORDERS_URL" "$LABELS_URL"
 ```
 
 The command prints the target database host, database name, and MLflow experiment. Until the fetch and validate stage (#19) is integrated, it then exits with status 1 before downloading data or connecting to either service.
