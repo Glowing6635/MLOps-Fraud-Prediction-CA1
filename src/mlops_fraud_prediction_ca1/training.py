@@ -461,6 +461,13 @@ def main() -> None:
             help="Where K comes from, tagged on every run. Required when --k differs"
             f" from D5-01's K (default: D5-01: product owner assumption, K = {K}).",
         )
+        trees.add_argument(
+            "--tag",
+            action="append",
+            default=[],
+            metavar="KEY=VALUE",
+            help="Extra tag on every run (repeatable), such as pr=164.",
+        )
         candidate_parsers.append(trees)
     for command in (baseline, *candidate_parsers):
         command.add_argument(
@@ -500,7 +507,10 @@ def main() -> None:
             args.data_dir,
             k=args.k,
             seed=args.seed,
-            tags={"k_status": args.k_status},
+            tags={
+                "k_status": args.k_status,
+                **dict(tag.split("=", 1) for tag in args.tag),
+            },
         )
         for label, (run_id, result) in zip(("Without", "With"), children, strict=True):
             print(f"{label} the customer columns:\n{format_report(result.report)}")
