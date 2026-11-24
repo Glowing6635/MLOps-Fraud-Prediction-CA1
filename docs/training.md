@@ -64,6 +64,21 @@ The model receives a DataFrame of the feature columns. Numbers and true/false va
 are floats, text is a Python string, and every missing value is NaN. Missing values must
 be filled by a step fitted inside the pipeline, so only the training window is used.
 
+## Comparing training class weights
+
+Both commands default to the estimator's unweighted fit. Add
+`--weighting balanced` to opt in, or pass `class_weight="balanced"` to
+`baseline_model()` or `boosted_trees_model()` before calling `train()`.
+To compare the two methods without exploratory customer columns, call `train()`
+with each candidate twice, omitting `class_weight` on the first call and setting
+it to `"balanced"` on the second. Use the frozen split, `k=250`, and `seed=0`
+for both calls.
+
+The classifier derives weights from training labels during fit. The validation
+report uses the original orders and fraud rate. MLflow records the final
+classifier's `class_weight` parameter, and rerun restores it from the logged
+model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
+
 ## What each run records
 
 | Kind | Recorded |

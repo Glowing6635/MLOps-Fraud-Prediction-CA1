@@ -17,7 +17,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
-def baseline_model():
+def baseline_model(*, class_weight: str | None = None):
     """Logistic regression on the numeric columns and the one-hot-encoded text columns.
 
     Missing values are filled from the training window only. Date columns are dropped.
@@ -36,11 +36,11 @@ def baseline_model():
                 make_column_selector(dtype_include=["object", "string"]),
             ),
         ),
-        LogisticRegression(max_iter=1000),
+        LogisticRegression(max_iter=1000, class_weight=class_weight),
     )
 
 
-def boosted_trees_model():
+def boosted_trees_model(*, class_weight: str | None = None):
     """Histogram gradient-boosted trees on the numeric and one-hot-encoded text columns.
 
     The trees handle missing numbers themselves; missing text becomes its own category.
@@ -58,7 +58,7 @@ def boosted_trees_model():
                 make_column_selector(dtype_include=["object", "string"]),
             ),
         ),
-        HistGradientBoostingClassifier(early_stopping=False),
+        HistGradientBoostingClassifier(early_stopping=False, class_weight=class_weight),
     )
 
 
@@ -81,7 +81,7 @@ def _forest_model(classifier):
     )
 
 
-def random_forest_model():
+def random_forest_model(*, class_weight: str | None = None):
     """Random forest on the numeric and one-hot-encoded text columns.
 
     Missing numbers are filled with the training-window median. Limit the number of
@@ -94,14 +94,19 @@ def random_forest_model():
             min_samples_leaf=50,
             n_jobs=-1,
             random_state=0,
+            class_weight=class_weight,
         )
     )
 
 
-def extra_trees_model():
+def extra_trees_model(*, class_weight: str | None = None):
     """Extremely randomised trees on the same inputs as `random_forest_model`."""
     return _forest_model(
         ExtraTreesClassifier(
-            n_estimators=200, min_samples_leaf=50, n_jobs=-1, random_state=0
+            n_estimators=200,
+            min_samples_leaf=50,
+            n_jobs=-1,
+            random_state=0,
+            class_weight=class_weight,
         )
     )
