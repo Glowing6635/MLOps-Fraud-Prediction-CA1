@@ -109,3 +109,19 @@ def test_moving_to_an_unknown_version_changes_nothing(client):
         str(client.get_model_version_by_alias(MODEL, CHAMPION).version)
         == versions[CHAMPION]
     )
+
+
+def test_a_child_run_is_named_after_its_parent(client):
+    with (
+        mlflow.start_run(run_name="Model: parent"),
+        mlflow.start_run(run_name="child", nested=True) as child,
+    ):
+        mlflow.log_params({"k": "250", "exploratory": "False"})
+        mlflow.set_tag("champion_eligible", "True")
+        mlflow.log_metrics({"fraud_caught_at_k": 5, "average_precision": 0.1})
+        mlflow.log_text("model", "model/MLmodel")
+    _log("other", 1, 0.1)
+    names = {
+        c.run_id: c.name for c in eligible_candidates(client, _experiment(client), 250)
+    }
+    assert names[child.info.run_id] == "Model: parent"

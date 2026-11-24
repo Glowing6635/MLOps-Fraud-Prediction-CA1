@@ -44,7 +44,7 @@ def eligible_candidates(client, experiment_ids, k: int) -> list[Candidate]:
         found.append(
             Candidate(
                 run.info.run_id,
-                run.data.tags.get("mlflow.runName") or params.get("model_class", ""),
+                _name(client, run),
                 metrics["fraud_caught_at_k"],
                 metrics.get("average_precision", 0.0),
                 params["k"],
@@ -55,6 +55,13 @@ def eligible_candidates(client, experiment_ids, k: int) -> list[Candidate]:
     if len(found) < 2:
         raise ValueError(f"Need at least 2 eligible runs at K={k}; found {len(found)}.")
     return found
+
+
+def _name(client, run) -> str:
+    """The parent run's name (the model) when there is one, else the run's own name."""
+    parent = run.data.tags.get("mlflow.parentRunId")
+    source = client.get_run(parent) if parent else run
+    return source.data.tags.get("mlflow.runName", "")
 
 
 def comparison_table(candidates: list[Candidate], chosen: int = 2) -> str:
