@@ -89,6 +89,7 @@ def test_a_bad_file_stops_the_batch_with_a_named_error(tmp_path, table, content,
         ("customers_1.csv", "orders_1.csv", "labels_2.csv"),
         ("customers_1.csv", "orders_1.csv", "fraud_1.csv"),
         ("customers_1.csv", "orders_1.csv", "labels_1 2.csv"),
+        tuple(f"{table}_{'a' * 65}.csv" for table in GOOD),
     ],
 )
 def test_files_must_share_one_batch_suffix(names):
@@ -192,6 +193,12 @@ def test_downloads_retry_temporary_failures_and_honour_retry_after(serve):
     waits = []
     batch = read_batch(*server.urls(), sleep=waits.append)
     assert (batch.batch_id, server.requests, waits) == ("7", 5, [RETRY_DELAYS[0], 1])
+
+
+def test_a_presigned_url_is_named_by_its_path_not_its_query(serve):
+    server = serve([ok(table) for table in GOOD])
+    urls = [f"{url}?X-Amz-Expires=3600&X-Amz-Signature=ab12" for url in server.urls()]
+    assert read_batch(*urls).batch_id == "7"
 
 
 @pytest.mark.parametrize(
