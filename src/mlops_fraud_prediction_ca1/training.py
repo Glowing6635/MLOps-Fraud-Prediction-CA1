@@ -10,8 +10,8 @@ The features are the order columns `leakage.select_feature_inputs` allows. An ex
 run adds the seven customer columns (decision D4-02), withholding them for orders whose
 customer dates are inconsistent or cannot be checked (D4-03).
 
-`uv run train baseline --k K` trains and logs the baseline model, `uv run train
-boosted-trees --k K` logs the boosted-trees candidate with and without the customer
+`uv run train baseline` trains and logs the baseline model, `uv run train
+boosted-trees` logs the boosted-trees candidate with and without the customer
 columns under one parent run (`compare_customer_columns`), and `uv run train rerun
 RUN_ID` re-runs a logged run to check it reproduces. docs/training.md says what a run
 records.
@@ -157,7 +157,7 @@ def _model_inputs(features: pd.DataFrame) -> pd.DataFrame:
     for name, column in result.items():
         if pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column):
             result[name] = column.astype("float64")
-        elif not pd.api.types.is_datetime64_any_dtype(column):
+        else:
             result[name] = column.astype(object).where(column.notna(), np.nan)
     return result
 
@@ -447,9 +447,8 @@ def main() -> None:
     )
     trees.add_argument(
         "--k-status",
-        default=f"D5-01: product owner assumption, K = {K}",
-        help="Where K comes from, tagged on every run (default: %(default)s). Change it"
-        " when --k differs from D5-01.",
+        help="Where K comes from, tagged on every run. Required when --k differs from"
+        f" D5-01's K (default: D5-01: product owner assumption, K = {K}).",
     )
     for command in (baseline, trees):
         command.add_argument(
@@ -467,6 +466,10 @@ def main() -> None:
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
     args = parser.parse_args()
+    if args.command == "boosted-trees" and args.k_status is None:
+        if args.k != K:
+            parser.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
+        args.k_status = f"D5-01: product owner assumption, K = {K}"
     # MLflow prints an emoji when a run ends, which Windows cannot encode when piped.
     sys.stdout.reconfigure(errors="replace")
     if args.command == "baseline":

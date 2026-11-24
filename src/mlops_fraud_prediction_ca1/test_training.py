@@ -1,6 +1,5 @@
 """Tests for the training harness on small made-up base files in a temporary folder."""
 
-import re
 import sys
 
 import mlflow
@@ -9,6 +8,7 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from mlops_fraud_prediction_ca1 import training
 from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import (
@@ -264,20 +264,39 @@ def test_customer_columns_are_compared_under_one_parent_run(
     assert rerun(with_id, data_dir)["reproduced"]
 
 
-def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
-    data_dir, tmp_path, monkeypatch, capsys
-):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
-    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
-    monkeypatch.setattr(
-        sys, "argv", ["train", "boosted-trees", "--data-dir", str(data_dir)]
-    )
-    main()
-    run_id = re.findall(r"Logged run (\w+)\.", capsys.readouterr().out)[-1]
-    run = mlflow.get_run(run_id)
-    assert run.data.params["k"] == str(K)
-    assert run.data.tags["k_status"] == f"D5-01: product owner assumption, K = {K}"
+class _Trained(Exception):
+    pass
+
+
+def _train_arguments(monkeypatch, *arguments):
+    """The keyword arguments `uv run train boosted-trees` passes on, without training."""
+    seen = {}
+
+    def stop(model, data_dir, **kwargs):
+        seen.update(kwargs)
+        raise _Trained
+
+    monkeypatch.setattr(training, "compare_customer_columns", stop)
+    monkeypatch.setattr(sys, "argv", ["train", "boosted-trees", *arguments])
+    with pytest.raises(_Trained):
+        main()
+    return seen
+
+
+def test_the_train_command_uses_the_decided_k_and_its_status_by_default(monkeypatch):
+    seen = _train_arguments(monkeypatch)
+    assert seen["k"] == K
+    assert seen["tags"] == {"k_status": f"D5-01: product owner assumption, K = {K}"}
+
+
+def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["train", "boosted-trees", "--k", "100"])
+    with pytest.raises(SystemExit):
+        main()
+    assert "--k-status" in capsys.readouterr().err
+    seen = _train_arguments(monkeypatch, "--k", "100", "--k-status", "test K")
+    assert seen["k"] == 100
+    assert seen["tags"] == {"k_status": "test K"}
 
 
 def test_rerun_without_mlflow_settings_says_what_to_set(

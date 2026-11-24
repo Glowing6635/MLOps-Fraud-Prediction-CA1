@@ -88,9 +88,9 @@ champion, so each child has the tag `champion_eligible`, `True` or `False`. The 
 run shows what leaving the columns out costs.
 
 The with-columns run adds seven columns, one of them the customer's first order date
-as `days_since_first_order`, and their values are NaN for orders whose customer dates fail the D4-03 checks. A
-pipeline that picks columns by type, as both models in `models.py` do, handles them;
-one that names its columns must name these too.
+as `days_since_first_order`, and their values are NaN for orders whose customer dates
+fail the D4-03 checks. A pipeline that picks columns by type, as both models in
+`models.py` do, handles them; one that names its columns must name these too.
 
 The parent logs the with-columns result minus the without result as
 `fraud_caught_at_k_difference`, `fraud_caught_at_2k_difference` and
