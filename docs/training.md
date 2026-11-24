@@ -11,18 +11,17 @@ The run goes to the MLflow server named by `MLFLOW_TRACKING_URI`, in the experim
 files must be in `data/`, or in the folder given by `--data-dir`.
 
 ```
-uv run train baseline --k 250 --seed 0
-uv run train boosted-trees --k 250 --k-status "confirmed PO assumption (23 Nov 2026): 250 orders a day, about 5% of daily orders; no Trust & Safety capacity received yet"
+uv run train baseline --seed 0
+uv run train boosted-trees --k-status "confirmed PO assumption (23 Nov 2026): 250 orders a day, about 5% of daily orders; no Trust & Safety capacity received yet"
 uv run train rerun <run ID>
 ```
 
 `baseline` trains the baseline model, a logistic regression on the order columns, and
 prints the top-K report and the run ID. `--k` is the daily review capacity, in orders
-per day. It has no default, because K must be fixed before any result is seen. Every
-candidate must use the same K, or the runs can't be compared. No capacity has come from
-Trust & Safety yet, so the runs use 250 orders a day, about 5% of daily orders. That is a
-product owner assumption, confirmed on 23 Nov 2026 (decision D5-01 in [the decision log](decision-log.md)), and it holds until Trust & Safety
-gives a capacity. Add
+per day. It defaults to `top_k.K`, 250 orders a day, the product owner assumption
+recorded as D5-01 in [the decision log](decision-log.md), which holds until Trust &
+Safety gives a capacity. Every candidate must use the same K, or the runs can't be
+compared. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
 `boosted-trees` trains histogram gradient-boosted trees twice, without and with the
@@ -36,11 +35,12 @@ A candidate model calls the harness from Python with any scikit-learn classifier
 pipeline that has `predict_proba`:
 
 ```python
+from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import compare_customer_columns, train
 
-run_id, result = train(my_pipeline, "data", k=250, seed=0)
+run_id, result = train(my_pipeline, "data", k=K, seed=0)
 parent_id, (without_id, without), (with_id, with_columns) = compare_customer_columns(
-    my_pipeline, "data", k=250, seed=0, tags={"k_status": "<where K comes from>"}
+    my_pipeline, "data", k=K, seed=0, tags={"k_status": "<where K comes from>"}
 )
 ```
 

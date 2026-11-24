@@ -47,7 +47,12 @@ from mlops_fraud_prediction_ca1.leakage import (
 from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.splitting import load_policy
-from mlops_fraud_prediction_ca1.top_k import TopKReport, evaluate_top_k, format_report
+from mlops_fraud_prediction_ca1.top_k import (
+    K,
+    TopKReport,
+    evaluate_top_k,
+    format_report,
+)
 
 # A column whose name contains one of these is never a feature, which also catches
 # derived columns such as raw_refund_value.
@@ -443,9 +448,9 @@ def main() -> None:
         command.add_argument(
             "--k",
             type=int,
-            required=True,
-            help="Daily review capacity K, in orders per day, fixed before seeing"
-            " results.",
+            default=K,
+            help="Daily review capacity K, in orders per day (default: %(default)s,"
+            " from decision D5-01).",
         )
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
