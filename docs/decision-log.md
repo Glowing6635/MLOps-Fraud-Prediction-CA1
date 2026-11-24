@@ -539,9 +539,9 @@ its logged fraud caught at K and average precision.
   K = 250 from D5-01). The grid rule was written here before the values were
   computed, so the quantile list is not tuned to results.
 - Outcome: the **post-hoc, validation-tuned proxy** selected X = 13.36 SGD.
-  At 132 matched flags, the rule caught 73 fraud orders and the model caught
-  102. D18-04 adopts this result. The D18-01 coarse-grid result remains in the
-  record.
+  At 132 matched flags, the rule caught 73 fraud orders and the #152
+  boosted-trees candidate caught 102. D18-04 adopts the proxy. The earlier
+  D18-01 coarse-grid result remains in the record.
 - Limit: the grid is still chosen after seeing that the first grid failed, and
   it is fitted on the same validation window that scores the comparison, so it
   favours the rule and a model win would be conservative.
@@ -553,8 +553,35 @@ its logged fraud caught at K and average precision.
 - Settled: Trust & Safety is a persona in the course brief, not a team that can be
   asked, so the deployed X and the real review capacity cannot be obtained. The
   active #18 rule uses the D18-03 validation-tuned proxy X = 13.36 SGD. At
-  132 matched flags, the rule caught 73 fraud orders and the model caught 102.
+  132 matched flags, the rule caught 73 fraud orders and the #152 boosted-trees
+  candidate caught 102.
   K = 250 orders a day (D5-01) stays a Product Owner assumption.
 - Replaces: the earlier expectation of a confirmed deployed threshold or review
   capacity. D18-01 retains the earlier predeclared coarse-grid result at
   X = 50 SGD, with a 5–5 tie at 7 matched flags.
+
+## D18-05 — Report input handling and champion evidence
+
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky. Affected PBI: #18.
+- Settled: the report parses customer first-order timestamps with the existing
+  row-safe parser. It retains the original text for link disambiguation and
+  age diagnostics. Score CSV keys are opaque text and matched scores are
+  validated separately as finite numbers. An empty labelled validation cohort
+  stops before any threshold fit or verdict, even when X is supplied.
+- Rationale and alternatives: inferring nulls in score keys drops literal IDs
+  such as `NA`. Dropping customers with dates outside the parser range would
+  also discard link and loyalty evidence. Changing the shared cleaner would
+  affect other PBIs. Reporting a comparison on zero labelled rows would
+  manufacture a threshold or verdict without observations.
+- Impact: affected dates produce unusable ages in #18 and the orders remain
+  evaluable for model scoring. The protected D6-01 windows, D18-01 age and
+  loyalty rules, D5-01 Product Owner K and both frozen grids stay in force.
+  The standalone report identifies the predeclared D18-01 grid and the
+  post-hoc D18-03 grid adopted in D18-04.
+- Open: SpiralSky owns tracing validation scores to the registered #15
+  champion, `fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`,
+  before reporting the criterion 4–6 outcome. The recorded #152 candidate
+  results document the proxy comparison and cannot establish the champion
+  outcome. The #5 owner owns the public selector change. The coordinator
+  owns #157 delivery routing after #165, with `user/spiralsky` reserved for
+  #99 until that delivery clears.

@@ -11,6 +11,7 @@ window and reported as a validation-tuned proxy.
 import argparse
 import sys
 
+import numpy as np
 import pandas as pd
 
 from mlops_fraud_prediction_ca1.cleaning import clean_frame
@@ -24,14 +25,25 @@ from mlops_fraud_prediction_ca1.rule_comparison import (
     select_threshold,
 )
 from mlops_fraud_prediction_ca1.rules import account_age_days
+from mlops_fraud_prediction_ca1.temporal import parse_date_rows
 
 _TABLES = ("customers", "orders", "labels")
 
 
 def _clean(data_dir, purpose):
-    frames = load_base_data(data_dir, purpose=purpose, raw_strings=True)
+    customers, orders, labels = load_base_data(
+        data_dir, purpose=purpose, raw_strings=True
+    )
+    first_order = customers["first_order_datetime"]
+    # Keep the raw timestamp for link disambiguation and account-age diagnostics.
+    parsed = parse_date_rows(first_order, kind="customer")
+    cleaned_customers = clean_frame(customers.drop(columns="first_order_datetime"))
     return {
-        name: clean_frame(frame) for name, frame in zip(_TABLES, frames, strict=True)
+        "customers": cleaned_customers.assign(
+            first_order_datetime=parsed["date"], raw_first_order_datetime=first_order
+        ),
+        "orders": clean_frame(orders),
+        "labels": clean_frame(labels),
     }
 
 
@@ -88,7 +100,10 @@ def main(argv=None) -> None:
         "--grid",
         choices=("original", "training-quantiles"),
         default="original",
-        help="Candidate X values: D18-01's fixed grid or D18-03's training quantiles.",
+        help=(
+            "Candidate X values: the predeclared D18-01 grid or the post-hoc "
+            "D18-03 training-quantile grid adopted in D18-04."
+        ),
     )
     parser.add_argument("--threshold", type=float)
     parser.add_argument("--threshold-source")
@@ -97,7 +112,16 @@ def main(argv=None) -> None:
         sys.exit("--threshold and --threshold-source go together.")
     inputs = validation_inputs(args.data_dir)
     orders = inputs["orders"]
-    scores = pd.read_csv(args.scores, dtype={"country_code": str, "order_id": str})
+    if orders.empty:
+        sys.exit(
+            "No labelled validation orders. No threshold was fitted or verdict produced."
+        )
+
+    scores = pd.read_csv(
+        args.scores,
+        dtype={"country_code": str, "order_id": str, "score": str},
+        keep_default_na=False,
+    )
     merged = (
         orders[["country_code", "order_id"]]
         .astype(str)
@@ -107,21 +131,32 @@ def main(argv=None) -> None:
     )
     if merged["score"].isna().any():
         sys.exit(f"{int(merged['score'].isna().sum())} orders have no score.")
+    numeric_scores = pd.to_numeric(merged["score"], errors="coerce")
+    invalid_count = int((~np.isfinite(numeric_scores)).sum())
+    if invalid_count:
+        sys.exit(
+            f"{invalid_count} orders have an invalid score; scores must be finite numbers."
+        )
+
     candidates = None
     if args.threshold is None:
-        grid = (
-            training_quantile_grid(args.data_dir)
-            if args.grid == "training-quantiles"
-            else THRESHOLD_GRID
-        )
+        if args.grid == "training-quantiles":
+            grid = training_quantile_grid(args.data_dir)
+            source = (
+                "validation-tuned proxy, post-hoc D18-03 training-quantile grid "
+                "adopted in D18-04"
+            )
+        else:
+            grid = THRESHOLD_GRID
+            source = "validation-tuned proxy, predeclared D18-01 original grid"
         fit = select_threshold(orders, inputs["age"], args.k, grid)
         candidates = fit["candidates"]
-        threshold, source = fit["x"], f"validation-tuned proxy, {args.grid} grid"
+        threshold = fit["x"]
     else:
         threshold, source = args.threshold, args.threshold_source
     result = compare(
         orders,
-        merged["score"],
+        numeric_scores,
         inputs["age"],
         inputs["loyalty"],
         args.k,

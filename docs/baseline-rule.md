@@ -232,14 +232,22 @@ amounts or ages are unflagged and stay in the denominators; their counts are
 reported.
 
 **Active #18 validation-tuned proxy.** D18-03 selected X = 13.36 SGD from
-the training-quantile grid at K = 250 orders per day (D5-01). The rule caught
-73 fraud orders at 132 flags and the model caught 102 at the same flag count.
-D18-04 adopts this result as the #18 baseline. Selection and comparison used
-the same validation window. No final-test evaluation was run for #18.
+the post-hoc training-quantile grid at K = 250 orders per day (D5-01, a Product
+Owner assumption). The rule caught 73 fraud orders at 132 flags. A fresh fit
+of the [#152 boosted-trees candidate](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/152)
+caught 102 at the same flag count. D18-04 adopts the proxy as the #18 baseline.
+Selection and comparison used the same validation window. No final-test
+evaluation was run for #18.
 
 **Earlier predeclared coarse-grid result.** D18-01's grid selected X = 50 SGD.
-The rule and model each caught 5 fraud orders at 7 matched flags. The rule
-flagged zero orders at X = 100 SGD or higher.
+The rule and the same #152 candidate each caught 5 fraud orders at 7 matched
+flags. The rule flagged zero orders at X = 100 SGD or higher.
+
+**Acceptance status.** Criteria 4–6 remain pending a validation score artifact
+traceable to the [#15 champion](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/161),
+`fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`. See
+[D18-05](decision-log.md#d18-05-report-input-handling-and-champion-evidence)
+for the remaining evaluator and evidence gates.
 
 ## Comparison with a model (criteria 4 to 6)
 
@@ -266,10 +274,16 @@ matched model cut, exposure, and loyal false flags.
 
 Run the report with the base CSVs and a score for every labelled validation
 order. The scores file has `country_code`, `order_id` and `score` columns.
+Order IDs are matched as literal text, including `NA` and leading zeroes.
+Each matched score must be a finite number.
 
 ```sh
 uv run rule-report --data-dir data --scores scores.csv --k 250 --grid training-quantiles
 ```
 
-Use `--grid original` to reproduce the earlier coarse-grid run.
-The report reads training history and validation via the #6 protected loader.
+Use `--grid original` for the earlier coarse-grid comparison. The report
+reads training history and validation via the #6 protected loader. A linked
+first-order timestamp outside the parser's range is counted as an unusable
+age and the order remains in the comparison. A validation window with zero
+labelled orders exits with an error before fitting a threshold or issuing a
+verdict, including when an explicit threshold is supplied.

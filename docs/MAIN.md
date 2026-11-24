@@ -25,5 +25,8 @@
 - [Baseline rule and model comparison](baseline-rule.md) — account age, historical
   loyalty, and the active #18 validation-tuned proxy at X = 13.36 SGD (D18-03).
   At K = 250 per day and 132 matched flags, the rule caught 73 fraud orders
-  and the model caught 102. The earlier D18-01 coarse grid selected X = 50 SGD
-  and produced a 5–5 tie at 7 matched flags.
+  and a fresh fit of the #152 boosted-trees candidate caught 102. The earlier
+  D18-01 coarse grid selected X = 50 SGD and produced a 5–5 tie with that
+  candidate at 7 matched flags. Criteria 4–6 remain pending validation scores
+  traceable to the #15 champion, `fraud-candidate` v1, run
+  `9c3a59771cf8499d92972f5c7873e280`.

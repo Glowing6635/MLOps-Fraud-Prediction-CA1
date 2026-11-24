@@ -270,10 +270,14 @@ def compare(
 
 def format_comparison(result: dict) -> str:
     """Plain-text report for criteria 1 and 4 to 6."""
+    k = result["k"]
+    capacity = f"K = {k}"
+    if k == 250:
+        capacity += " orders/day across all countries (D5-01, Product Owner assumption)"
     lines = [
         (
             f"Rule: order_value > {result['threshold']} SGD and account age 0 days"
-            f" ({result['threshold_source']}); K = {result['k']}."
+            f" ({result['threshold_source']}); {capacity}."
         ),
         (
             f"Rule flags before the K cut: {result['rule_flags_before_cut']};"
