@@ -44,7 +44,12 @@ from mlops_fraud_prediction_ca1.leakage import (
     historical_order_mask,
     select_feature_inputs,
 )
-from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
+from mlops_fraud_prediction_ca1.models import (
+    baseline_model,
+    boosted_trees_model,
+    extra_trees_model,
+    random_forest_model,
+)
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.splitting import load_policy
 from mlops_fraud_prediction_ca1.top_k import (
@@ -441,16 +446,23 @@ def main() -> None:
         action="store_true",
         help="Add the seven unconfirmed customer columns (never for a champion).",
     )
-    trees = commands.add_parser(
-        "boosted-trees",
-        help="Log the boosted-trees model without and with the customer columns.",
-    )
-    trees.add_argument(
-        "--k-status",
-        help="Where K comes from, tagged on every run. Required when --k differs from"
-        f" D5-01's K (default: D5-01: product owner assumption, K = {K}).",
-    )
-    for command in (baseline, trees):
+    candidates = {
+        "boosted-trees": boosted_trees_model,
+        "random-forest": random_forest_model,
+        "extra-trees": extra_trees_model,
+    }
+    candidate_parsers = []
+    for name in candidates:
+        trees = commands.add_parser(
+            name, help=f"Log the {name} model without and with the customer columns."
+        )
+        trees.add_argument(
+            "--k-status",
+            help="Where K comes from, tagged on every run. Required when --k differs"
+            f" from D5-01's K (default: D5-01: product owner assumption, K = {K}).",
+        )
+        candidate_parsers.append(trees)
+    for command in (baseline, *candidate_parsers):
         command.add_argument(
             "--k",
             type=int,
@@ -461,12 +473,12 @@ def main() -> None:
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
     again.add_argument("run_id")
-    for command in (baseline, trees, again):
+    for command in (baseline, *candidate_parsers, again):
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
     args = parser.parse_args()
-    if args.command == "boosted-trees" and args.k_status is None:
+    if args.command in candidates and args.k_status is None:
         if args.k != K:
             parser.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
         args.k_status = f"D5-01: product owner assumption, K = {K}"
@@ -482,9 +494,9 @@ def main() -> None:
         )
         print(format_report(result.report))
         print(f"Logged run {run_id}.")
-    elif args.command == "boosted-trees":
+    elif args.command in candidates:
         parent_id, *children = compare_customer_columns(
-            boosted_trees_model(),
+            candidates[args.command](),
             args.data_dir,
             k=args.k,
             seed=args.seed,
