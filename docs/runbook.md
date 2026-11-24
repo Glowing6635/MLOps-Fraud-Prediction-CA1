@@ -91,7 +91,7 @@ Before each deadline, back up the `fraud`, `mlflow` and `mlflow_auth` databases 
 
 ## Before the sandbox stops
 
-Each engineer runs `uv run redeploy-check record` once on their own laptop, because the drill reads the `output/redeploy_check.json` it saves there. Each time, it logs a run and registers a new version of the `redeploy-check` model, so a second engineer's run changes nothing the first relies on. Reset deletes the recorded run and model, so after a Reset, run it again before the next drill.
+Each machine that will run the drill, which is each engineer's laptop and the demo machine, runs `uv run redeploy-check record` once, because the drill reads the `output/redeploy_check.json` it saves there. Each time, it logs a run and registers a new version of the `redeploy-check` model, so a second engineer's run changes nothing the first relies on. Reset deletes the recorded run and model, so after a Reset, run it again before the next drill.
 
 ## Restart drill
 
@@ -132,8 +132,8 @@ Demo-day start time: TO RECORD, from the slowest total of a drill after RDS was 
 ## Demo day
 
 - The day before, end and start the sandbox, run the drill, and change nothing afterwards. Note the image tag in `mlflow-server/Dockerrun.aws.json`, so the version that worked can be deployed again. Keep RDS running from then until the demo is over.
-- Before any drill or live query on the demo-site network or the backup hotspot, let that network reach port 3306. Without the rule, the drill waits 30 minutes and then fails. Find the address with `curl -s https://checkip.amazonaws.com` and add it with the `aws ec2 authorize-security-group-ingress` command from step 4 of "RDS database". The hotspot's address changes between sessions, so add its rule each time. Remove each rule afterwards with `aws ec2 revoke-security-group-ingress`, as "Who can reach port 3306" says.
-- Start the sandbox at least an hour early, and run `uv run restart-drill` from both laptops.
+- Before any drill or live query on the demo-site network or the backup hotspot, let that network reach port 3306. Without the rule, the drill waits 30 minutes and then fails. Find the address with `curl -s https://checkip.amazonaws.com` and add it with the `aws ec2 authorize-security-group-ingress` command from step 4 of "RDS database". The hotspot's address changes between sessions and can change during one, so add its rule each time, and if the drill hangs at the RDS step, check the address again and add its rule. Remove each rule afterwards with `aws ec2 revoke-security-group-ingress`, as "Who can reach port 3306" says.
+- Start the sandbox at least an hour early, and run `uv run restart-drill` from the demo machine and from Richard Go's laptop, the spare.
 - Just before presenting, click Start Lab again, which resets the session timer, so the session can't end during the demo.
 - Have a fallback ready: a recording of the MLflow web UI, and a copy of the champion model on the demo laptop.
 
