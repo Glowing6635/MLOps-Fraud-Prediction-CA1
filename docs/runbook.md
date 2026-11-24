@@ -14,7 +14,13 @@ Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. No
 | Demo-site network | TO RECORD |
 | Backup hotspot | TO RECORD |
 
-Only Richard can start the sandbox, so he is a single point of failure on demo day. Backup plan: TO RECORD.
+Only Richard can start the sandbox, so he is a single point of failure on demo day. The backup plan covers that. If Richard can't start his sandbox, because he is absent or can't sign in, AWS Academy is down, or the lab's budget or session time is used up, Tung Shi An signs in to his own AWS Academy sandbox and rebuilds the services there:
+
+1. Create RDS by the "RDS database" steps below, which take about 10 minutes.
+2. Load the three base files with `uv run load-batch`, which takes about 11 minutes.
+3. Deploy MLflow with his deploy script from #26. That script is in his draft pull request #158, which isn't merged yet.
+
+Logged runs and registered models don't carry over to his sandbox unless they're exported from Richard's first.
 
 ## RDS database
 
