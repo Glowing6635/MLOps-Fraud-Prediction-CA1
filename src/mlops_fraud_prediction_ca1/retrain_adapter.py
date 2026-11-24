@@ -1,25 +1,21 @@
-"""TEMPORARY adapter so #25 can fit models on rows read from RDS (PBI #25).
+"""Fit stored candidate configurations on in-memory rows and log evaluated artifacts."""
 
-Remove when #151's `training.fit_and_score` accepts pre-read windows (see the suggestion
-on PR #151); `make_fit_and_log` then becomes a thin call to it. Until then this repeats
-a little of the harness: fit on the feature columns of the training rows, score the
-frozen validation rows with the top-K evaluator, and report one run's metrics.
-`evaluate_top_k` and `log_run` are passed in, so this file imports neither #148 nor MLflow.
-"""
-
+import hashlib
 import pickle
 import time
-from collections.abc import Callable
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-# The four order columns D4-01 allows as model inputs.
+from .splitting import split_orders
+
 FEATURE_COLUMNS = ("collect_type", "payment_method", "order_value", "num_items_ordered")
-FORBIDDEN = ("is_fraud", "refund_value", "order_id", "customer_id", "batch_id")
+MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
 
 
 def model_inputs(rows: pd.DataFrame) -> pd.DataFrame:
-    """Feature columns as the harness gives models: floats and strings, NaN for missing."""
+    """Match the order-only candidate harness's numeric and categorical inputs."""
     frame = rows[list(FEATURE_COLUMNS)].copy()
     for name in ("order_value", "num_items_ordered"):
         frame[name] = pd.to_numeric(frame[name], errors="coerce").astype("float64")
@@ -30,57 +26,92 @@ def model_inputs(rows: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def make_fit_and_log(
-    *,
-    k: int,
-    seed: int,
-    validation_rows: pd.DataFrame,
-    evaluate_top_k: Callable,
-    log_run: Callable[[str, dict, dict, object], str],
-) -> Callable:
-    """Build the `fit_and_log(spec, train_rows, run_name)` that `retrain.retrain` calls."""
-    x_validation = model_inputs(validation_rows)
+def _evaluate(inputs, model, validation, features):
+    scores = model.predict_proba(features)[:, list(model.classes_).index(1)]
+    result = inputs.evaluate_top_k(validation.copy(), scores, inputs.k)
+    if result.average_precision is None:
+        raise ValueError("Frozen validation must support average precision.")
+    return result.at_k.fraud_caught, result.average_precision
 
-    def fit_and_log(spec, train_rows: pd.DataFrame, run_name: str) -> dict:
-        assert not set(FORBIDDEN) & set(FEATURE_COLUMNS)
+
+def make_fit_and_log(inputs, log_run):
+    validation, split = split_orders(inputs.validation_rows, purpose="validation")
+    if (
+        not split["test_locked"]
+        or not inputs.champion_run_id
+        or validation.empty
+        or split["excluded_rows"]
+        or not validation["is_fraud"].isin([0, 1]).all()
+    ):
+        raise ValueError(
+            "Supply a labelled frozen #6 validation window and champion in evaluation mode."
+        )
+    features = model_inputs(validation)
+    validation_hash = hashlib.sha256(
+        validation.to_csv(index=False).encode()
+    ).hexdigest()
+    champion_caught, champion_ap = _evaluate(
+        inputs, inputs.champion_model, validation, features
+    )
+
+    def fit_and_log(spec, train_rows, run_name, counts, batch_id, etl_run_id):
         model = spec.build()
-        model.set_params(
-            **{n: seed for n in model.get_params() if n.endswith("random_state")}
-        )
-        labelled = train_rows[train_rows["is_fraud"].isin([0, 1])]
+        if spec.params:
+            model.set_params(**spec.params)
         start = time.perf_counter()
-        model.fit(model_inputs(labelled), labelled["is_fraud"].astype(int))
+        model.fit(model_inputs(train_rows), train_rows["is_fraud"].astype(int))
         fit_seconds = time.perf_counter() - start
-        report = evaluate_top_k(
-            validation_rows, model.predict_proba(x_validation)[:, 1], k
-        )
+        caught, ap = _evaluate(inputs, model, validation, features)
+        artifact = pickle.dumps(model, protocol=pickle.HIGHEST_PROTOCOL)
+        size = len(artifact)
+        if not 0 < size <= MAX_ARTIFACT_BYTES:
+            raise ValueError(f"model artifact is {size} bytes, outside the 50 MB limit")
         metrics = {
-            "fraud_caught_at_k": report.at_k.fraud_caught,
-            "average_precision": report.average_precision,
+            **counts,
+            "fraud_caught_at_k": caught,
+            "average_precision": ap,
             "fit_seconds": fit_seconds,
-            "model_size_bytes": len(pickle.dumps(model)),
-            "train_orders": len(labelled),
-            "validation_orders": len(validation_rows),
+            "model_size_bytes": size,
+            "validation_orders": len(validation),
+            "champion_fraud_caught_at_k": champion_caught,
+            "champion_average_precision": champion_ap,
+            "fraud_caught_at_k_delta": caught - champion_caught,
+            "average_precision_delta": ap - champion_ap,
+            "beats_champion": int((caught, ap) > (champion_caught, champion_ap)),
         }
-        params = {"model": spec.name, "owner": spec.owner, "k": k, "seed": seed}
-        metrics["mlflow_run_id"] = log_run(run_name, params, metrics, model)
-        return metrics
+        params = {
+            "model": spec.name,
+            "owner": spec.owner,
+            "k": inputs.k,
+            "batch_id": batch_id,
+            "etl_run_id": etl_run_id,
+            "champion_run_id": inputs.champion_run_id,
+            "validation_sha256": validation_hash,
+            **{
+                f"model.{key}": value
+                for key, value in model.get_params(deep=True).items()
+            },
+        }
+        run_id = log_run(run_name, params, metrics, artifact)
+        return {**metrics, "mlflow_run_id": run_id}
 
     return fit_and_log
 
 
-def compare_with_champion(metrics: dict, champion: dict | None) -> dict:
-    """Compare one retrained model with the champion's logged validation metrics.
+def make_mlflow_logger(experiment_name):
+    import mlflow
 
-    Reports only; nothing is promoted. With no champion yet, `better` is None.
-    """
-    if not champion:
-        return {"champion": None, "better": None}
-    caught = metrics["fraud_caught_at_k"] - champion["fraud_caught_at_k"]
-    precision = metrics["average_precision"] - champion["average_precision"]
-    return {
-        "champion": champion.get("run_id"),
-        "fraud_caught_at_k_delta": caught,
-        "average_precision_delta": precision,
-        "better": (caught, precision) > (0, 0),
-    }
+    def log_run(name, params, metrics, artifact):
+        with TemporaryDirectory() as folder:
+            path = Path(folder, "model.pkl")
+            path.write_bytes(artifact)
+            experiment = mlflow.set_experiment(experiment_name)
+            with mlflow.start_run(
+                run_name=name, experiment_id=experiment.experiment_id
+            ) as run:
+                mlflow.log_params(params)
+                mlflow.log_metrics(metrics)
+                mlflow.log_artifact(str(path))
+                return run.info.run_id
+
+    return log_run

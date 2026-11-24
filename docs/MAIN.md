@@ -11,3 +11,5 @@
   database.
 - [Training harness](training.md) — how to train and re-run a model, and what
   each MLflow run records.
+- [Per-batch retraining](retraining.md) — evaluation-mode entry point, inputs,
+  counts and MLflow evidence.

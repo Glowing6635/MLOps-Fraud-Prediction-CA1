@@ -18,9 +18,9 @@ are returned; the original `raw_` values stay in the database for audits.
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import Engine
+from sqlalchemy import Connection, Engine
 
-from mlops_fraud_prediction_ca1.splitting import sql_date_predicate
+from mlops_fraud_prediction_ca1.splitting import load_policy, sql_date_predicate
 
 _QUERY = """
 SELECT
@@ -60,7 +60,30 @@ def read_labelled_orders(
     """
     predicate, parameters = sql_date_predicate(purpose=purpose, config_path=config_path)
     with engine.connect() as connection:
-        result = connection.exec_driver_sql(
-            _QUERY.format(predicate=predicate), parameters
-        )
-        return pd.DataFrame(result.fetchall(), columns=list(result.keys()))
+        return _read(connection, predicate, parameters)
+
+
+def _read(connection: Connection, predicate: str, parameters: tuple) -> pd.DataFrame:
+    result = connection.exec_driver_sql(_QUERY.format(predicate=predicate), parameters)
+    return pd.DataFrame(result.fetchall(), columns=list(result.keys()))
+
+
+def read_training_snapshot(engine: Engine) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Read training rows and aggregate date exclusions from one MySQL snapshot."""
+    predicate, parameters = sql_date_predicate(purpose="train")
+    validation_start = load_policy().validation_start.isoformat()
+    with engine.connect() as conn:
+        conn.execution_options(isolation_level="REPEATABLE READ")
+        with conn.begin():
+            rows = _read(conn, predicate, parameters)
+            excluded, late = conn.exec_driver_sql(
+                f"""
+                SELECT COUNT(*), COUNT(CASE WHEN o.order_date >= %s THEN 1 END)
+                FROM orders o
+                JOIN batches ob ON ob.batch_id = o.batch_id
+                JOIN labels l ON l.country_code = o.country_code AND l.order_id = o.order_id
+                WHERE NOT ({predicate})
+                """,
+                (validation_start, *parameters),
+            ).one()
+    return rows, {"excluded_date_rows": excluded, "excluded_late_rows": late}

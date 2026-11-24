@@ -222,6 +222,12 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
 
+## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
+
+- Recorded: 2026-11-24. Affected PBI: #25.
+- Decision: use the #20 reader and #6 train predicate for the shared RDS snapshot. Count exclusions in the database and score all candidates and the current champion on the same frozen validation input. No window changed. Release mode follows #23.
+- Reason: this lets retraining run independently of the #24 rehearsal tooling and keeps the frozen test rows out of the training process.
+
 ## D27-01: Wall-clock budget for a practice batch
 
 Recorded 2026-11-20 for [the three-minute pipeline (#27)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/27)
@@ -246,9 +252,3 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
-
-## D25-01: Retraining is orchestrated with injected collaborators; release mode waits for #23
-
-- Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #25.
-- Decision: `retrain.retrain` takes the data reader, per-model fitter and champion comparison as arguments. Evaluation mode keeps rows dated before `validation_start` (from `config/time_split.toml`); release mode is not implemented until the #23 final evaluation exists. No evaluation window changed.
-- Reason: #13, #14, #15 and #23 are not merged, so the orchestration is tested with fakes and wired when they land.

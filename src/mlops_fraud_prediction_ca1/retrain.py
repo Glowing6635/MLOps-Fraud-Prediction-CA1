@@ -1,133 +1,149 @@
-"""Per-batch automatic retraining of every candidate model (PBI #25).
+"""Per-batch evaluation-mode retraining (PBI #25)."""
 
-`retrain(...)` reads the training rows once, fits each model in the manifest on them
-with its stored hyperparameters (no search), compares each with the current champion,
-and keeps going when one model fails. It never promotes a model. The collaborators
-(data reader, per-model fitter, champion lookup) are passed in, so the orchestration is
-testable without RDS or MLflow; `run_evaluation_mode` wires the real reader.
-
-Evaluation mode (holdout on) uses only rows before the #6 validation window. Release
-mode (after the #23 final evaluation) is not implemented here: it waits for #23.
-"""
-
+import argparse
+import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from importlib import import_module
 
 import pandas as pd
 
-MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
+from .rds_reads import read_training_snapshot
+from .retrain_adapter import make_fit_and_log, make_mlflow_logger
+
+TRAIN_AND_LOG_SECONDS = 85
 
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """One entry of the training list: a name, its owner, and a factory with stored parameters."""
-
     name: str
     owner: str
     build: Callable[[], object]
+    params: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EvaluationInputs:
+    models: Sequence[ModelSpec]
+    engineers: Sequence[str]
+    validation_rows: pd.DataFrame
+    evaluate_top_k: Callable
+    k: int
+    champion_run_id: str
+    champion_model: object
 
 
 @dataclass
 class RetrainReport:
     etl_run_id: str
     batch_id: str
-    rows_read: int
-    train_rows: int
-    excluded_rows: int
+    counts: dict[str, int]
     results: dict[str, dict] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)
 
     @property
     def exit_code(self) -> int:
-        return 1 if self.failures else 0
+        return int(bool(self.failures))
 
 
-def new_etl_run_id() -> str:
-    return uuid.uuid4().hex
-
-
-def run_name(etl_run_id: str, batch_id: str, model: str) -> str:
-    """Names contain both IDs, so one pipeline run filters with `name LIKE '%<id>%'`."""
-    return f"{model}-{batch_id}-{etl_run_id}"
-
-
-def eligible_rows(
-    all_rows: pd.DataFrame, validation_start, date_column: str = "order_date"
-) -> tuple[pd.DataFrame, int]:
-    """Rows dated before the validation window, and how many later rows were excluded.
-
-    Rows from any batch qualify by date alone, so a batch is never excluded as a whole.
-    """
-    dates = pd.to_datetime(all_rows[date_column])
-    keep = dates < pd.Timestamp(validation_start)
-    return all_rows[keep], int((~keep).sum())
-
-
-def validate_manifest(models: Sequence[ModelSpec]) -> None:
-    names = [m.name for m in models]
-    if not models:
-        raise ValueError("The training list is empty.")
-    if len(set(names)) != len(names):
-        raise ValueError("Model names in the training list must be unique.")
-    if len({m.owner for m in models}) < 2:
-        raise ValueError("The training list needs at least one model per engineer.")
+def validate_manifest(models: Sequence[ModelSpec], engineers: Sequence[str]) -> None:
+    names = [model.name for model in models]
+    if not names or len(set(names)) != len(names) or not all(names):
+        raise ValueError("The manifest needs nonempty, unique model names.")
+    roster = set(engineers)
+    if not roster or "" in roster:
+        raise ValueError("Supply the expected engineer roster.")
+    owners = {model.owner for model in models}
+    if roster != owners:
+        raise ValueError(
+            f"Manifest owners differ from roster: missing={sorted(roster - owners)}, "
+            f"unexpected={sorted(owners - roster)}."
+        )
 
 
 def retrain(
-    models: Sequence[ModelSpec],
+    inputs: EvaluationInputs,
     *,
     batch_id: str,
-    read_rows: Callable[[], pd.DataFrame],
-    validation_start,
-    fit_and_log: Callable[[ModelSpec, pd.DataFrame, str], dict],
-    champion_comparison: Callable[[dict], dict],
-    etl_run_id: str | None = None,
-    log: Callable[[str], None] = lambda message: None,
+    etl_run_id: str,
+    read_rows: Callable[[], tuple[pd.DataFrame, dict[str, int]]],
+    log_run: Callable,
+    log: Callable[[str], None],
 ) -> RetrainReport:
-    """Retrain every model on the shared training rows; see the module docstring.
-
-    `fit_and_log(spec, train_rows, run_name)` fits, scores on the frozen validation
-    window and logs the run, returning metrics with `model_size_bytes` and
-    `fit_seconds`. `champion_comparison(metrics)` returns the comparison to log.
-    """
-    validate_manifest(models)
-    etl_run_id = etl_run_id or new_etl_run_id()
-    rows = read_rows()  # once per run, shared by all models
-    train_rows, excluded = eligible_rows(rows, validation_start)
-    report = RetrainReport(etl_run_id, batch_id, len(rows), len(train_rows), excluded)
-    log(
-        f"etl_run_id={etl_run_id} batch={batch_id} read={len(rows)} "
-        f"train={len(train_rows)} excluded_in_or_after_validation={excluded}"
-    )
-    for spec in models:
-        name = run_name(etl_run_id, batch_id, spec.name)
+    validate_manifest(inputs.models, inputs.engineers)
+    rows, exclusions = read_rows()
+    train_rows = rows.loc[rows["is_fraud"].isin([0, 1])]
+    new_rows = int(train_rows["batch_id"].eq(batch_id).sum())
+    counts = {
+        **exclusions,
+        "train_old_rows": len(train_rows) - new_rows,
+        "train_new_rows": new_rows,
+        "excluded_invalid_label_rows": len(rows) - len(train_rows),
+        "train_orders": len(train_rows),
+        "excluded_rows": exclusions["excluded_date_rows"] + len(rows) - len(train_rows),
+    }
+    report = RetrainReport(etl_run_id, batch_id, counts)
+    log(f"etl_run_id={etl_run_id} batch_id={batch_id} {counts}")
+    started = time.perf_counter()
+    fit_and_log = make_fit_and_log(inputs, log_run)
+    for spec in inputs.models:
+        name = f"{spec.name}-{batch_id}-{etl_run_id}"
         try:
-            metrics = fit_and_log(spec, train_rows, name)
-            if metrics.get("model_size_bytes", 0) > MAX_ARTIFACT_BYTES:
-                raise ValueError("model artifact is over 50 MB")
-            metrics["champion_comparison"] = champion_comparison(metrics)
-            report.results[spec.name] = metrics
-        except Exception as error:  # noqa: BLE001 - one failed model must not stop the rest
+            report.results[spec.name] = fit_and_log(
+                spec, train_rows, name, counts, batch_id, etl_run_id
+            )
+        except Exception as error:  # noqa: BLE001 - isolate each candidate failure
             report.failures[spec.name] = f"{type(error).__name__}: {error}"
-            log(f"FAILED {spec.name}: {report.failures[spec.name]}")
+            log(f"FAILED {name}: {report.failures[spec.name]}")
+    log(
+        f"Train and log: {time.perf_counter() - started:.2f}s / {TRAIN_AND_LOG_SECONDS}s"
+    )
     return report
 
 
 def run_evaluation_mode(
-    engine, models, *, batch_id, fit_and_log, champion_comparison, log=print
-):
-    """Evaluation mode against the real database: one `purpose="analysis"` read."""
-    from .rds_reads import read_labelled_orders
-    from .splitting import load_policy
-
-    policy = load_policy()
+    engine, inputs, *, batch_id, log_run, etl_run_id=None, log=print
+) -> RetrainReport:
+    """Read the #154 training snapshot once and share it across all candidates."""
     return retrain(
-        models,
+        inputs,
         batch_id=batch_id,
-        read_rows=lambda: read_labelled_orders(engine, purpose="analysis"),
-        validation_start=policy.validation_start,
-        fit_and_log=fit_and_log,
-        champion_comparison=champion_comparison,
+        etl_run_id=uuid.uuid4().hex if etl_run_id is None else etl_run_id,
+        read_rows=lambda: read_training_snapshot(engine),
+        log_run=log_run,
         log=log,
     )
+
+
+def main(argv=None) -> int:
+    from .config import create_db_engine, load_settings
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("batch_id")
+    parser.add_argument(
+        "inputs", help="Trusted module:factory returning EvaluationInputs"
+    )
+    parser.add_argument("--etl-run-id")
+    args = parser.parse_args(argv)
+    module, separator, factory = args.inputs.partition(":")
+    if not separator or not module or not factory:
+        parser.error("inputs must be module:factory")
+    settings = load_settings()
+    inputs = getattr(import_module(module), factory)()
+    engine = create_db_engine(settings)
+    try:
+        report = run_evaluation_mode(
+            engine,
+            inputs,
+            batch_id=args.batch_id,
+            etl_run_id=args.etl_run_id,
+            log_run=make_mlflow_logger(settings.mlflow_experiment_name),
+        )
+    finally:
+        engine.dispose()
+    return report.exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
