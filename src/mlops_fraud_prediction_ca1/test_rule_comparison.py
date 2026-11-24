@@ -135,6 +135,22 @@ class CompareTests(unittest.TestCase):
         self.assertIn("validation-tuned proxy", format_comparison(result))
         self.assertIn("did beat", format_comparison(result))
 
+    def test_compare_accepts_non_default_index_slice(self):
+        positions = [1, 2, 4, 5]
+        orders = self.orders.iloc[positions]
+        age = self.age.iloc[positions]
+        scores = [0.1, 0.8, 0.7, 0.3]
+        loyalty = [self.loyal[position] for position in positions]
+        threshold = select_threshold(orders, age, k=1, grid=(500,))
+
+        result = compare(orders, scores, age, loyalty, 1, threshold["x"], "proxy")
+
+        self.assertEqual(result["rule_flags_before_cut"], 3)
+        self.assertEqual(result["rule"]["flags"], 2)
+        self.assertEqual(result["rule"]["fraud_exposure"], 600.0)
+        self.assertEqual(result["model_matched"]["fraud_exposure"], 1300.0)
+        self.assertTrue(result["beats_rule"])
+
     def test_model_that_ties_the_rule_does_not_beat_it(self):
         result = compare(
             self.orders,

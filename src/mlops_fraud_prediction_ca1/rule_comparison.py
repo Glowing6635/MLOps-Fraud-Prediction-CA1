@@ -194,7 +194,6 @@ def compare(
     caught strictly more fraud than the rule.
     """
     _check(orders, k)
-    orders = orders.reset_index(drop=True)
     flags = baseline_rule_flags(orders["order_value"], account_age, threshold)
     rule = cut_rule_flags(orders, flags["rule_flag"].to_numpy(dtype=bool), k)
     matched = match_model_to_rule(orders, scores, rule, k)
