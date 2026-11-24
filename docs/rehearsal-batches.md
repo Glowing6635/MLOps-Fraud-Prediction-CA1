@@ -30,3 +30,21 @@ Edge batch cases (identifiers all start with `SYN-EDGE-`):
 These flags record what #20 says should happen. They are not verified loader
 behaviour: the loader does not exist yet, and this change does not define its
 rejection policy. Verify against the real command once #20 lands.
+
+## Rebuilding the rehearsal environment (reset command)
+
+`uv run rehearsal-reset --data-dir data` drops the rehearsal database's four
+tables, recreates them (`rds_schema.create_tables`), loads the three base CSV files
+with the #20 loader and deletes the runs in the rehearsal MLflow experiment.
+
+- **Selection:** `.env` (#2 settings) points `DB_NAME` and `MLFLOW_EXPERIMENT_NAME`
+  at the rehearsal resources. Each engineer's read-only user is created on that
+  database with `uv run rds-schema reader ...` (see `docs/runbook.md`).
+- **Refusal:** before touching anything, both names must start with `rehearsal`, and
+  neither may equal `TEAM_DB_NAME` / `TEAM_MLFLOW_EXPERIMENT_NAME` when set. Set those
+  two to the team names in the operator's `.env` for a second line of defence.
+- **Practice batches:** `uv run rehearsal-reset --presign <bucket>` generates the
+  synthetic batches, uploads them as private objects under `rehearsal/`, and prints
+  presigned GET URLs (default 1 hour). Signing uses boto3's normal credential chain in
+  the sandbox session (environment or instance profile). No credential, bucket policy
+  or public ACL is stored in the repository.

@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = "~=3.12.0"
 dependencies = [
+    "boto3>=1.44.10",
     "mlflow==3.18.0",
     "pandas>=3.1.1",
     "pymysql[rsa]>=1.2.4",
@@ -28,6 +29,7 @@ load-batch = "mlops_fraud_prediction_ca1.loading:main"
 run-batch = "mlops_fraud_prediction_ca1.batch:main"
 retrain-batch = "mlops_fraud_prediction_ca1.retrain:main"
 
+rehearsal-reset = "mlops_fraud_prediction_ca1.rehearsal_reset:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]

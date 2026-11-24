@@ -458,3 +458,9 @@ its logged fraud caught at K and average precision.
 | Logistic regression | `balanced` | 2,479 | 3,933 | 0.322586 |
 | Boosted trees | `None` | 2,893 | 4,370 | 0.371637 |
 | Boosted trees | `balanced` | 2,856 | 4,395 | 0.371064 |
+
+## D24-01: The rehearsal reset refuses by name, not by a list of team resources
+
+- Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #24 (criterion 2).
+- Decision: `rehearsal-reset` runs only when the database name and MLflow experiment name (#2 settings) both start with `rehearsal` and differ from `TEAM_DB_NAME` / `TEAM_MLFLOW_EXPERIMENT_NAME` when those are set.
+- Reason: a required prefix fails safe if the team variable is forgotten, and the team-name check catches a rehearsal-named copy of team resources.
