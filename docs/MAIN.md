@@ -13,3 +13,5 @@
   each MLflow run records.
 - [Per-batch retraining](retraining.md) — evaluation-mode entry point, inputs,
   counts and MLflow evidence.
+- [Champion selection and rollback](champion.md) — compare validation runs,
+  register the top two and manage aliases.
