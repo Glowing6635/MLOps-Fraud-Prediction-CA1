@@ -1,6 +1,8 @@
 -- The team database's tables (issue #10). `uv run rds-schema tables` runs this file;
 -- every statement leaves an existing table alone, so it is safe to re-run.
 -- docs/data-dictionary.md explains every column.
+-- rds_schema.statements() drops comment lines and splits the rest on semicolons,
+-- so never put a semicolon in a string or in a comment that follows code on a line.
 -- IDs use a binary collation because they are opaque: MySQL's default collation
 -- would treat "ab12" and "AB12" as the same key.
 
