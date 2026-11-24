@@ -84,12 +84,16 @@ def _forest_model(classifier):
 def random_forest_model():
     """Random forest on the numeric and one-hot-encoded text columns.
 
-    Missing numbers are filled with the training-window median. Trees stop at 50 orders
-    per leaf so a leaf's fraud rate is a usable score, and every core fits in parallel.
+    Missing numbers are filled with the training-window median. Limit the number of
+    trees and leaves per tree to keep the fitted model within the retraining size budget.
     """
     return _forest_model(
         RandomForestClassifier(
-            n_estimators=200, min_samples_leaf=50, n_jobs=-1, random_state=0
+            n_estimators=100,
+            max_leaf_nodes=2400,
+            min_samples_leaf=50,
+            n_jobs=-1,
+            random_state=0,
         )
     )
 
