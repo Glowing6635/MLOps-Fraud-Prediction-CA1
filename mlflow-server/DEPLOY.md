@@ -85,17 +85,22 @@ To redeploy, run `./deploy.sh <existing-cname-prefix>`. Before running
 `eb deploy`, the script checks the CNAME and uses the AWS CLI to verify the
 seven settings in the deployed Beanstalk configuration. Both creation and
 redeploy require an artifact destination of `s3://<bucket>/artifacts` or
-`s3://<bucket>/<prefix>/artifacts` with a nonempty bucket. On redeploy, the
-allowed host and origin must match the CNAME, and the secret settings must
-refer to the four documented Parameter Store paths in the current account and
-region. If the read fails or a setting is missing or invalid, the script stops
-and prints only setting names for configuration mismatches. It preserves
-existing properties on redeploy. Set `MLFLOW_ARTIFACTS_DESTINATION` on the
-command line for creation.
+`s3://<bucket>/<prefix>/artifacts`. The script checks the bucket name against
+the [S3 general purpose naming rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html)
+locally on both paths. The optional key prefix can have multiple levels and must
+be free of control characters and line breaks. On redeploy, the artifact
+destination must appear exactly once in the deployed application environment
+namespace. The allowed host and origin must match the CNAME, and the secret
+settings must refer to the four documented Parameter Store paths in the current
+account and region. If the read fails or a setting is missing or invalid, the
+script stops and prints only setting names for configuration mismatches. It
+preserves existing properties on redeploy. Set `MLFLOW_ARTIFACTS_DESTINATION`
+on the command line for creation.
 
 Check that the printed `eb status` reports `Health: Green` and that the final
 `/health` request returns OK. Follow [Check from each laptop](README.md#check-from-each-laptop)
-to verify authenticated logging and persistence.
+to verify authenticated logging and persistence. The local URI check does not
+test whether the bucket exists or whether the service can write to it.
 
 ### Troubleshooting
 
