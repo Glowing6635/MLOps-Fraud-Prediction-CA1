@@ -218,10 +218,10 @@ ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
 @pytest.mark.parametrize(
     ("orders", "scores", "k", "message"),
     [
-        (ORDER, [0.5], 0, "K must be a whole number"),
-        (ORDER, [0.5], 0.5, "K must be a whole number"),
-        (ORDER, [0.5], True, "K must be a whole number"),
-        (ORDER, [0.5], {"SG": 1.0}, "K must be a whole number"),
+        (ORDER, [0.5], 0, "K must be a Python int"),
+        (ORDER, [0.5], 0.5, "K must be a Python int"),
+        (ORDER, [0.5], True, "K must be a Python int"),
+        (ORDER, [0.5], {"SG": 1.0}, "K must be a Python int"),
         (ORDER, [0.5], {"MY": 1}, "K is not set for country SG"),
         (
             {"order_date": ["d1"], "is_fraud": [1]},

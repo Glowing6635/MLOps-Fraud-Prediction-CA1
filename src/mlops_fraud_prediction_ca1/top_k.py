@@ -66,10 +66,10 @@ def evaluate_top_k(
 
     `orders` is a pandas DataFrame or a dict of equal-length columns holding at least
     `ORDER_COLUMNS`, with `is_fraud` as 0 or 1 (or a bool); `scores` has one finite score
-    per order, in the same order. `k` is the daily review capacity, a whole number of
+    per order, in the same order. `k` is the daily review capacity, a Python int of
     orders per day, or a mapping from `country_code` to that country's capacity per day.
 
-    Raises `ValueError` for a K that is not a whole number of at least 1, a country with
+    Raises `ValueError` for a K that is not a Python int of at least 1, a country with
     no K, a missing column, a missing date, country or order ID (None, NaN or NaT),
     columns of different lengths, an `order_id` repeated within one `country_code`, a
     label other than 0 or 1, or a score that is not finite.
@@ -83,7 +83,8 @@ def evaluate_top_k(
         for capacity in capacities
     ):
         raise ValueError(
-            f"K must be a whole number of orders, at least 1, but it is {k}."
+            f"K must be a Python int of at least 1, or a mapping from country_code to"
+            f" such ints, but it is {k!r}."
         )
     if len({len(scores), *(len(orders[column]) for column in ORDER_COLUMNS)}) > 1:
         raise ValueError(
