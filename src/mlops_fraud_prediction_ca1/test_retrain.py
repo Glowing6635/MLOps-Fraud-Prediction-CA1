@@ -1,20 +1,15 @@
-import pickle
 import sys
 from dataclasses import replace
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-import mlflow
 import pandas as pd
 import pytest
 from sklearn.compose import ColumnTransformer
-from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-from . import config, retrain, retrain_adapter
+from . import config, retrain
 from .loading import load_files
 from .retrain import EvaluationInputs, ModelSpec, validate_manifest
 from .test_rds_reads import customer, order
@@ -48,18 +43,6 @@ def _rows():
 @pytest.fixture
 def inputs():
     validation = _rows()
-    training = validation.assign(order_date="2023-02-01", order_id="historical")
-    champion = DummyClassifier(strategy="prior").fit(
-        retrain_adapter.model_inputs(training), training.is_fraud
-    )
-
-    def evaluate(rows, scores, k):
-        pd.testing.assert_frame_equal(rows, validation)
-        return SimpleNamespace(
-            at_k=SimpleNamespace(fraud_caught=int(rows.is_fraud.iloc[scores.argmax()])),
-            average_precision=average_precision_score(rows.is_fraud, scores),
-        )
-
     return EvaluationInputs(
         [
             ModelSpec(
@@ -69,10 +52,9 @@ def inputs():
         ],
         ["engineer-a", "engineer-b"],
         validation,
-        evaluate,
         1,
         "champion-fixture",
-        champion,
+        object(),
     )
 
 
@@ -82,9 +64,7 @@ def _snapshot():
     ), {"excluded_date_rows": 3, "excluded_late_rows": 2}
 
 
-def test_cli_publishes_comparisons_and_continues_after_failure(
-    inputs, tmp_path, monkeypatch
-):
+def test_cli_delegates_training_and_continues_after_failure(inputs, monkeypatch):
     def broken():
         raise RuntimeError("candidate failed")
 
@@ -99,8 +79,17 @@ def test_cli_publishes_comparisons_and_continues_after_failure(
     module = ModuleType("representative_inputs")
     module.build = lambda: manifest
     monkeypatch.setitem(sys.modules, module.__name__, module)
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'tracking.db'}")
-    monkeypatch.chdir(tmp_path)
+    training = ModuleType(f"{retrain.__package__}.training")
+    training.score_labelled_rows = _score_champion
+    calls = []
+
+    def train(estimator, **kwargs):
+        result = SimpleNamespace(report=_score(1, 1.0), fit_seconds=0.1)
+        calls.append((estimator, kwargs, kwargs["extra_metrics"](result)))
+        return "candidate-run", result
+
+    training.train = train
+    monkeypatch.setitem(sys.modules, training.__name__, training)
     monkeypatch.setattr(
         config,
         "load_settings",
@@ -124,47 +113,64 @@ def test_cli_publishes_comparisons_and_continues_after_failure(
     )
     assert len(snapshots) == 1
 
-    client = mlflow.MlflowClient()
-    experiment = client.get_experiment_by_name("fixture")
-    runs = {
-        run.info.run_name: run for run in client.search_runs([experiment.experiment_id])
-    }
-    assert set(runs) == {"first-new-invocation", "last-new-invocation"}
-    for name, expected_c in (("first", 0.25), ("last", 0.5)):
-        run = runs[f"{name}-new-invocation"]
-        assert run.info.status == "FINISHED"
-        assert run.data.params["etl_run_id"] == "invocation"
-        assert run.data.params["champion_run_id"] == "champion-fixture"
-        assert run.data.metrics["train_old_rows"] == 1
-        assert run.data.metrics["train_new_rows"] == 2
-        assert run.data.metrics["excluded_rows"] == 4
-        assert run.data.metrics["excluded_late_rows"] == 2
-        assert run.data.metrics["average_precision_delta"] == 0.5
-        artifact = Path(
-            client.download_artifacts(run.info.run_id, "model.pkl")
-        ).read_bytes()
-        assert len(artifact) == run.data.metrics["model_size_bytes"]
-        assert (
-            pickle.loads(artifact).get_params()["logisticregression__C"] == expected_c
-        )
+    assert [kwargs["run_name"] for _, kwargs, _ in calls] == [
+        "first-new-invocation",
+        "last-new-invocation",
+    ]
+    assert calls[0][1]["labelled_windows"][0] is calls[1][1]["labelled_windows"][0]
+    for (estimator, kwargs, metrics), expected_c in zip(
+        calls, (0.25, 0.5), strict=True
+    ):
+        assert estimator.get_params()["logisticregression__C"] == expected_c
+        passed_train, passed_validation = kwargs["labelled_windows"]
+        assert len(passed_train) == 3
+        pd.testing.assert_frame_equal(passed_validation, inputs.validation_rows)
+        assert kwargs["k"] == 1
+        assert kwargs["max_model_size_bytes"] == 52_428_800
+        assert kwargs["tags"] == {"champion_eligible": "False"}
+        assert kwargs["extra_params"]["etl_run_id"] == "invocation"
+        assert kwargs["extra_params"]["champion_run_id"] == "champion-fixture"
+        assert metrics["train_old_rows"] == 1
+        assert metrics["train_new_rows"] == 2
+        assert metrics["excluded_rows"] == 4
+        assert metrics["excluded_late_rows"] == 2
+        assert metrics["average_precision_delta"] == 0.5
 
 
-def test_oversize_candidates_never_reach_logger(inputs, monkeypatch):
-    monkeypatch.setattr(retrain_adapter, "MAX_ARTIFACT_BYTES", 1)
-    logged = []
+def _score(caught, ap):
+    return SimpleNamespace(
+        at_k=SimpleNamespace(fraud_caught=caught), average_precision=ap
+    )
+
+
+def _score_champion(model, rows, *, k):
+    assert len(rows) == 4
+    assert k == 1
+    return _score(0, 0.5)
+
+
+def test_candidate_size_failures_and_unique_ids(inputs, monkeypatch):
     monkeypatch.setattr(retrain, "read_training_snapshot", lambda engine: _snapshot())
+
+    def reject_oversize(estimator, *, max_model_size_bytes, **kwargs):
+        assert max_model_size_bytes == 52_428_800
+        raise ValueError("model exceeds size limit")
 
     def run():
         return retrain.run_evaluation_mode(
-            None, inputs, batch_id="new", log_run=lambda *args: logged.append(args)
+            None,
+            inputs,
+            batch_id="new",
+            train_candidate=reject_oversize,
+            score_rows=_score_champion,
         )
 
     first, second = run(), run()
     assert first.etl_run_id != second.etl_run_id
-    assert not logged
+    assert not first.results
     assert first.exit_code == second.exit_code == 1
     assert set(first.failures) == {"first", "last"}
-    assert all("50 MB" in failure for failure in first.failures.values())
+    assert all("size limit" in failure for failure in first.failures.values())
 
 
 def test_manifest_requires_every_expected_engineer(inputs):
@@ -179,7 +185,9 @@ def test_rejects_validation_outside_frozen_window(inputs):
         inputs, validation_rows=inputs.validation_rows.assign(order_date="2023-04-20")
     )
     with pytest.raises(ValueError, match="frozen"):
-        retrain_adapter.make_fit_and_log(wrong, None)
+        retrain.run_evaluation_mode(
+            None, wrong, batch_id="new", train_candidate=None, score_rows=None
+        )
 
 
 def test_training_snapshot_keeps_holdout_rows_in_db(database, write_batch):

@@ -10,7 +10,7 @@ omitted. Run names have the form `<model>-<batch_id>-<etl_run_id>`.
 
 The trusted, importable input factory returns `EvaluationInputs` with the
 expected engineer roster, the candidate manifest, the frozen #6 validation
-frame, the #5 top-K evaluator and K, and the fitted #15 champion and its run ID.
+frame, K, and the fitted #15 champion and its run ID.
 Use a fresh estimator factory per manifest entry, such as #14's order-only
 pipeline factories, and pass the stored estimator parameter overrides in
 `ModelSpec.params`. Factory defaults supply the other stored settings. Include
@@ -27,22 +27,53 @@ omitted from fits. Old and new counts are eligible, valid-label orders from
 other batches and the invocation's batch, respectively. The command prints
 these counts and records them on every successful candidate run.
 
-Every candidate and the champion are scored on the same supplied validation
-frame. The candidate run records its scores, champion run ID and scores, score
-deltas, validation digest, fitted parameters and artifact byte count. The
-adapter serializes the fitted estimator once and uploads those same bytes as
-`model.pkl` only if the size is within 50 MiB (52,428,800 bytes). Only load
-pickle artifacts from trusted runs. The command reports a failed candidate,
-attempts the remaining candidates, and exits 1 if any candidate failed. The
-comparison is informational.
+Every candidate and the champion use the shared harness's order features and
+top-K evaluator on the same validation frame. Each candidate run records its
+scores, champion run ID and scores, score deltas, validation digest and
+estimator parameters. The command reports a failed candidate, attempts the
+remaining candidates, and exits 1 if any candidate failed. Evaluation runs
+are tagged `champion_eligible=False` for #161's automatic candidate discovery.
 
 The shared [D27-01 train-and-log target](decision-log.md#d27-01-wall-clock-budget-for-a-practice-batch)
 is **85 seconds** across all candidates, including scoring, serialization, and
 MLflow artifact uploads. The command reports the stage's elapsed wall time.
+The real input factory, live #24 rehearsal and demo-machine timing remain
+partial. Release mode depends on #23's final evaluation.
 
-Representative fixtures exercise old and new rows, validation and test
-exclusions, per-engineer coverage, stored estimator settings, and candidate
-artifacts and comparisons in a local MLflow store. The owner roster, final
-candidate versions and count contract still need confirmation. Production
-champion/validation inputs, the live #24 rehearsal, and demo-machine timing
-remain open. Release mode depends on #23's final evaluation.
+## Shared training harness integration
+
+PR #162's #154 base supplies the protected RDS reader. The shared `training.py`
+from #151 is on a separate branch lineage. Before running with real inputs,
+apply this change in the shared harness when both branches are available.
+
+1. Add keyword-only `labelled_windows=None` to `fit_and_score()` and
+   `train()`, and allow `data_dir=None`. Require exactly one source. Keep
+   the CSV path and its hashes for existing callers. For labelled windows,
+   accept a `(train_rows, validation_rows)` tuple of already-cleaned, joined
+   DataFrames with the harness's `_KEYS` and order features. Use
+   `select_feature_inputs(rows, source="orders")` and `_model_inputs()`
+   through one shared labelled-row helper. Normalize RDS Decimal numeric
+   features to numbers before `_model_inputs()`, and cast labels to integers.
+   Reject exploratory mode with labelled windows. Log
+   `data_source=rds_labelled_windows` instead of the CSV hashes for this mode.
+   Leave configured seed handling intact for CSV calls and skip overriding
+   stored estimator random states when the caller explicitly supplies
+   `seed=None`.
+2. Extract `score_labelled_rows(estimator, rows, *, k)` in `training.py` for
+   champion scoring. Use the same row helper and validation scoring function
+   as `fit_and_score()`, passing the keys and positive-class probabilities
+   to the existing `evaluate_top_k()`.
+3. Add keyword-only `run_name=None`, `extra_params=None`,
+   `extra_metrics=None` and `max_model_size_bytes=None` to `train()`.
+   Pass the name to `mlflow.start_run()`, merge the supplied parameters into
+   the run parameters and merge `extra_metrics(result)` into the metrics
+   before logging. Keep the `(run_id, FitResult)` return.
+4. Reuse the harness's `mlflow.sklearn.save_model()` size measurement with the
+   same serialization options as `mlflow.sklearn.log_model()`. Reject a
+   missing/empty model or a model over `max_model_size_bytes` before upload.
+   Keep the shared sklearn model name `model` so #161's
+   `register_top_two()` can consume `runs:/<run_id>/model`. Verify the URI
+   resolves from a retraining run in local MLflow before running the rehearsal.
+
+The CLI calls this interface directly once the harness is available. Tests
+on the #154 base exercise the CLI with a stand-in for the shared harness.
