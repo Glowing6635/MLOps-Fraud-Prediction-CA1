@@ -73,8 +73,8 @@ Cost: the t3.small Linux on-demand price in US East (N. Virginia) is **USD 0.020
 
 | Item | Running | Sandbox stopped |
 | --- | --- | --- |
-| t3.small compute | No compute charge while the instance is stopped (AWS EC2 billing rule: to be confirmed against the pricing page when sourcing; instance state while stopped is not yet observed) |
-| Root EBS volume, 8 GB gp3 | PENDING per GB-month | Still charged: volumes persist while the instance is stopped |
+| t3.small compute | USD 0.0208 per hour | No compute charge while the instance is stopped (AWS EC2 billing rule: to be confirmed against the pricing page when sourcing; instance state while stopped is not yet observed) |
+| Root EBS volume, 8 GB gp3 | PENDING (GB-month price) | Still charged: volumes persist while the instance is stopped |
 | Load balancer | none | none |
 
 Read-only commands used: `aws ec2 describe-instances --filters Name=tag:elasticbeanstalk:environment-name,Values=mlflow --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,BlockDeviceMappings[0].Ebs.VolumeId]'` and `aws ec2 describe-volumes --volume-ids <id> --query 'Volumes[].[Size,VolumeType]'`.
