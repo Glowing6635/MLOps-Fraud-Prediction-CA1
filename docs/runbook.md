@@ -11,8 +11,8 @@ Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. No
 | Sandbox account hosting RDS, MLflow and S3 | Richard Go's AWS Academy sandbox, region `us-east-1` |
 | Who can start it | Richard Go only |
 | Demo machine | Richard Go's second computer, which he has tested with the services |
-| Demo-site network | TO RECORD |
-| Backup hotspot | TO RECORD |
+| Demo-site network | `SPStudent` |
+| Backup hotspot | Richard Go's phone hotspot, `Samsung Galaxy Note20 Ultra` |
 
 Only Richard can start the sandbox, so he is a single point of failure on demo day. The backup plan covers that. If Richard can't start his sandbox, because he is absent or can't sign in, AWS Academy is down, or the lab's budget or session time is used up, Tung Shi An signs in to his own AWS Academy sandbox and rebuilds the services there:
 
@@ -175,9 +175,19 @@ Each engineer runs `uv run redeploy-check record` once on their own laptop, beca
    aws elasticbeanstalk restart-app-server --environment-name mlflow
    ```
 3. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times, tagged `purpose=restart-drill` so queries for model runs can skip it. It prints the time from its own start to each step, and gives up after 30 minutes.
-4. Record the drill's times in `docs/failure-log.md` (added by #31), with the RDS start-up wait from step 2 as its own stage, not added to the other times.
+4. Add a row to "Drill results" below, with the RDS start-up wait from step 2 as its own stage, not added to the other times.
 
-Demo-day start time: TO RECORD, from the slowest total in `docs/failure-log.md` for a drill after RDS was stopped overnight, plus a margin of TO RECORD minutes.
+### Drill results
+
+Times are minutes and seconds from the start of `uv run restart-drill`, so 1:04 is one minute and four seconds. The RDS start-up wait is the time `time aws rds wait db-instance-available` printed in step 2, before the drill started. These results move to the team's failure log once #31 adds it.
+
+| Date | RDS stopped for | RDS start-up wait | RDS answers | MLflow answers | Model check passes | Total | MLflow run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 17 Nov 2026 | Not stopped | None | 0:06 | 0:47 | 0:58 | 1:04 | `39e1099e1d374b048c8a1d8ee4bafec9` |
+
+On 17 Nov, ending the session terminated the MLflow server's Beanstalk instance, and Beanstalk launched a new one about a minute before the drill. That minute isn't in the times. The drill ran from Richard Go's laptop, and the network wasn't recorded.
+
+Demo-day start time: TO RECORD, from the slowest total of a drill after RDS was stopped, plus its RDS start-up wait, plus a margin of TO RECORD minutes.
 
 ## Demo day
 
@@ -189,12 +199,13 @@ Demo-day start time: TO RECORD, from the slowest total in `docs/failure-log.md` 
 
 ## Reaching RDS from each laptop
 
-Each engineer runs `uv run restart-drill` once on the demo-site network and once on the backup hotspot, after adding that network's port 3306 rule (see "Demo day").
+Each laptop runs `uv run restart-drill` once on the demo-site network and once on the backup hotspot, after adding that network's port 3306 rule (see "Demo day").
 
-| Engineer | Demo-site network | Backup hotspot |
+| Laptop | Demo-site network | Backup hotspot |
 | --- | --- | --- |
-| Richard Go | | |
-| Tung Shi An | | |
+| Richard Go's laptop | Reached RDS and MLflow, tested before 25 Nov 2026 | Reached RDS and MLflow, tested before 25 Nov 2026 |
+| Richard Go's second computer, the demo machine | Not tested | Not tested |
+| Tung Shi An's laptop | Not recorded | Not recorded |
 
 ## Sandbox budget
 
