@@ -246,3 +246,27 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D26-01 — Apply and verify the deployment settings before rollout
+
+- Settled: 2026-11-24. Owner: SpiralSky. Affected PBI: #26.
+- Decision: use a uniquely named EB saved configuration for creation. Check all
+  seven #9 settings in the deployed configuration before redeploying and stop
+  if any are missing or invalid. The check reports setting names and leaves
+  configuration changes to the operator.
+- Rationale: the offline EB CLI 3.27.5 resolver uploads a saved configuration
+  under its basename and passes `--cfg` verbatim to `CreateEnvironment`. A
+  local path therefore selects a different name. A CNAME match alone lets an
+  incomplete environment attempt a rollout that the container cannot start.
+  [DescribeConfigurationSettings](https://docs.aws.amazon.com/elasticbeanstalk/latest/api/API_DescribeConfigurationSettings.html)
+  can include a draft configuration alongside the active one.
+- Alternatives: applying settings after creation leaves first boot without
+  required values. Automatically repairing an existing configuration would
+  change a running environment and require selecting a destination and secret
+  references on the operator's behalf.
+- Impact: creation receives the settings at launch. Redeploy requires read
+  access to the environment's configuration and leaves a mismatched
+  environment untouched. It verifies setting references and expected values,
+  while the live health and persistence checks establish service access.
+- Open: SpiralSky owns the sandbox deployment and stopped-session billing
+  observation, and will arrange the unaided teammate walkthrough.

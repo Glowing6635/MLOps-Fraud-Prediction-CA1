@@ -44,7 +44,8 @@ The first command is needed only once. `--platform linux/amd64` matches the t3 i
 
 ## Deploy
 
-Use Bash, AWS CLI, curl and the EB CLI (`uv tool install --python 3.12 awsebcli`).
+Use Bash, AWS CLI, curl and EB CLI 3.27.5
+(`uv tool install --python 3.12 awsebcli==3.27.5`).
 Refresh the Learner Lab credentials in `~/.aws/credentials` and use the same sandbox
 account and region as the published image. The script requires #147's
 `Dockerrun.aws.json` and `start.sh` in this checkout.
@@ -75,10 +76,22 @@ CNAME prefix. Use the existing environment's prefix for a redeploy.
 | Upload limit | 200 MB, set in `.platform/nginx/conf.d/upload_size.conf` |
 
 On creation, the script supplies all seven [MLflow settings](README.md#settings)
-at launch. Beanstalk pulls the image from ECR and resolves the four parameter
-references for the container. On redeploy, the script checks the CNAME before
-running `eb deploy` and preserves the environment's existing properties. The
-artifact destination input is only required for creation.
+through an EB saved configuration. It gives `eb create --cfg` the logical
+template name and removes the local saved configuration on exit. Beanstalk
+pulls the image from ECR and resolves the four parameter references for the
+container.
+
+To redeploy, run `./deploy.sh <existing-cname-prefix>`. Before running
+`eb deploy`, the script checks the CNAME and uses the AWS CLI to verify the
+seven settings in the deployed Beanstalk configuration. Both creation and
+redeploy require an artifact destination of `s3://<bucket>/artifacts` or
+`s3://<bucket>/<prefix>/artifacts` with a nonempty bucket. On redeploy, the
+allowed host and origin must match the CNAME, and the secret settings must
+refer to the four documented Parameter Store paths in the current account and
+region. If the read fails or a setting is missing or invalid, the script stops
+and prints only setting names for configuration mismatches. It preserves
+existing properties on redeploy. Set `MLFLOW_ARTIFACTS_DESTINATION` on the
+command line for creation.
 
 Check that the printed `eb status` reports `Health: Green` and that the final
 `/health` request returns OK. Follow [Check from each laptop](README.md#check-from-each-laptop)
@@ -88,6 +101,10 @@ to verify authenticated logging and persistence.
 
 - `ExpiredToken`: refresh the Learner Lab credentials.
 - CNAME mismatch: check the selected environment, region and prefix before rerunning.
+- Missing or invalid settings: check the environment's deployed configuration
+  against [Settings](README.md#settings) and correct it before retrying.
+- Could not verify settings: check the selected environment, the sandbox
+  session and permission to run `elasticbeanstalk:DescribeConfigurationSettings`.
 - Health stays red: check the image tag, instance access to ECR and the four
   parameters, and RDS connectivity. If the web UI refuses changes, check that
   the allowed host and browser origin match the environment URL.
