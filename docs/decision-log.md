@@ -545,3 +545,15 @@ its logged fraud caught at K and average precision.
 - Limit: the grid is still chosen after seeing that the first grid failed, and
   it is fitted on the same validation window that scores the comparison, so it
   favours the rule and a model win would be conservative.
+
+## D18-04 — The proxy rule is final: no deployed threshold or capacity source exists
+
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky; owner correction relayed
+  by the coordinator. Affected PBIs: #18 (criterion 1), #5/D5-01 (K).
+- Settled: Trust & Safety is a persona in the course brief, not a team that can be
+  asked, so the deployed X and the real review capacity cannot be obtained. The
+  validation-tuned proxy X (D18-01 and D18-03) is the final rule for #18, and
+  K = 250 orders a day (D5-01) stays a Product Owner assumption. Neither has a
+  source; both are stated as assumptions wherever results are reported.
+- Replaces: earlier wording in D18-01 and `baseline-rule.md` that waits for a
+  Trust & Safety value. Those passages keep their original text as history.
