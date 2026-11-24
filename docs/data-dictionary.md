@@ -46,10 +46,10 @@ The diagram shows only the key and money columns; the tables below list every co
 
 ## Keys
 
-The keys follow the kickoff data analysis (issue #3):
+The keys follow the kickoff data analysis (issue #3), section 4.4 "Linkage findings and handling" in `notebooks/data_analysis.py`:
 
 - **Orders and labels** are keyed by `country_code` and `order_id` together, because three order IDs each appear in two countries.
-- **Customers** are keyed by `customer_id` and `batch_id`. Customer IDs are unique across countries, so `country_code` is not part of the key, and a customer can have one row per batch.
+- **Customers** are keyed by `customer_id` and `batch_id`. Customer IDs are unique across countries, so `country_code` is not part of the key, and a customer can have one row per batch. `docs/time-split.md` still links customers by `country_code` and `customer_id` together. On the base files both find the same customers, because the same section finds that labels and customers agree on every shared customer's country once country codes are normalised.
 - **Labels to customers.** A label names its order's customer. This is not a foreign key, because a customer has a row for each batch and two labelled orders in the base files have no customer row.
 - **IDs are opaque text** and compare exactly, so `ab12` and `AB12` are different keys, and so are `001` and `1`. The one exception is MySQL's: trailing spaces are ignored, so `o1` and `o1 ` are the same key.
 
@@ -59,7 +59,7 @@ A row whose key is blank or whose country is not recognised cannot be stored, so
 
 Each source column the cleaning module (issue #12) can change is stored twice: the cleaned value under the source column's name, and the original text exactly as it arrived under the same name with `raw_` in front. The cleaned value is empty (NULL) when cleaning could not read the original. IDs are never changed by cleaning, so they have no `raw_` column.
 
-Money uses an exact decimal type with 12 decimal places, because the source amounts have up to 16 digits after the point. Counts that the source writes with a decimal point use `DOUBLE`.
+Money uses an exact decimal type with 12 decimal places. Some source amounts have 13 to 16 digits after the point, such as `5.387818896776103`, but those extra digits are rounding noise from how the source stored its numbers, so 12 places keep every real digit. The `raw_` column keeps the exact text. Counts that the source writes with a decimal point use `DOUBLE`.
 
 ## Changes made before loading
 
