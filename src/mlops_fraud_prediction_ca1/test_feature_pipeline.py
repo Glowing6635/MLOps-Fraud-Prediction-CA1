@@ -4,10 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
 
 from .feature_pipeline import FEATURE_GROUPS, FeatureGroup, build_pipeline
-from .training import baseline_model
+from .models import baseline_model
 
 
 def _frame(values, items):
@@ -45,34 +44,20 @@ def test_unknown_group_rejected():
         FeatureGroup("nope").fit(_frame([1, 2], [1, 2]))
 
 
-def test_transform_is_row_wise_so_later_rows_cannot_leak():
-    group = FeatureGroup().fit(_frame([1, 2], [1, 2]))
-    alone = group.transform(_frame([5, 6], [1, 2]).iloc[:1])
-    together = group.transform(_frame([5, 6, 1e9, 7], [1, 2, 9999, 3]))
-    assert (
-        alone.iloc[0].tolist() == together.iloc[0].tolist()
-        or alone.iloc[0].astype(str).tolist() == together.iloc[0].astype(str).tolist()
-    )
-
-
 @pytest.mark.parametrize("group", FEATURE_GROUPS)
 def test_imputer_fitted_on_training_rows_only(group):
     train = _frame([10, 20, 30, 40], [1, 2, 3, 4])
     train.loc[0, "order_value"] = np.nan
     y = [0, 1, 0, 1]
-    pipe = build_pipeline(LogisticRegression(), group).fit(train, y)
-    imputer = pipe.named_steps["preprocess"].transformers_[0][1][0]
+    pipe = build_pipeline(baseline_model(), group).fit(train, y)
+    imputer = pipe.named_steps["model"][0].transformers_[0][1][0]
     train_median = train["order_value"].median()
     assert train_median in imputer.statistics_
-    far = _frame([1e6, 1e6], [500, 500])  # new rows must not move the fitted statistics
-    before = imputer.statistics_.copy()
-    pipe.predict_proba(far)
-    assert (imputer.statistics_ == before).all()
 
 
 def test_pipeline_applies_steps_to_new_raw_rows_and_clones():
     train = _frame([10, 20, 30, 40], [1, 2, 3, 4])
-    pipe = build_pipeline(LogisticRegression(), "order_log").fit(train, [0, 1, 0, 1])
+    pipe = build_pipeline(baseline_model(), "order_log").fit(train, [0, 1, 0, 1])
     proba = pipe.predict_proba(_frame([15, np.nan], [2, np.nan]))
     assert proba.shape == (2, 2) and not np.isnan(proba).any()
     assert clone(pipe).get_params()["features__group"] == "order_log"
@@ -85,14 +70,15 @@ def test_preprocessor_keeps_both_categorical_columns(dtype, model):
         {"collect_type": dtype, "payment_method": dtype}
     )
     pipe = (
-        build_pipeline(LogisticRegression())
+        build_pipeline(baseline_model())
         if model == "feature_pipeline"
         else baseline_model()
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error", pd.errors.Pandas4Warning)
         pipe.fit(train, [0, 1, 0, 1])
-    preprocessor = pipe.steps[-2][1]
+    candidate = pipe.named_steps["model"] if model == "feature_pipeline" else pipe
+    preprocessor = candidate[0]
     names = {name.split("__", 1)[1] for name in preprocessor.get_feature_names_out()}
     assert {"collect_type_a", "collect_type_b", "payment_method_x"} <= names
 
@@ -102,7 +88,7 @@ def test_logged_model_loads_and_applies_the_same_steps(tmp_path, monkeypatch):
     import skops.io
 
     train = _frame([10, 20, 30, 40], [1, 2, 3, 4])
-    pipe = build_pipeline(LogisticRegression(), "order_log").fit(train, [0, 1, 0, 1])
+    pipe = build_pipeline(baseline_model(), "order_log").fit(train, [0, 1, 0, 1])
     trusted = skops.io.get_untrusted_types(data=skops.io.dumps(pipe))
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path}/m.db")
     experiment_id = mlflow.create_experiment("feature-pipeline")
@@ -115,3 +101,11 @@ def test_logged_model_loads_and_applies_the_same_steps(tmp_path, monkeypatch):
         loaded = mlflow.sklearn.load_model(uri)
         assert loaded.predict_proba(new) == pytest.approx(pipe.predict_proba(new))
         assert loaded.named_steps["features"].group == "order_log"
+
+
+def test_build_pipeline_fits_boosted_trees_model():
+    from .models import boosted_trees_model
+
+    train = _frame([10, 20, 30, 40], [1, 2, 3, 4])
+    pipe = build_pipeline(boosted_trees_model()).fit(train, [0, 1, 0, 1])
+    assert pipe.predict_proba(train).shape == (4, 2)

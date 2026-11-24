@@ -38,6 +38,7 @@ from sklearn.base import clone
 
 from mlops_fraud_prediction_ca1.cleaning import CLEANING_POLICY_VERSION, clean_frame
 from mlops_fraud_prediction_ca1.data import load_base_data
+from mlops_fraud_prediction_ca1.feature_pipeline import FEATURE_GROUPS, build_pipeline
 from mlops_fraud_prediction_ca1.leakage import (
     ASSUMED_LABEL_DELAY_DAYS,
     customer_timing_audit,
@@ -433,6 +434,31 @@ def _git(*args: str) -> str:
     ).stdout.strip()
 
 
+def compare_groups(data_dir: str | Path, *, k: int, seed: int = 0) -> pd.DataFrame:
+    """Train the baseline classifier on each feature group; log one MLflow run each.
+
+    Each run is scored on the validation window by the harness, so the groups are
+    compared on the primary measure (fraud caught at K) out of sample.
+    """
+    rows = []
+    for group in FEATURE_GROUPS:
+        run_id, result = train(
+            build_pipeline(baseline_model(), group),
+            data_dir,
+            k=k,
+            seed=seed,
+        )
+        rows.append(
+            {
+                "group": group,
+                "run_id": run_id,
+                "fraud_caught_at_k": result.report.at_k.fraud_caught,
+                "average_precision": result.report.average_precision,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     cli = argparse.ArgumentParser(
         prog="train", description="Train and log models with the shared harness."
@@ -440,6 +466,10 @@ def main() -> None:
     commands = cli.add_subparsers(dest="command", required=True)
     baseline = commands.add_parser(
         "baseline", help="Train the baseline model and log the run to MLflow."
+    )
+    comparison = commands.add_parser(
+        "compare-feature-groups",
+        help="Train and compare the baseline on each order feature group.",
     )
     baseline.add_argument(
         "--exploratory",
@@ -469,7 +499,7 @@ def main() -> None:
             help="Extra tag on every run (repeatable), such as pr=164.",
         )
         candidate_parsers.append(parser)
-    for command in (baseline, *candidate_parsers):
+    for command in (baseline, comparison, *candidate_parsers):
         command.add_argument(
             "--k",
             type=int,
@@ -480,7 +510,7 @@ def main() -> None:
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
     again.add_argument("run_id")
-    for command in (baseline, *candidate_parsers, again):
+    for command in (baseline, comparison, *candidate_parsers, again):
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
@@ -516,6 +546,9 @@ def main() -> None:
             print(f"{label} the customer columns:\n{format_report(result.report)}")
             print(f"Logged run {run_id}.")
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
+    elif args.command == "compare-feature-groups":
+        table = compare_groups(args.data_dir, k=args.k, seed=args.seed)
+        print(table.to_string(index=False))
     else:
         for name, value in rerun(args.run_id, args.data_dir).items():
             print(f"{name}: {value}")

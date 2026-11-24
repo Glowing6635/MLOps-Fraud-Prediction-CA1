@@ -15,6 +15,7 @@ uv run train baseline --seed 0
 uv run train boosted-trees
 uv run train random-forest --seed 0
 uv run train extra-trees --seed 0
+uv run train compare-feature-groups
 uv run train rerun <run ID>
 ```
 
@@ -39,6 +40,9 @@ require at least 50 training samples per leaf. The models are in
 defaults to `D5-01: product owner assumption, K = 250`; with another `--k`, the command
 stops unless `--k-status` says where that K comes from, such as
 `provisional: <reason>`.
+
+`compare-feature-groups` fits and logs the baseline separately for each
+[order feature group](feature-pipeline.md) and prints the validation results and run IDs.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:

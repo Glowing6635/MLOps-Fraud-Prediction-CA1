@@ -12,7 +12,6 @@ import pandas as pd
 
 from .leakage import ORDER_FEATURE_COLUMNS
 
-SKEW_OUTLIER_VERSION = "pbi16-v1"
 SUFFIX = "_log1p"
 
 # Numeric subset of leakage.ORDER_FEATURE_COLUMNS (decision D4-01). Evidence is
@@ -44,7 +43,8 @@ TREATMENTS = MappingProxyType(
         ),
     }
 )
-assert set(TRANSFORMED_FEATURES) <= set(ORDER_FEATURE_COLUMNS)
+if not set(TRANSFORMED_FEATURES) <= set(ORDER_FEATURE_COLUMNS):
+    raise ValueError("Skew transforms must use eligible order features")
 
 
 def transform_skewed_features(frame: pd.DataFrame) -> pd.DataFrame:

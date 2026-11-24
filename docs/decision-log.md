@@ -320,4 +320,11 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
 | `order_raw` | 2498 | 0.3259 |
 | `order_log` | 2450 | 0.3240 |
 
-- Decision: `order_log` stays the default group, because #16 requires skew handling in the packaged pipeline, but on this linear baseline it does not beat `order_raw` (48 fewer fraud caught at K). Candidates choose the group for their model: tree models are unaffected by a monotone log transform, so only linear candidates need check it. The comparison is to be re-run against the team MLflow server (pending live evidence).
+- Decision: `order_log` stays the packaging default so a candidate using the default
+  exercises the signed-log treatment end to end, including after model loading. It
+  keeps the original values available and compresses plausible extremes in the added
+  columns. For the measured logistic baseline, choose `order_raw` on validation
+  evidence. It caught 48 more frauds at K (about 2% of the raw group's catch) and had
+  higher average precision. Choose the group for each candidate using its validation
+  results. The local comparison did not test boosted-tree performance. A comparison
+  against the team MLflow server is pending.

@@ -7,15 +7,8 @@ same steps to new rows when a registered version is loaded. Steps that learn any
 ``FeatureGroup`` learns nothing, so it cannot leak validation or test rows.
 """
 
-import sys
-from pathlib import Path
-
-import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.compose import make_column_selector, make_column_transformer
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
 
 from .skew_outliers import SUFFIX, TRANSFORMED_FEATURES, transform_skewed_features
 
@@ -29,9 +22,8 @@ FEATURE_GROUPS: dict[str, str] = {
 class FeatureGroup(TransformerMixin, BaseEstimator):
     """Select a feature group from a frame of the allowed order columns.
 
-    Stateless: ``fit`` stores nothing, and each row's output depends only on that row.
-    The output has plain ``float64`` columns with NaN for missing values, as the
-    harness's model inputs do.
+    No parameters are learned from the data. Original columns retain their dtypes,
+    and the generated columns are ``float64`` with NaN for missing values.
     """
 
     def __init__(self, group: str = "order_log"):
@@ -59,77 +51,9 @@ class FeatureGroup(TransformerMixin, BaseEstimator):
 
 
 def build_pipeline(estimator, group: str = "order_log") -> Pipeline:
-    """One pipeline: feature group, train-fitted preprocessing, then ``estimator``.
+    """Add the feature group ahead of a candidate pipeline that accepts a DataFrame.
 
-    ``estimator`` is any scikit-learn classifier with ``predict_proba``. The result is
-    what ``training.train`` fits, scores and logs as the single MLflow model.
+    The candidate supplies its own preprocessing and classifier with ``predict_proba``.
+    Pass the combined pipeline to ``training.train`` to fit, score and log it.
     """
-    preprocess = make_column_transformer(
-        (
-            make_pipeline(SimpleImputer(strategy="median"), StandardScaler()),
-            make_column_selector(dtype_include="number"),
-        ),
-        (
-            make_pipeline(
-                SimpleImputer(strategy="constant", fill_value="missing"),
-                OneHotEncoder(handle_unknown="ignore"),
-            ),
-            make_column_selector(dtype_include=["object", "string"]),
-        ),
-    )
-    return Pipeline(
-        [
-            ("features", FeatureGroup(group)),
-            ("preprocess", preprocess),
-            ("model", estimator),
-        ]
-    )
-
-
-def compare_groups(data_dir: str | Path, *, k: int, seed: int = 0) -> pd.DataFrame:
-    """Train the baseline classifier on each feature group; log one MLflow run each.
-
-    Each run is scored on the validation window by the harness, so the groups are
-    compared on the primary measure (fraud caught at K) out of sample.
-    """
-    from sklearn.linear_model import LogisticRegression
-
-    from .training import train
-
-    rows = []
-    for group in FEATURE_GROUPS:
-        run_id, result = train(
-            build_pipeline(LogisticRegression(max_iter=1000), group),
-            data_dir,
-            k=k,
-            seed=seed,
-        )
-        rows.append(
-            {
-                "group": group,
-                "run_id": run_id,
-                "fraud_caught_at_k": result.report.at_k.fraud_caught,
-                "average_precision": result.report.average_precision,
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(description=compare_groups.__doc__)
-    parser.add_argument("--data-dir", default="data")
-    parser.add_argument("--k", type=int, required=True)
-    parser.add_argument("--seed", type=int, default=0)
-    args = parser.parse_args()
-    table = compare_groups(args.data_dir, k=args.k, seed=args.seed)
-    sys.stdout.write(table.to_string(index=False) + "\n")
-
-
-if __name__ == "__main__":
-    # Run through the package name, so a logged model's classes are not pickled as
-    # `__main__.FeatureGroup`, which no other process could load.
-    from mlops_fraud_prediction_ca1.feature_pipeline import main as _main
-
-    _main()
+    return Pipeline([("features", FeatureGroup(group)), ("model", estimator)])
