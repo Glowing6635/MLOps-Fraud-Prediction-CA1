@@ -260,3 +260,24 @@ recorded yet. The loyal definition is already frozen in numbers (see
 [Loyal customer](#loyal-customer-criterion-3)), so it no longer blocks fitting;
 it is applied to the comparison through `loyalty.loyalty_status` and does not
 enter the selection objective.
+
+## Comparison with a model (criteria 4 to 6)
+
+`rule_comparison.py` applies the protocol above against the #5 evaluator's groups
+(`top_k`: one `order_date`, or `order_date` and `country_code` when K is per
+country), with K = 250 a day (D5-01, a Product Owner assumption, not a Trust &
+Safety figure).
+
+- `select_threshold(orders, account_age, k)` fits X on the supplied validation
+  window over the fixed grid and returns the chosen X and the candidate table.
+  The result is a **validation-tuned proxy** unless Trust & Safety supplies X.
+- `compare(...)` cuts the rule's flags to K per group by `order_value`, cuts the
+  model to the rule's count per group, and also reports the model at K. It gives
+  flags, fraud caught, fraud exposure (sum of `order_value` of flagged fraud),
+  false flags and false flags on loyal orders, the rule status counts, the
+  loyalty counts and whether the model caught strictly more fraud.
+- Account age comes from `account_age_days` and loyalty from `loyalty_status`
+  (both unchanged); loyalty is a reporting column only.
+
+Not run on real data: the real run needs the #15 champion's validation scores
+(live MLflow) and the validation extract, so no result exists yet.

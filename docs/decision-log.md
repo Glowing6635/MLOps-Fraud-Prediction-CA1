@@ -508,3 +508,15 @@ its logged fraud caught at K and average precision.
 - Code and checks: `rules.py`, `loyalty.py`, `test_rules.py`, `test_loyalty.py`;
   rule and loyalty reference in [baseline-rule.md](baseline-rule.md).
 
+
+## D18-02 — Matching rule and model flags per group
+
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky. Affected PBIs: #18
+  (criteria 4 to 6). No real data was scored for this entry.
+- Settled: per #5 selection group the rule's flags are ranked by `order_value`
+  (ties by `country_code`, `order_id`) and cut at K; the model is cut to the
+  rule's resulting count and also shown at K. "Beats the rule" means strictly more
+  fraud caught at the matched count. X is fitted on the D6-01 validation window with the
+  D18-01 grid and objective; K is 250 a day (D5-01), so if K changes the comparison
+  is rerun. A group with no rule flags gets no matched model flags.
+- Code and checks: `rule_comparison.py`, `test_rule_comparison.py`.
