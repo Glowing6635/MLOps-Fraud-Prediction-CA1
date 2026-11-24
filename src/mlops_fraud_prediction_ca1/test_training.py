@@ -250,3 +250,14 @@ def test_customer_columns_are_compared_under_one_parent_run(
         with_columns.report.at_k.fraud_caught - without.report.at_k.fraud_caught
     )
     assert rerun(with_id, data_dir)["reproduced"]
+
+
+def test_rerun_without_mlflow_settings_says_what_to_set(
+    data_dir, tmp_path, monkeypatch
+):
+    # Without the check, MLflow would quietly open a new local store in the working folder.
+    monkeypatch.chdir(tmp_path)
+    # An empty value also stops load_dotenv from filling it in from a developer's .env.
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "")
+    with pytest.raises(RuntimeError, match="MLFLOW_TRACKING_URI"):
+        rerun("0" * 32, data_dir)

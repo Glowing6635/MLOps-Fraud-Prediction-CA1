@@ -346,9 +346,9 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
     refitted with the logged seed, K and feature choice on the same input files. It
     reproduces when fraud caught at K is within 1% of the logged count and average
     precision within 0.005. Raises `ValueError` if an input file's SHA-256 differs from
-    the logged one.
+    the logged one, and `RuntimeError` if MLflow's settings are missing, as `train` does.
     """
-    load_dotenv()
+    _use_experiment()
     run = mlflow.get_run(run_id)
     params, metrics = run.data.params, run.data.metrics
     changed = [
