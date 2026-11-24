@@ -59,7 +59,7 @@ A row whose key is blank or whose country is not recognised cannot be stored, so
 
 Each source column the cleaning module (issue #12) can change is stored twice: the cleaned value under the source column's name, and the original text exactly as it arrived under the same name with `raw_` in front. The cleaned value is empty (NULL) when cleaning could not read the original. IDs are never changed by cleaning, so they have no `raw_` column.
 
-Money uses an exact decimal type with 12 decimal places. Some source amounts have 13 to 16 digits after the point, such as `5.387818896776103`, but those extra digits are rounding noise from how the source stored its numbers, so 12 places keep every real digit. The `raw_` column keeps the exact text. Counts that the source writes with a decimal point use `DOUBLE`.
+Money uses an exact decimal type with 12 decimal places. Some source amounts have 13 to 16 digits after the point, such as `5.387818896776103`, but the digits past the 12th are far below a cent, so rounding to 12 places changes no amount anyone uses. The `raw_` column keeps the exact text. Counts that the source writes with a decimal point use `DOUBLE`.
 
 ## Changes made before loading
 
