@@ -46,8 +46,10 @@ was a 5-5 tie at 7 flags. See PR #157 for the tables and limits.
 - Reason (from the table above, plus the analyst's view):
 - Disagreements or follow-ups:
 
-## 5. Commands after the review
+## 5. Team registry status
 
-Register the top 2 and set the alias, then record the previous version on every
-change: see [champion.md](champion.md). Use the real registered model name and the
-team experiment only once the owner approves writing there.
+At the Product Owner's request, the top two runs above were registered as
+`fraud-candidate` versions 1 and 2 on the team server. Version 1 is the
+`champion` after the rollback check. The analyst review is pending. See the
+[team registry record](champion.md#team-registry-record) for the run IDs and
+rollback evidence.

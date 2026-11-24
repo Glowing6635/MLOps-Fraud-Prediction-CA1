@@ -16,7 +16,7 @@ from mlops_fraud_prediction_ca1 import champion
 
 client = MlflowClient()
 runs = champion.eligible_candidates(client, [EXPERIMENT_ID], k=250)
-print(champion.comparison_table(runs))        # paste into the review record
+print(champion.comparison_table(runs))  # paste into the review record
 champion.register_top_two(client, "fraud-candidate", runs)
 ```
 
@@ -33,5 +33,25 @@ This records `previous_champion_version` and the reason on the new champion and
 gives the old one the `challenger` alias. To roll back, call it again with the
 recorded previous version. The two registered models swap roles each time.
 
-K = 250 (D5-01). Checks: `test_champion.py` against a local MLflow store.
-Not yet run against the team server.
+## Team registry record
+
+The Product Owner requested setting the alias and exercising rollback. The
+Trust & Safety analyst review is pending.
+
+The source was the `laneA-live` rehearsal experiment (ID `2`) on the team MLflow
+server. Its three eligible #14 runs used commit `77837c6`, seed 0, and the
+same validation window at K = 250 orders per day (D5-01). The separate
+`fraud-prediction` experiment had one eligible run at this K. The three
+exploratory runs with customer columns were excluded.
+
+| Rank | Model | Validation run ID | Fraud caught at K | Average precision | `fraud-candidate` version | Final alias |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | HistGradientBoostingClassifier | `9c3a59771cf8499d92972f5c7873e280` | 2893 | 0.3716 | 1 | `champion` |
+| 2 | RandomForestClassifier | `9a40f8f5e35a48ddb39a97f9f052dcad` | 2811 | 0.3495 | 2 | `challenger` |
+| 3 | ExtraTreesClassifier | `8af9db9f95e543cfbfebdef82545322c` | 2695 | 0.3434 | — | — |
+
+The first-ranked run caught 82 more fraud cases than the second at the same
+daily review capacity. The live rollback check moved `champion` from version 1
+to version 2 and restored it to version 1. Both aliases resolved to the expected
+ready versions and source runs after each move. The destination version recorded
+the previous champion version on each move.
