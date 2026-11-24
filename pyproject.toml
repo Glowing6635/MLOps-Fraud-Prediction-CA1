@@ -12,6 +12,8 @@ dependencies = [
     "pandas>=3.1.1",
     "pymysql[rsa]>=1.2.4",
     "python-dotenv>=1.2.4",
+    "scikit-learn==1.9.1",
+    "skops==0.16.0",
     "sqlalchemy>=2.1.8",
 ]
 
@@ -19,6 +21,7 @@ dependencies = [
 mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
 log-test-run = "mlops_fraud_prediction_ca1.log_test_run:main"
 rds-schema = "mlops_fraud_prediction_ca1.rds_schema:main"
+train = "mlops_fraud_prediction_ca1.training:main"
 load-batch = "mlops_fraud_prediction_ca1.loading:main"
 
 [build-system]
@@ -43,6 +46,7 @@ extend-select = ["I", "B", "UP", "T20"]
 # Command entry points, where printing is their output.
 "src/mlops_fraud_prediction_ca1/__init__.py" = ["T201"]
 "src/mlops_fraud_prediction_ca1/rds_schema.py" = ["T201"]
+"src/mlops_fraud_prediction_ca1/training.py" = ["T201"]
 "src/mlops_fraud_prediction_ca1/loading.py" = ["T201"]
 
 [tool.pytest.ini_options]
