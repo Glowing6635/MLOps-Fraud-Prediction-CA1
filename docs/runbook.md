@@ -36,7 +36,7 @@ Run these once, with the AWS CLI and the sandbox credentials in `~/.aws/credenti
    aws ec2 authorize-security-group-ingress --group-id <security group> --protocol tcp --port 3306 --cidr <your address>/32
    ```
 
-5. In `.env`, set `DB_HOST` to the instance's address, `DB_NAME=fraud`, `DB_USER=fraud_admin` and `DB_PASSWORD` to the admin password. Then create the tables, and a read-only user for each engineer. Each command asks for that user's password, which you then give to the engineer privately:
+5. In `.env`, set `DB_HOST` to the instance's address, `DB_NAME=fraud`, `DB_USER=fraud_admin` and `DB_PASSWORD` to the admin password. Then create the tables, and a read-only user for each engineer. Each `reader` command asks for that user's password, which you then give to the engineer privately:
 
    ```
    uv run rds-schema tables
@@ -68,6 +68,6 @@ The files must be named `customers_<batch>.csv`, `orders_<batch>.csv` and `label
 
 Load `base` first, then each batch in the order it arrived, because the database treats the batch loaded last as the newest.
 
-It then prints the rows added, already stored and rejected per table. Loading the same batch again is safe and adds nothing. For the base files, the counts should match the kickoff data analysis (issue #3): 901,312 customers, 949,889 orders and 949,872 labels added, with 444 labels rejected for "no matching order" and 2 for "no matching customer". On a laptop the first load took about 11 minutes, and a rerun about 2. "Loading rules" in `docs/data-dictionary.md` lists what is rejected and why.
+It then prints the rows added, already stored and rejected per table. Loading the same batch again is safe and adds nothing. Run one load at a time: if two loads add the same row at once, the second stops with a duplicate-key error and changes nothing, so run it again after the first finishes. For the base files, the counts should match the kickoff data analysis (issue #3): 901,312 customers, 949,889 orders and 949,872 labels added, with 444 labels rejected for "no matching order" and 2 for "no matching customer". On a laptop the first load took about 11 minutes, and a rerun about 2. "Loading rules" in `docs/data-dictionary.md` lists what is rejected and why.
 
 `docs/data-dictionary.md` explains every table and column. The schema is frozen before data loading (issue #20) starts: after that, any change to `schema.sql` needs the team's agreement first.

@@ -161,6 +161,6 @@ One row per labelled order. Every label's order must already be in `orders`.
 | `is_fraud` | 0 or 1 | 1 if the order was fraud. Empty when the source value is not 0 or 1. |
 | `raw_country_code`, `raw_is_fraud` | text | The original values. |
 
-## Who can read it
+## Who can read and add rows
 
 The admin user creates the tables and users. Each engineer has their own user, named `<name>_reader`, that can only read. `uv run rds-schema reader <name>` creates it, and the password is never in git. The engineer who loads batches also has `<name>_writer`, made by `uv run rds-schema writer <name>`, which can read and add rows but never change or delete them.
