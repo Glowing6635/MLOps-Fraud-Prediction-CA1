@@ -9,6 +9,8 @@ How to set up the MLflow server's AWS services, build its image and deploy it. `
 3. Let the instance's security group accept port 3306 from the Beanstalk instance's security group.
 4. Create an S3 bucket in `us-east-1` with public access blocked. `LabInstanceProfile` gives the server access.
 
+Laptops check the RDS certificate against `src/mlops_fraud_prediction_ca1/rds-global-bundle.pem`, AWS's public certificate bundle for RDS. It was downloaded on 18 Nov 2026 from https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem, the same address the `Dockerfile` uses. To check it, compare its SHA-256 with the checksum in the `Dockerfile`'s `ADD` line.
+
 ## Build and push the image
 
 You need Docker, and the sandbox credentials in `~/.aws/credentials`, pasted fresh each session. Tags in the `mlflow-server` ECR repository can't be overwritten, so each new image gets the next tag: `<MLflow version>-r<n>`. Then put that tag in `Dockerrun.aws.json`. From this folder:
