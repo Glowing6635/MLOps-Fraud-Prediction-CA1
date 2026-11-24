@@ -121,3 +121,30 @@ def test_presign_uploads_privately_and_signs(tmp_path):
         Params={"Bucket": "bkt", "Key": "rehearsal/rehearsal_a/orders_rehearsal_a.csv"},
         ExpiresIn=60,
     )
+
+
+def test_presign_against_mocked_s3_keeps_objects_private(tmp_path, monkeypatch):
+    import urllib.parse
+
+    import boto3
+    from botocore.config import Config
+    from moto import mock_aws
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    (tmp_path / "rehearsal_a").mkdir()
+    (tmp_path / "rehearsal_a" / "orders_rehearsal_a.csv").write_text("x\n")
+    with mock_aws():
+        s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
+        s3.create_bucket(Bucket="rehearsal-test-bucket")
+        urls = presign_batches(s3, "rehearsal-test-bucket", tmp_path, expires=120)
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlsplit(urls["rehearsal_a"][0]).query
+        )
+        assert query["X-Amz-Expires"] == ["120"]
+        grants = s3.get_object_acl(
+            Bucket="rehearsal-test-bucket",
+            Key="rehearsal/rehearsal_a/orders_rehearsal_a.csv",
+        )["Grants"]
+        assert all(g["Grantee"].get("URI") is None for g in grants)

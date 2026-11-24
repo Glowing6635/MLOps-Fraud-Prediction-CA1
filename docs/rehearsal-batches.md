@@ -48,3 +48,15 @@ with the #20 loader and deletes the runs in the rehearsal MLflow experiment.
   presigned GET URLs (default 1 hour). Signing uses boto3's normal credential chain in
   the sandbox session (environment or instance profile). No credential, bucket policy
   or public ACL is stored in the repository.
+
+### One-command live run
+
+`scripts/rehearsal-live.sh run` (environment variables listed at the top of the script)
+adds this machine's `/32` to the RDS security group, creates the `rehearsal` schema, the
+tables, optional reader users (`READERS="name1 name2"`), runs the reset, creates a private
+bucket and prints presigned links. Its exit trap (and `scripts/rehearsal-live.sh cleanup`)
+removes the security-group rule, deletes the bucket and drops the `rehearsal` schema
+(`KEEP_SCHEMA=1` keeps it). `--expires` / `PRESIGN_EXPIRES` sets the link lifetime in
+seconds; the default 3600 s covers a 3-minute batch run, but links generated before a
+longer demo should use a larger value (the S3 limit with a session token is the token's
+remaining life, so generate links in the demo session).

@@ -109,7 +109,7 @@ def presign_batches(
     """Upload each generated batch privately and return presigned GET URLs per batch.
 
     `s3` is a boto3 client made from the sandbox session's own credentials
-    (`boto3.client("s3")`, which reads them from the environment or instance profile);
+    (`boto3.client("s3", config=Config(signature_version="s3v4"))`, which reads them from the environment or instance profile);
     nothing is stored in the repository, and objects are never made public.
     """
     urls = {}
@@ -148,6 +148,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         check_rehearsal_target(settings, dict(os.environ))
         if args.presign:
             import boto3
+            from botocore.config import Config
 
             from .rehearsal import build_batches, write_batch
 
@@ -155,7 +156,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 for batch in build_batches():
                     write_batch(batch, Path(folder))
                 urls = presign_batches(
-                    boto3.client("s3"), args.presign, Path(folder), expires=args.expires
+                    boto3.client("s3", config=Config(signature_version="s3v4")),
+                    args.presign,
+                    Path(folder),
+                    expires=args.expires,
                 )
             for batch_id, links in urls.items():
                 sys.stdout.write("\n  ".join([batch_id, *links]) + "\n")

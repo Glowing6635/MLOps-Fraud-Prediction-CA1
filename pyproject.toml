@@ -41,6 +41,7 @@ dev = [
     "jinja2>=3.1.6",
     "jupytext>=1.19.6",
     "matplotlib>=3.11.2",
+    "moto>=5.2.6",
     "pytest>=9.2.0",
     "ruff>=0.17.5",
     "seaborn>=0.13.2",
