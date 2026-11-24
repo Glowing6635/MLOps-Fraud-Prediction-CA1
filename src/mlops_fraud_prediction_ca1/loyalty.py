@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
-from mlops_fraud_prediction_ca1.splitting import _calendar_dates, load_policy
+from mlops_fraud_prediction_ca1.splitting import calendar_dates, load_policy
+from mlops_fraud_prediction_ca1.temporal import calendar_day_numbers
 
 LOYAL_MIN_PRIOR_ORDERS = 2
 _ORDER_KEYS = ["country_code", "order_id"]
@@ -21,28 +22,8 @@ _DAY_SPAN = 1 << 20  # exceeds any shifted day number, so customer blocks never 
 
 def _day_numbers(dates: pd.Series) -> np.ndarray:
     """Whole days since the epoch, shifted positive; -1 where the date is NaT."""
-    seconds = dates.dt.as_unit("s").astype("int64") // 86_400
-    return np.where(dates.isna().to_numpy(), -1, seconds.to_numpy() + _DAY_OFFSET)
-
-
-def _usable_dates(dates: pd.Series) -> pd.Series:
-    """Calendar dates as ``_calendar_dates`` reads them; out-of-range ones are NaT.
-
-    A value outside the datetime64[ns] range (for example 9999-12-31) makes the
-    shared parser raise for the whole batch. Bisect so only those rows become NaT
-    and every other row is read exactly as before (same formats, same timezone
-    rule), without a Python-level pass over rows that are fine.
-    """
-    dates = dates.reset_index(drop=True)
-    try:
-        return _calendar_dates(dates)
-    except pd.errors.OutOfBoundsDatetime:
-        if len(dates) == 1:
-            return pd.Series(pd.NaT, index=dates.index, dtype="datetime64[ns]")
-    mid = len(dates) // 2
-    return pd.concat(
-        [_usable_dates(dates.iloc[:mid]), _usable_dates(dates.iloc[mid:])],
-        ignore_index=True,
+    return (calendar_day_numbers(dates) + _DAY_OFFSET).to_numpy(
+        dtype=np.int64, na_value=-1
     )
 
 
@@ -51,7 +32,7 @@ def _safe_orders(orders, labels, customers) -> pd.DataFrame:
         raise ValueError("orders must not carry customer_id; it comes from labels")
     linked, _ = link_orders_customers(orders, labels, customers, normalize_country=True)
     linked = linked.reset_index(drop=True)
-    linked["_day"] = _day_numbers(_usable_dates(linked["order_date"]))
+    linked["_day"] = _day_numbers(calendar_dates(linked["order_date"]))
     return linked
 
 
@@ -97,7 +78,7 @@ def _conflicting_keys(history, comparison) -> pd.MultiIndex:
     for frame in (history, comparison):
         part = frame[shared].copy().reset_index(drop=True)
         part[_ORDER_KEYS] = _normalised_keys(part)
-        part["order_date"] = _usable_dates(part["order_date"])
+        part["order_date"] = calendar_dates(part["order_date"])
         parts.append(part)
     both = pd.concat(parts, ignore_index=True)
     both = both.loc[both[_ORDER_KEYS].notna().all(axis=1)].drop_duplicates()

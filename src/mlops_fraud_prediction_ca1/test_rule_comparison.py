@@ -10,6 +10,7 @@ from mlops_fraud_prediction_ca1.rule_comparison import (
     format_comparison,
     match_model_to_rule,
     select_threshold,
+    selection_metrics,
     top_k_selection,
 )
 
@@ -80,6 +81,33 @@ class MatchTests(unittest.TestCase):
         sel = top_k_selection(orders, [0.1, 0.2, 0.9, 0.3, 0.5, 0.4], 2)
         self.assertEqual(sel.tolist(), [False, False, True, True, True, True])
 
+    def test_equivalent_date_formats_share_daily_capacity(self):
+        orders = _orders([DAY1[0], ("2023/Mar/27", "SG", "b", 0, 800.0)])
+        self.assertEqual(top_k_selection(orders, [0.1, 0.8], 1).tolist(), [False, True])
+
+    def test_invalid_orders_are_rejected_even_without_rule_flags(self):
+        original = _orders(DAY1[:2])
+        for column, value, k, error in (
+            ("order_id", "a", 1, "Duplicate order key"),
+            ("order_date", None, 1, "valid order_date"),
+            ("order_date", "2023-02-30", 1, "valid order_date"),
+            ("order_date", "9999-12-31", 1, "valid order_date"),
+            ("is_fraud", pd.NA, 1, "is_fraud"),
+            ("country_code", "MY", {"SG": 1}, "K is not set for country MY"),
+        ):
+            with self.subTest(column=column, value=value):
+                orders = original.copy()
+                orders.loc[1, column] = value
+                with self.assertRaisesRegex(ValueError, error):
+                    cut_rule_flags(orders, [False, False], k)
+                with self.assertRaisesRegex(ValueError, error):
+                    select_threshold(orders, pd.Series([1, 1]), k)
+
+    def test_metrics_reject_missing_labels(self):
+        orders = _orders(DAY2).assign(is_fraud=pd.NA)
+        with self.assertRaisesRegex(ValueError, "is_fraud"):
+            selection_metrics(orders, [True, False], ["loyal", "unknown"])
+
     def test_non_finite_scores_are_refused(self):
         with self.assertRaises(ValueError):
             top_k_selection(_orders(DAY2), [float("nan"), 1.0], 1)
@@ -143,7 +171,21 @@ class CompareTests(unittest.TestCase):
         loyalty = [self.loyal[position] for position in positions]
         threshold = select_threshold(orders, age, k=1, grid=(500,))
 
-        result = compare(orders, scores, age, loyalty, 1, threshold["x"], "proxy")
+        result = compare(
+            orders,
+            scores,
+            age,
+            loyalty,
+            1,
+            threshold["x"],
+            "proxy",
+            candidates=threshold["candidates"],
+        )
+        report = format_comparison(result)
+        self.assertIn("Candidate X values tested on validation (SGD)", report)
+        self.assertIn(threshold["candidates"].to_string(index=False), report)
+        self.assertIn("first_order_datetime is unconfirmed", report)
+        self.assertIn("left-censored", report)
 
         self.assertEqual(result["rule_flags_before_cut"], 3)
         self.assertEqual(result["rule"]["flags"], 2)

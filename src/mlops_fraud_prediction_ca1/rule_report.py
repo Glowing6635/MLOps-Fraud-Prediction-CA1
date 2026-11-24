@@ -107,6 +107,7 @@ def main(argv=None) -> None:
     )
     if merged["score"].isna().any():
         sys.exit(f"{int(merged['score'].isna().sum())} orders have no score.")
+    candidates = None
     if args.threshold is None:
         grid = (
             training_quantile_grid(args.data_dir)
@@ -114,9 +115,8 @@ def main(argv=None) -> None:
             else THRESHOLD_GRID
         )
         fit = select_threshold(orders, inputs["age"], args.k, grid)
-        print(f"Candidate X values ({args.grid} grid, validation-tuned proxy):")  # noqa: T201
-        print(fit["candidates"].to_string(index=False))  # noqa: T201
-        threshold, source = fit["x"], "validation-tuned proxy, not the deployed value"
+        candidates = fit["candidates"]
+        threshold, source = fit["x"], f"validation-tuned proxy, {args.grid} grid"
     else:
         threshold, source = args.threshold, args.threshold_source
     result = compare(
@@ -127,6 +127,7 @@ def main(argv=None) -> None:
         args.k,
         threshold,
         source,
+        candidates=candidates,
     )
     print(f"Account age status counts: {inputs['age_status']}")  # noqa: T201
     print(format_comparison(result))  # noqa: T201

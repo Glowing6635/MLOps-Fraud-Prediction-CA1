@@ -1,4 +1,4 @@
-# Baseline rule inputs — PBI #18 criteria 2 and 3 (#123)
+# Baseline rule and model comparison — PBI #18
 
 Today's rule, as the spec describes it (spec.txt:134-137), is "flag if order
 value > $X and account is less than 1 day old". Account age is criterion 2 and the loyal-customer
@@ -170,15 +170,10 @@ false flag whose order is `loyal`. Loyal customers can be fraudulent and a
 loyal flag can be correct, so loyalty is never used to decide the label or to
 call a flag wrong. Neither the rule nor any model receives it as an input.
 
-**Evidence on timing.** The repository history was searched for earlier
-comparison runs of the rule or a model against loyal customers (commit log,
-`notebooks`, `output`, `config`, `src`, issue comments). None exists; the only
-code touching the rule is `rules.account_age_days`, which reads dates only. No
-result was therefore available to influence this definition. The decision log
-(D6-01) records earlier full-extract exploratory analysis of customer fields
-generally, but none examined loyalty, so this is not claimed as an untouched
-holdout. The evaluator and the report that applies this definition are
-separate work (#124, #125).
+**Evidence on timing.** At definition freeze 466f080, the repository and issue
+history had no recorded comparison of a model or rule against loyal customers.
+D6-01 records earlier full-extract exploratory analysis of customer fields.
+That analysis did not examine loyalty.
 
 **Calculation.** `loyalty.loyalty_status(history, comparison, labels, customers)`
 applies this definition to already-scoped frames and returns one row per
@@ -194,25 +189,19 @@ across both: it counts as no order's prior and its comparison rows are `unknown`
 normalised first and `clean_frame`'s `raw_country_code` is ignored, so copies
 that differ only in country format collapse to one order before and after
 cleaning. A date outside the parser range is unusable for that row only. It is a
-report input only: it is not a model feature, and criterion 5 still needs the
-evaluator and report (#124, #125).
+report input used by the comparison to count false flags on loyal customers.
 
 ## Threshold X: candidate grid and selection protocol
 
-Status: **protocol only, written before any order value was examined.** No real
-data was read for this section, no X has been selected, and none is fitted here.
-
-**Source status.** The actual deployed threshold is unconfirmed. The spec gives
-only the symbol X (spec.txt:134-137); no value has been received from Trust &
-Safety. Until it is, any X used in a comparison is a **validation-tuned proxy**
-(#18 criterion 1), labelled as such. If Trust & Safety later confirms the real
-value, report that value and its source and keep the proxy only as a labelled
-sensitivity row.
+The original grid and objective were fixed before order values were examined.
+D18-03 records the first validation comparison and the later training-quantile
+sensitivity grid. D18-04 establishes the validation proxy as the #18 baseline.
+The deployed threshold is unknown.
 
 **Units.** `order_value` is in SGD (spec.txt:521). Candidates are SGD amounts on
 cleaned order values; the strict `>` comparison is applied after cleaning.
 
-**Candidate grid (SGD), fixed now:** 50, 100, 200, 500, 1000, 2000. This is a
+**Original candidate grid (SGD):** 50, 100, 200, 500, 1000, 2000. This is a
 finite, predeclared set of round amounts a rule author would plausibly write,
 spaced roughly geometrically. The scale of order values has not been inspected,
 so the grid is not claimed to cover the region where the best threshold lies or
@@ -241,25 +230,16 @@ country), with the #5 K fixed before results are seen:
    flags, because an unlabelled flagged order is not known to be non-fraud,
    D6-01); then the larger X. The final rule picks exactly one X.
 
-Results at 2K are reported but are not used for selection. Rows with unusable
+The comparison reports performance at the matched count and at K. Rows with unusable
 amounts or ages are unflagged and stay in the denominators; their counts are
 reported.
 
-**Proxy versus deployed threshold.** The selected X is a proxy that makes the
-baseline as competitive as possible on validation under this capacity measure.
-It is not an estimate of the threshold actually deployed, and it is not
-evidence about it. A model that beats this proxy has beaten a rule tuned on the
-same window; one that does not should be checked against the confirmed X once
-Trust & Safety provides it.
-
-**Deferred.** The validation reader already exists: #6
-`load_base_data(data_dir, purpose="validation")` returns the frozen window
-(`docs/time-split.md`). Fitting still waits for (a) the shared #5 evaluator and
-(b) the frozen #5 capacity K and selection grouping, neither of which is
-recorded yet. The loyal definition is already frozen in numbers (see
-[Loyal customer](#loyal-customer-criterion-3)), so it no longer blocks fitting;
-it is applied to the comparison through `loyalty.loyalty_status` and does not
-enter the selection objective.
+**Recorded validation proxy.** The original grid selected X = 50 SGD at
+K = 250 orders per day (D5-01). In the recorded D18-03 validation run, the
+rule and model each caught 5 fraud orders at 7 matched flags. The rule
+flagged zero orders at X = 100 SGD or higher. The fitted X and the comparison
+use the same validation window. D18-03's training-quantile grid is a separate
+sensitivity check. No final-test evaluation was run for #18.
 
 ## Comparison with a model (criteria 4 to 6)
 
@@ -270,14 +250,34 @@ Safety figure).
 
 - `select_threshold(orders, account_age, k)` fits X on the supplied validation
   window over the fixed grid and returns the chosen X and the candidate table.
-  The result is a **validation-tuned proxy** unless Trust & Safety supplies X.
+  The result is a **validation-tuned proxy**.
 - `compare(...)` cuts the rule's flags to K per group by `order_value`, cuts the
   model to the rule's count per group, and also reports the model at K. It gives
   flags, fraud caught, fraud exposure (sum of `order_value` of flagged fraud),
   false flags and false flags on loyal orders, the rule status counts, the
   loyalty counts and whether the model caught strictly more fraud.
-- Account age comes from `account_age_days` and loyalty from `loyalty_status`
-  (both unchanged); loyalty is a reporting column only.
+- Account age comes from `account_age_days` and loyalty from `loyalty_status`.
+  The report prints the uncertainty in `first_order_datetime`, the loyalty
+  history left-censoring, and the candidate table for a fitted threshold.
 
-Not run on real data: the real run needs the #15 champion's validation scores
-(live MLflow) and the validation extract, so no result exists yet.
+The public #148 evaluator supplies candidate flag and fraud counts and the model
+counts at K. The comparison currently builds row masks locally for the rule cut,
+matched model cut, exposure, and loyal false flags.
+
+**API request for Glowing6635 (#148).** Please expose a public
+`select_top_k(orders, scores, k, *, eligible=None, group_limits=None)` returning
+a boolean mask in input row order. Use the evaluator's validation, daily or
+day/country grouping, and score-descending, country/order ascending tie-break.
+`eligible` optionally limits selection to a positional boolean mask (rule
+flags). `group_limits` optionally overrides the limit by the same group key
+used by the evaluator, including zero for groups with no rule flags, up to the
+group's K. The evaluator and #18 can then share the same selection logic.
+
+Run the report with the base CSVs and a score for every labelled validation
+order. The scores file has `country_code`, `order_id` and `score` columns.
+
+```sh
+uv run python -m mlops_fraud_prediction_ca1.rule_report --data-dir data --scores scores.csv --k 250
+```
+
+The report reads training history and validation via the #6 protected loader.

@@ -482,9 +482,9 @@ its logged fraud caught at K and average precision.
   [the threshold protocol](baseline-rule.md#threshold-x-candidate-grid-and-selection-protocol):
   grid 50, 100, 200, 500, 1000, 2000 SGD, fitted on the frozen D6-01 validation
   window only, objective and tie-breaks as written there.
-- Source of X: `spec.txt:135` gives only the symbol X, and no value has been
-  received from Trust & Safety, so any X used is a validation-tuned proxy and
-  is labelled as one. A confirmed value replaces it as the headline.
+- Source of X: `spec.txt:135` gives only the symbol X. D18-04 records why
+  the deployed value is unavailable and the reported X is a validation-tuned
+  proxy.
 - Provenance: the age-only use of `first_order_datetime` (excluded from loyalty)
   is anchored at the definition freeze 466f080, before any result.
 - Rationale: fixing the grid, the objective and the loyal count before results
@@ -497,14 +497,12 @@ its logged fraud caught at K and average precision.
 - Impact: the rule is a labelled proxy baseline; loyalty left-censoring from the
   2022-11-12 history start is a stated limit; the loyal count of 2 is a project
   assumption Operations may replace by a new dated entry before results.
-- Open, not settled here: **#5 implementation** (owner: Glowing6635, the #5
-  assignee: the shared evaluator, and K and the selection grouping fixed before
-  any results); **Trust & Safety capacity confirmation** (the real capacity K
-  and deployed X are not received; until then K is a Product Owner (PO)
-  assumption, to be confirmed or replaced by a dated entry); **X** (deciding
-  owner: Trust & Safety supplies the deployed value, otherwise the procedure
-  above selects the proxy once the #5 evaluator exists); **#15 champion** (deciding owner: SpiralSky, the #15
-  assignee, not decided here and not affected by this entry).
+- Capacity and grouping: D5-01 fixes K = 250 orders per day as a Product
+  Owner assumption. The #148 evaluator also supports day/country groups for
+  per-country capacities.
+- Outcome: D18-03 records X = 50 SGD as the original validation-tuned proxy.
+  D18-04 confirms the proxy as the #18 baseline. There was no final-test
+  evaluation for this decision. Champion selection remains under #15.
 - Code and checks: `rules.py`, `loyalty.py`, `test_rules.py`, `test_loyalty.py`;
   rule and loyalty reference in [baseline-rule.md](baseline-rule.md).
 
@@ -555,5 +553,5 @@ its logged fraud caught at K and average precision.
   validation-tuned proxy X (D18-01 and D18-03) is the final rule for #18, and
   K = 250 orders a day (D5-01) stays a Product Owner assumption. Neither has a
   source; both are stated as assumptions wherever results are reported.
-- Replaces: earlier wording in D18-01 and `baseline-rule.md` that waits for a
-  Trust & Safety value. Those passages keep their original text as history.
+- Replaces: the earlier expectation of a confirmed deployed threshold or review
+  capacity. The original grid remains recorded in D18-01.

@@ -4,40 +4,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype
 
-from mlops_fraud_prediction_ca1.temporal import parse_dates
-
-
-def _days(values: pd.Series) -> pd.Series:
-    """Calendar day number (Int64, NA for NaT) of datetimes, without normalising.
-
-    Floors epoch seconds to whole days, so no midnight value is built and times
-    of day on the earliest or latest representable day cannot overflow.
-    """
-    seconds = values.dt.as_unit("s")
-    days = seconds.astype("int64") // 86_400
-    return days.astype("Int64").mask(values.isna())
-
-
-def _parse_rows(values: pd.Series, kind: str) -> pd.DataFrame:
-    """``parse_dates`` that survives text beyond the datetime64[ns] range.
-
-    A well-formed value such as 9999-12-31 cannot be held by the shared parser's
-    nanosecond dtype and makes it raise for the whole batch. Bisect so only those
-    rows become an impossible date (status ``invalid``, NaT) and every other row
-    is parsed exactly as before.
-    """
-    try:
-        return parse_dates(values, kind=kind)
-    except pd.errors.OutOfBoundsDatetime:
-        if len(values) == 1:
-            result = parse_dates(values.iloc[:0], kind=kind).reindex(values.index)
-            result["status"] = "invalid"
-            result["original"] = values
-            return result
-    mid = len(values) // 2
-    return pd.concat(
-        [_parse_rows(values.iloc[:mid], kind), _parse_rows(values.iloc[mid:], kind)]
-    )
+from mlops_fraud_prediction_ca1.temporal import calendar_day_numbers, parse_date_rows
 
 
 def _dates(
@@ -50,17 +17,17 @@ def _dates(
     without it, or if it contradicts the NaT, the status is ``unavailable``.
     """
     if not is_datetime64_any_dtype(values):
-        parsed = _parse_rows(values, kind)
-        return _days(parsed["date"]), parsed["status"]
+        parsed = parse_date_rows(values, kind=kind)
+        return calendar_day_numbers(parsed["date"]), parsed["status"]
     status = pd.Series("valid", index=values.index, dtype=object)
     status[values.isna()] = "unavailable"
     if raw is not None:
         if not raw.index.equals(values.index):
             raise ValueError("raw dates must share the index of the cleaned dates")
-        reason = _parse_rows(raw, kind)["status"]
+        reason = parse_date_rows(raw, kind=kind)["status"]
         known = values.isna() & reason.isin(["missing", "unrecognized", "invalid"])
         status[known] = reason[known]
-    return _days(values), status
+    return calendar_day_numbers(values), status
 
 
 def account_age_days(

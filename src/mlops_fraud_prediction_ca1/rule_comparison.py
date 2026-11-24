@@ -20,18 +20,43 @@ import numpy as np
 import pandas as pd
 
 from mlops_fraud_prediction_ca1.rules import baseline_rule_flags
+from mlops_fraud_prediction_ca1.splitting import calendar_dates
+from mlops_fraud_prediction_ca1.top_k import ORDER_COLUMNS, evaluate_top_k
 
 THRESHOLD_GRID = (50, 100, 200, 500, 1000, 2000)
-_ORDER_COLUMNS = ("order_date", "country_code", "order_id", "is_fraud", "order_value")
+_ORDER_COLUMNS = (*ORDER_COLUMNS, "order_value")
+_ORDER_KEY = ["country_code", "order_id"]
 
 
-def _check(orders: pd.DataFrame, k) -> None:
+def _comparison_orders(orders: pd.DataFrame, k) -> pd.DataFrame:
     missing = [c for c in _ORDER_COLUMNS if c not in orders]
     if missing:
         raise ValueError(f"The orders have no {', '.join(missing)} column.")
     capacities = list(k.values()) if isinstance(k, Mapping) else [k]
     if any(isinstance(c, bool) or not isinstance(c, int) or c < 1 for c in capacities):
         raise ValueError(f"K must be a whole number of orders, at least 1: {k}.")
+
+    _validate_labels(orders)
+    if orders[_ORDER_KEY].isna().any(axis=None):
+        raise ValueError("Every order needs a country_code and order_id.")
+    if orders.duplicated(_ORDER_KEY).any():
+        raise ValueError(
+            "Duplicate order key: country_code and order_id must be unique."
+        )
+    dates = calendar_dates(orders["order_date"])
+    if dates.isna().any():
+        raise ValueError("Every order needs a valid order_date.")
+    if isinstance(k, Mapping):
+        unknown = set(orders["country_code"]) - k.keys()
+        if unknown:
+            countries = ", ".join(sorted(map(str, unknown)))
+            raise ValueError(f"K is not set for country {countries}.")
+    return orders.assign(order_date=dates.to_numpy())
+
+
+def _validate_labels(orders: pd.DataFrame) -> None:
+    if not orders["is_fraud"].isin([0, 1]).all():
+        raise ValueError("Each order's is_fraud label must be 0 or 1.")
 
 
 def _group_k(orders: pd.DataFrame, k) -> pd.Series:
@@ -76,7 +101,11 @@ def _ranked_positions(orders: pd.DataFrame, primary: np.ndarray, k) -> pd.DataFr
 
 def cut_rule_flags(orders: pd.DataFrame, flags: Sequence[bool], k) -> np.ndarray:
     """Boolean array: the rule's flags after keeping each group's top K by order_value."""
-    _check(orders, k)
+    orders = _comparison_orders(orders, k)
+    return _cut_rule_flags(orders, flags, k)
+
+
+def _cut_rule_flags(orders, flags, k):
     flags = np.asarray(flags, dtype=bool)
     if len(flags) != len(orders):
         raise ValueError("The flags and the orders must have the same length.")
@@ -97,14 +126,14 @@ def match_model_to_rule(
 ) -> np.ndarray:
     """Boolean array: per group, the model's top-n orders where n is the rule's count
     (already at most K) in that group, ranked by score then country_code, order_id."""
-    _check(orders, k)
-    scores = np.asarray(scores, dtype=float)
-    if not np.isfinite(scores).all():
-        raise ValueError("Every score must be finite.")
-    if len(scores) != len(orders):
-        raise ValueError("The scores and the orders must have the same length.")
-    orders = orders.reset_index(drop=True)
-    ranked = _ranked_positions(orders, scores, k)
+    orders = _comparison_orders(orders, k)
+    scores = _scores(orders, scores)
+    return _match_model_to_rule(_ranked_positions(orders, scores, k), rule_selected)
+
+
+def _match_model_to_rule(ranked, rule_selected):
+    if len(rule_selected) != len(ranked):
+        raise ValueError("The rule selection and the orders must have the same length.")
     counts = (
         pd.Series(np.asarray(rule_selected, dtype=bool))
         .groupby(ranked.sort_values("pos")["group"].to_numpy())
@@ -112,19 +141,28 @@ def match_model_to_rule(
     )
     limit = counts.reindex(ranked["group"].to_numpy()).to_numpy()
     keep = ranked["rank"].to_numpy() < limit
-    out = np.zeros(len(orders), dtype=bool)
+    out = np.zeros(len(ranked), dtype=bool)
     out[ranked["pos"].to_numpy()[keep]] = True
     return out
 
 
 def top_k_selection(orders: pd.DataFrame, scores: Sequence[float], k) -> np.ndarray:
     """Boolean array: each group's top K orders by score (the model at K)."""
-    _check(orders, k)
+    orders = _comparison_orders(orders, k)
+    scores = _scores(orders, scores)
+    return _top_k_mask(orders, _ranked_positions(orders, scores, k), k)
+
+
+def _scores(orders, scores):
     scores = np.asarray(scores, dtype=float)
+    if scores.shape != (len(orders),):
+        raise ValueError("Provide one score per order.")
     if not np.isfinite(scores).all():
         raise ValueError("Every score must be finite.")
-    orders = orders.reset_index(drop=True)
-    ranked = _ranked_positions(orders, scores, k)
+    return scores
+
+
+def _top_k_mask(orders, ranked, k):
     capacity = _group_k(orders, k).to_numpy()[ranked["pos"].to_numpy()]
     out = np.zeros(len(orders), dtype=bool)
     out[ranked["pos"].to_numpy()[ranked["rank"].to_numpy() < capacity]] = True
@@ -135,7 +173,10 @@ def selection_metrics(
     orders: pd.DataFrame, selected: Sequence[bool], loyalty_status: Sequence[str]
 ) -> dict:
     """Criterion 5 counts for one selection of flagged orders."""
+    _validate_labels(orders)
     selected = np.asarray(selected, dtype=bool)
+    if selected.shape != (len(orders),) or len(loyalty_status) != len(orders):
+        raise ValueError("Provide one selection flag and loyalty status per order.")
     fraud = orders["is_fraud"].to_numpy() == 1
     loyal = np.asarray(loyalty_status) == "loyal"
     value = pd.to_numeric(orders["order_value"], errors="coerce").to_numpy()
@@ -155,20 +196,20 @@ def select_threshold(
 ) -> dict:
     """Fit X on `orders` with the predeclared objective; return the chosen X and the
     candidate table (X, flags before and after the cut, fraud caught after the cut)."""
-    _check(orders, k)
+    orders = _comparison_orders(orders, k)
     rows = []
-    fraud = orders["is_fraud"].to_numpy() == 1
     for x in grid:
         flags = baseline_rule_flags(orders["order_value"], account_age, x)[
             "rule_flag"
         ].to_numpy(dtype=bool)
-        cut = cut_rule_flags(orders, flags, k)
+        flagged = orders.loc[flags]
+        at_k = evaluate_top_k(flagged, flagged["order_value"].astype(float), k).at_k
         rows.append(
             {
                 "x": x,
                 "flags_before_cut": int(flags.sum()),
-                "flags": int(cut.sum()),
-                "fraud_caught": int((cut & fraud).sum()),
+                "flags": at_k.selected,
+                "fraud_caught": at_k.fraud_caught,
             }
         )
     table = pd.DataFrame(rows)
@@ -186,6 +227,8 @@ def compare(
     k,
     threshold,
     threshold_source: str,
+    *,
+    candidates: pd.DataFrame | None = None,
 ) -> dict:
     """Rule versus model at the rule's count, plus the model at K.
 
@@ -193,11 +236,20 @@ def compare(
     or the name of the confirmation). `beats_rule` is whether the matched model
     caught strictly more fraud than the rule.
     """
-    _check(orders, k)
+    orders = _comparison_orders(orders, k)
+    scores = _scores(orders, scores)
     flags = baseline_rule_flags(orders["order_value"], account_age, threshold)
-    rule = cut_rule_flags(orders, flags["rule_flag"].to_numpy(dtype=bool), k)
-    matched = match_model_to_rule(orders, scores, rule, k)
-    at_k = top_k_selection(orders, scores, k)
+    rule = _cut_rule_flags(orders, flags["rule_flag"].to_numpy(dtype=bool), k)
+    ranked = _ranked_positions(orders, scores, k)
+    matched = _match_model_to_rule(ranked, rule)
+    at_k = _top_k_mask(orders, ranked, k)
+    evaluation = evaluate_top_k(orders, scores, k).at_k
+    model_at_k = selection_metrics(orders, at_k, loyalty_status)
+    model_at_k.update(
+        flags=evaluation.selected,
+        fraud_caught=evaluation.fraud_caught,
+        false_flags=evaluation.selected - evaluation.fraud_caught,
+    )
     result = {
         "k": k,
         "threshold": threshold,
@@ -206,7 +258,8 @@ def compare(
         "rule_flags_before_cut": int(flags["rule_flag"].sum()),
         "rule": selection_metrics(orders, rule, loyalty_status),
         "model_matched": selection_metrics(orders, matched, loyalty_status),
-        "model_at_k": selection_metrics(orders, at_k, loyalty_status),
+        "model_at_k": model_at_k,
+        "candidates": candidates,
         "loyalty_counts": pd.Series(loyalty_status).value_counts().to_dict(),
     }
     result["beats_rule"] = (
@@ -226,9 +279,22 @@ def format_comparison(result: dict) -> str:
             f"Rule flags before the K cut: {result['rule_flags_before_cut']};"
             f" status counts: {result['rule_status_counts']}."
         ),
+        "first_order_datetime is unconfirmed. It is used only for rule account age.",
+        (
+            "Loyalty history starts on 2022-11-12 (12 Nov 2022). Earlier orders are"
+            " left-censored, so early loyal customers can be undercounted."
+        ),
         f"Loyalty counts: {result['loyalty_counts']}.",
         f"{'':26}{'flags':>7}{'caught':>8}{'exposure':>12}{'false':>7}{'false+loyal':>13}",
     ]
+    candidates = result.get("candidates")
+    if candidates is None:
+        lines.insert(1, "No X candidates were fitted for this comparison.")
+    else:
+        lines[1:1] = [
+            "Candidate X values tested on validation (SGD):",
+            candidates.to_string(index=False),
+        ]
     for label, key in (
         ("Rule", "rule"),
         ("Model, matched count", "model_matched"),

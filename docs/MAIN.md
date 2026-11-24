@@ -21,3 +21,6 @@
 
 - [Baseline rule inputs](baseline-rule.md) — account age for the hard-coded
   rule, and how missing or negative ages are handled.
+
+- [Baseline rule and model comparison](baseline-rule.md) — account age, historical
+  loyalty, and the validation-only comparison at K = 250 and proxy X = 50 SGD.
