@@ -3,8 +3,9 @@
 Run `uv run restart-drill` as soon as the sandbox is started. It waits until RDS answers,
 then until the MLflow server answers, then checks that the model saved by
 `uv run redeploy-check record` loads and reproduces its predictions, and logs a run
-with the times as metrics. It prints the time from its own start to each step, so
-the demo-day start time can be set from it. It gives up after 30 minutes.
+with the times as metrics, tagged `purpose=restart-drill`. It prints the time from its
+own start to each step, so the demo-day start time can be set from it. It gives up
+after 30 minutes.
 
 It needs every setting in `.env.example`, and `output/redeploy_check.json` from an
 earlier `uv run redeploy-check record` on the same laptop.
@@ -48,6 +49,16 @@ def wait_until(
             if clock() + RETRY_SECONDS > deadline:
                 raise
             sleep(RETRY_SECONDS)
+
+
+def log_times(times: dict[str, float]) -> str:
+    """Log each step's time as a run in the active experiment, and return its run ID."""
+    # The drill shares the model runs' experiment, so model queries filter this tag out.
+    with mlflow.start_run(
+        run_name="restart-drill", tags={"purpose": "restart-drill"}
+    ) as run:
+        mlflow.log_metrics({f"{step}_seconds": t for step, t in times.items()})
+    return run.info.run_id
 
 
 def minutes(seconds: float) -> str:
@@ -94,8 +105,7 @@ def main() -> None:
         mlflow.set_experiment(settings.mlflow_experiment_name)
         redeploy_check.verify()
         done("model", "The model loads and reproduces its predictions.")
-        with mlflow.start_run(run_name="restart-drill"):
-            mlflow.log_metrics({f"{step}_seconds": t for step, t in times.items()})
+        log_times(times)
         done("total", "A run with these times is logged. Everything works.")
     except (OSError, OperationalError, MlflowException) as error:
         sys.exit(

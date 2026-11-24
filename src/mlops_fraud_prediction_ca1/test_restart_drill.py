@@ -1,6 +1,12 @@
+import mlflow
 import pytest
 
-from mlops_fraud_prediction_ca1.restart_drill import RETRY_SECONDS, minutes, wait_until
+from mlops_fraud_prediction_ca1.restart_drill import (
+    RETRY_SECONDS,
+    log_times,
+    minutes,
+    wait_until,
+)
 
 
 class FakeClock:
@@ -46,3 +52,17 @@ def test_minutes():
     assert minutes(0) == "0:00"
     assert minutes(65.9) == "1:05"
     assert minutes(600) == "10:00"
+
+
+def test_the_logged_run_is_tagged_so_model_queries_can_skip_it(tmp_path):
+    previous = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}")
+    try:
+        run = mlflow.get_run(log_times({"rds": 47.0}))
+    finally:
+        mlflow.set_tracking_uri(previous)
+    assert (run.info.run_name, run.data.tags["purpose"], run.data.metrics) == (
+        "restart-drill",
+        "restart-drill",
+        {"rds_seconds": 47.0},
+    )
