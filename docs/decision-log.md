@@ -520,3 +520,28 @@ its logged fraud caught at K and average precision.
   D18-01 grid and objective; K is 250 a day (D5-01), so if K changes the comparison
   is rerun. A group with no rule flags gets no matched model flags.
 - Code and checks: `rule_comparison.py`, `test_rule_comparison.py`.
+
+## D18-03 — Post-hoc replacement grid for the proxy threshold X
+
+- Recorded: 2026-11-24, **after** the first real comparison and before any rerun.
+  Accountable engineer: SpiralSky; approved by the owner (option B), who is also
+  asking Trust & Safety for the real X. Affected PBI: #18 criterion 1.
+- Why: the D18-01 grid (50 to 2000 SGD) was fixed before any order value was
+  examined. The first real run (validation window, K = 250, #152 boosted-trees
+  scores, `a410f31`) showed it sits almost entirely above the order values: the
+  rule flagged 7 orders at X = 50 and none at X = 100 or more, and the matched
+  comparison was a 5-5 tie at 7 flags. That result is kept and reported as the
+  original.
+- Settled: the second grid is the training window's `order_value` quantiles
+  0.90, 0.95, 0.99, 0.995, 0.999 and 0.9999, computed on the training window
+  `[2022-11-12, 2023-03-27)` only (all its cleaned orders, no labels, no
+  validation rows), rounded to 2 decimals and de-duplicated. Selection is
+  unchanged (D18-01 objective and tie-breaks, fitted on the validation window,
+  K = 250 from D5-01). The grid rule was written here before the values were
+  computed, so the quantile list is not tuned to results.
+- Status: the result is a **post-hoc, validation-tuned proxy** comparison. It is
+  not the deployed threshold and does not replace the original result. The real
+  X from Trust & Safety, when it arrives, supersedes both.
+- Limit: the grid is still chosen after seeing that the first grid failed, and
+  it is fitted on the same validation window that scores the comparison, so it
+  favours the rule and a model win would be conservative.
