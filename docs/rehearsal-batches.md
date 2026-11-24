@@ -54,9 +54,12 @@ with the #20 loader and deletes the runs in the rehearsal MLflow experiment.
 `scripts/rehearsal-live.sh run` (environment variables listed at the top of the script)
 adds this machine's `/32` to the RDS security group, creates the `rehearsal` schema, the
 tables, optional reader users (`READERS="name1 name2"`), runs the reset, creates a private
-bucket and prints presigned links. Its exit trap (and `scripts/rehearsal-live.sh cleanup`)
-removes the security-group rule, deletes the bucket and drops the `rehearsal` schema
-(`KEEP_SCHEMA=1` keeps it). `--expires` / `PRESIGN_EXPIRES` sets the link lifetime in
-seconds; the default 3600 s covers a 3-minute batch run, but links generated before a
-longer demo should use a larger value (the S3 limit with a session token is the token's
-remaining life, so generate links in the demo session).
+bucket (tagged `created-by=rehearsal-live`) and prints presigned links with their expiry.
+It removes its security-group rule when it ends. On success the bucket, objects and schema
+stay so the links keep working; on failure it deletes only what that run created. After
+the rehearsal, `scripts/rehearsal-live.sh cleanup` deletes the bucket only if it carries
+the tag (never a bucket someone else made) and drops the `rehearsal` schema
+(`KEEP_SCHEMA=1` keeps it). It refuses to start if the bucket already exists.
+`--expires` / `PRESIGN_EXPIRES` sets the link lifetime in seconds (default 3600, enough for
+a 3-minute batch run; use more for a longer demo). Links are valid only while the session
+credentials that signed them are, so generate them in the demo session.

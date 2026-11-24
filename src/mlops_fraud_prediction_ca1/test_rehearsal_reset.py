@@ -148,3 +148,62 @@ def test_presign_against_mocked_s3_keeps_objects_private(tmp_path, monkeypatch):
             Key="rehearsal/rehearsal_a/orders_rehearsal_a.csv",
         )["Grants"]
         assert all(g["Grantee"].get("URI") is None for g in grants)
+
+
+def _stub_path(tmp_path, bucket_exists, tagged):
+    import os
+    import stat
+
+    calls = tmp_path / "calls.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    aws = bin_dir / "aws"
+    aws.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo "aws $*" >> "$CALLS"\n'
+        'case "$*" in\n'
+        f"  *head-bucket*) exit {0 if bucket_exists else 1};;\n"
+        f"  *get-bucket-tagging*) echo {'rehearsal-live' if tagged else 'other'};;\n"
+        "esac\n"
+    )
+    curl = bin_dir / "curl"
+    curl.write_text("#!/usr/bin/env bash\necho 203.0.113.9\n")
+    uv = bin_dir / "uv"
+    uv.write_text('#!/usr/bin/env bash\necho "uv $*" >> "$CALLS"; echo 0\n')
+    for tool in (aws, curl, uv):
+        tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
+    return {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "CALLS": str(calls),
+    }, calls
+
+
+def test_live_script_refuses_an_existing_bucket(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    env, calls = _stub_path(tmp_path, bucket_exists=True, tagged=False)
+    script = Path(__file__).parents[2] / "scripts" / "rehearsal-live.sh"
+    result = subprocess.run(  # noqa: PLW1510
+        ["bash", str(script), "run"], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 1 and "refusing" in result.stderr
+    log = calls.read_text() if calls.exists() else ""
+    assert "authorize-security-group-ingress" not in log and "delete-bucket" not in log
+
+
+def test_live_cleanup_leaves_a_bucket_it_did_not_tag(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    env, calls = _stub_path(tmp_path, bucket_exists=True, tagged=False)
+    script = Path(__file__).parents[2] / "scripts" / "rehearsal-live.sh"
+    result = subprocess.run(  # noqa: PLW1510
+        ["bash", str(script), "cleanup"],
+        env={**env, "KEEP_SCHEMA": "1"},
+        capture_output=True,
+        text=True,
+    )
+    assert "left alone" in result.stdout
+    assert "delete-bucket" not in calls.read_text() and "s3 rm" not in calls.read_text()
