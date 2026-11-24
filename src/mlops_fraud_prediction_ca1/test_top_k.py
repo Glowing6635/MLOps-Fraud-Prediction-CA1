@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -106,6 +107,7 @@ def test_negative_scores_still_rank_highest_first():
     )
     report = evaluate_top_k(orders, scores, k=1)
     assert (report.at_k.fraud_caught, report.average_precision) == (1, 1.0)
+    assert type(report.average_precision) is float
 
 
 def test_ratios_without_a_denominator_are_shown_as_not_available():
@@ -271,10 +273,28 @@ def test_ineligible_orders_take_no_place():
     assert selected.tolist() == [False, True, False]
 
 
+def test_a_group_with_no_eligible_order_can_be_limited():
+    assert select_top_k(
+        ORDER, [0.5], 2, eligible=[False], group_limits={"d1": 0}
+    ).tolist() == [False]
+
+
+def test_only_eligible_orders_need_a_finite_score():
+    orders, _ = _orders(("d1", "SG", "o1", 0, 0.9), ("d1", "SG", "o2", 0, 0.8))
+    scores = [math.nan, 0.8]
+    assert select_top_k(orders, scores, 2, eligible=[False, True]).tolist() == [
+        False,
+        True,
+    ]
+    with pytest.raises(ValueError, match="not finite"):
+        select_top_k(orders, scores, 2, eligible=[True, True])
+
+
 @pytest.mark.parametrize(
     ("k", "group_limits", "selected"),
     [
         (2, {"d1": 0}, [False, False, False, True, True]),
+        (2, {"d1": np.int64(0)}, [False, False, False, True, True]),
         (
             {"SG": 2, "MY": 2},
             {("d1", "SG"): 1, ("d2", "MY"): 0},
@@ -302,6 +322,7 @@ def test_group_limits_select_fewer_than_k(k, group_limits, selected):
         ({"eligible": [1]}, "eligible must hold one True or False per order"),
         ({"group_limits": {"d1": 3}}, "from 0 to its K, 2, but it is 3"),
         ({"group_limits": {"d1": -1}}, "from 0 to its K, 2, but it is -1"),
+        ({"group_limits": {"d1": True}}, "from 0 to its K, 2, but it is True"),
         ({"group_limits": {"d1": 1.0}}, "from 0 to its K, 2, but it is 1.0"),
         ({"group_limits": {"d2": 1}}, "names 'd2', which is no group"),
     ],

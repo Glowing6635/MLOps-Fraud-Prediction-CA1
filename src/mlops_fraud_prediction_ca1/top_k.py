@@ -18,6 +18,7 @@ text report, never 0 or NaN.
 """
 
 import math
+import numbers
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -110,7 +111,9 @@ def evaluate_top_k(
     return TopKReport(
         at_k=result(k, at_k),
         at_2k=result(double_k, select_top_k(orders, scores, double_k)),
-        average_precision=_average_precision(list(zip(scores, is_fraud, strict=True))),
+        average_precision=_average_precision(
+            list(zip(scores, is_fraud.tolist(), strict=True))
+        ),
     )
 
 
@@ -125,29 +128,30 @@ def select_top_k(
     """Select each group's top K orders by `scores` (higher means riskier).
 
     `orders` is a pandas DataFrame or a dict of equal-length columns holding at least
-    `order_date`, `country_code` and `order_id`; `scores` has one finite score per order,
-    in the same order. `k` is the daily review capacity, a Python int of orders per day,
+    `order_date`, `country_code` and `order_id`; `scores` has one score per order, in the same
+    order, finite for every order that can be selected. `k` is the daily review capacity, a Python int of orders per day,
     or a mapping from `country_code` to that country's capacity per day.
 
     Returns a numpy array of bools, True for each selected order, by position in
     `orders` whatever its index.
 
     `eligible`, if given, holds one bool per order by position: only True orders can be
-    selected, and the others take no place in the top K.
+    selected, and the others take no place in the top K and need no finite score.
 
     `group_limits`, if given, selects fewer than K in some groups. Its key is the group:
     with one K, the `order_date` value; with a K per country, an
     (`order_date`, `country_code`) tuple. The values must equal the column's values,
     types included. With `k=250`, `{date(2024, 3, 1): 0}` selects nothing on 1 March
     2024; with `k={"SG": 250, "MY": 100}`, `{(date(2024, 3, 1), "SG"): 40}` selects at
-    most 40 of that day's SG orders. A group not in the mapping keeps its K.
+    most 40 of that day's SG orders. A limit is a whole number (numpy ones too, not a
+    bool). A group not in the mapping keeps its K.
 
     Raises `ValueError` for a K that is not a Python int of at least 1, a country with
     no K, a missing column, a missing date, country or order ID (None, NaN or NaT),
     columns of different lengths, an `order_id` repeated within one `country_code`, a
-    score that is not finite, an `eligible` of another length or not all bools, or a
-    group limit for no group in the orders, or that is not a Python int from 0 to the
-    group's K.
+    score that is not finite (only an eligible order's, when `eligible` is given), an
+    `eligible` of another length or not all bools, or a group limit for no group in the
+    orders, or that is not a whole number from 0 to the group's K.
     """
     _require_columns(orders, _KEY_COLUMNS)
     capacities = list(k.values()) if isinstance(k, Mapping) else [k]
@@ -188,7 +192,7 @@ def select_top_k(
                 f"Every order needs an order_date, country_code and order_id, but order"
                 f" {order_id} in country {country_code} on {order_date} is missing one."
             )
-        if not math.isfinite(score):
+        if eligible[position] and not math.isfinite(score):
             raise ValueError(
                 f"Order {order_id} has a score that is not finite: {score}."
             )
@@ -217,14 +221,14 @@ def select_top_k(
             )
         if (
             isinstance(limit, bool)
-            or not isinstance(limit, int)
+            or not isinstance(limit, numbers.Integral)
             or not 0 <= limit <= limits[group]
         ):
             raise ValueError(
-                f"The limit for group {group!r} must be a Python int from 0 to its K,"
+                f"The limit for group {group!r} must be a whole number from 0 to its K,"
                 f" {limits[group]}, but it is {limit!r}."
             )
-        limits[group] = limit
+        limits[group] = int(limit)
 
     selected = np.zeros(len(scores), dtype=bool)
     for group, ranked in groups.items():
