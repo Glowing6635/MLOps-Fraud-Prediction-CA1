@@ -142,10 +142,4 @@ At every sprint review, open the sandbox's start page, note the budget used and 
 
 | Sprint review | Used | Remaining |
 | --- | --- | --- |
-| Sprint 2, 24 Nov 2026 | $11.71 | TO RECORD |
-
-The 24 Nov figure for used is from Cost Explorer, which the sandbox allows, for 1 to 24 Nov. The account had no charges before November. To get it without the start page, with the day after today as the end date:
-
-```
-aws ce get-cost-and-usage --time-period Start=2026-11-01,End=<tomorrow> --granularity MONTHLY --metrics UnblendedCost
-```
+| Sprint 2, 24 Nov 2026 | $15 of $50 | About $35 |
