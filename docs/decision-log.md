@@ -246,3 +246,9 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D25-01: Retraining is orchestrated with injected collaborators; release mode waits for #23
+
+- Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #25.
+- Decision: `retrain.retrain` takes the data reader, per-model fitter and champion comparison as arguments. Evaluation mode keeps rows dated before `validation_start` (from `config/time_split.toml`); release mode is not implemented until the #23 final evaluation exists. No evaluation window changed.
+- Reason: #13, #14, #15 and #23 are not merged, so the orchestration is tested with fakes and wired when they land.
