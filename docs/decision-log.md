@@ -308,3 +308,16 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
 - Not transformed: `collect_type`/`payment_method` (categorical), `refund_value`
   (evaluation-only, D4-01) and the customer fields (withheld, D4-02). `skew_outliers.TREATMENTS`
   holds the per-feature reasons. This does not claim model performance, #118/#120 or registration.
+
+## D16-02: Feature groups and their validation comparison
+
+- Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #16 (criteria 1, 3, 4).
+- Groups (`feature_pipeline.FEATURE_GROUPS`): `order_raw`, the four allowed order columns (D4-01); `order_log`, `order_raw` plus signed log1p of `order_value` and `num_items_ordered` (D16-01). Customer columns stay out (D4-02).
+- Comparison: baseline logistic regression, K = 250, seed 0, validation window, run through the #13 harness into a local SQLite MLflow store (not the team server).
+
+| Group | Fraud caught at K | Average precision |
+| --- | --- | --- |
+| `order_raw` | 2498 | 0.3259 |
+| `order_log` | 2450 | 0.3240 |
+
+- Decision: `order_log` stays the default group, because #16 requires skew handling in the packaged pipeline, but on this linear baseline it does not beat `order_raw` (48 fewer fraud caught at K). Candidates choose the group for their model: tree models are unaffected by a monotone log transform, so only linear candidates need check it. The comparison is to be re-run against the team MLflow server (pending live evidence).
