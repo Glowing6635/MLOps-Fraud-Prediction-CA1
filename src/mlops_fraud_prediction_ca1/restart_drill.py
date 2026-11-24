@@ -105,8 +105,8 @@ def main() -> None:
         mlflow.set_experiment(settings.mlflow_experiment_name)
         redeploy_check.verify()
         done("model", "The model loads and reproduces its predictions.")
-        log_times(times)
-        done("total", "A run with these times is logged. Everything works.")
+        run_id = log_times(times)
+        done("total", f"Everything works. The times are logged as MLflow run {run_id}.")
     except (OSError, OperationalError, MlflowException) as error:
         sys.exit(
             f"Not working {minutes(time.monotonic() - start)} after the drill started."
