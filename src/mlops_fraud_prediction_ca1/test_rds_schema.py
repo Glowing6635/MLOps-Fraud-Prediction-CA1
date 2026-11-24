@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from mlops_fraud_prediction_ca1.rds_schema import create_reader, statements
+from mlops_fraud_prediction_ca1.rds_schema import create_user, statements
 
 MONEY = ["order_value", "refund_value", "total_payment_last_50days"]
 
@@ -43,6 +43,6 @@ def test_keys_match_the_data_analysis():
     ("name", "password"),
     [("Richard", "long enough pw"), ("a'b", "long enough pw"), ("richard", "short")],
 )
-def test_reader_rejects_bad_names_and_short_passwords_before_connecting(name, password):
+def test_users_reject_bad_names_and_short_passwords_before_connecting(name, password):
     with pytest.raises(ValueError):
-        create_reader(None, "fraud", name, password)
+        create_user(None, "fraud", name, password, "writer")

@@ -48,4 +48,26 @@ Run these once, with the AWS CLI and the sandbox credentials in `~/.aws/credenti
 
 6. Each engineer sets `DB_USER=<name>_reader` and their own password in their `.env`, and runs `uv run rds-schema check` from their own laptop. It lists the four tables and shows the user can only read (`GRANT SELECT`).
 
+7. Make the user that loads batches. With the admin settings still in `.env`, run this; it asks for the new user's password:
+
+   ```
+   uv run rds-schema writer richard
+   ```
+
+   It is safe to re-run, and running it again changes the password.
+
+## Loading a batch
+
+The base files and every later batch load with the same command. Set `DB_USER=<name>_writer` and its password in `.env`, then give the three files as URLs or paths:
+
+```
+uv run load-batch data/customers_base.csv data/orders_base.csv data/labels_base.csv
+```
+
+The files must be named `customers_<batch>.csv`, `orders_<batch>.csv` and `labels_<batch>.csv`, and `<batch>` becomes the batch ID. Before touching the database, the command checks the files. It stops, and changes nothing, if a download fails after 3 retries, a file is not CSV, a column is missing or renamed, or a file has no rows. An extra column is only a warning, and it is not loaded.
+
+Load `base` first, then each batch in the order it arrived, because the database treats the batch loaded last as the newest.
+
+It then prints the rows added, already stored and rejected per table. Loading the same batch again is safe and adds nothing. For the base files, the counts should match the kickoff data analysis (issue #3): 901,312 customers, 949,889 orders and 949,872 labels added, with 444 labels rejected for "no matching order" and 2 for "no matching customer". On a laptop the first load took about 11 minutes, and a rerun about 2. "Loading rules" in `docs/data-dictionary.md` lists what is rejected and why.
+
 `docs/data-dictionary.md` explains every table and column. The schema is frozen before data loading (issue #20) starts: after that, any change to `schema.sql` needs the team's agreement first.
