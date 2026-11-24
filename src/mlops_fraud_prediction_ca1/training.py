@@ -434,10 +434,10 @@ def _git(*args: str) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
+    cli = argparse.ArgumentParser(
         prog="train", description="Train and log models with the shared harness."
     )
-    commands = parser.add_subparsers(dest="command", required=True)
+    commands = cli.add_subparsers(dest="command", required=True)
     baseline = commands.add_parser(
         "baseline", help="Train the baseline model and log the run to MLflow."
     )
@@ -453,22 +453,22 @@ def main() -> None:
     }
     candidate_parsers = []
     for name in candidates:
-        trees = commands.add_parser(
+        parser = commands.add_parser(
             name, help=f"Log the {name} model without and with the customer columns."
         )
-        trees.add_argument(
+        parser.add_argument(
             "--k-status",
             help="Where K comes from, tagged on every run. Required when --k differs"
             f" from D5-01's K (default: D5-01: product owner assumption, K = {K}).",
         )
-        trees.add_argument(
+        parser.add_argument(
             "--tag",
             action="append",
             default=[],
             metavar="KEY=VALUE",
             help="Extra tag on every run (repeatable), such as pr=164.",
         )
-        candidate_parsers.append(trees)
+        candidate_parsers.append(parser)
     for command in (baseline, *candidate_parsers):
         command.add_argument(
             "--k",
@@ -484,10 +484,10 @@ def main() -> None:
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
-    args = parser.parse_args()
+    args = cli.parse_args()
     if args.command in candidates and args.k_status is None:
         if args.k != K:
-            parser.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
+            cli.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
         args.k_status = f"D5-01: product owner assumption, K = {K}"
     # MLflow prints an emoji when a run ends, which Windows cannot encode when piped.
     sys.stdout.reconfigure(errors="replace")
