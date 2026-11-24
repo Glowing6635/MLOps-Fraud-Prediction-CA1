@@ -67,6 +67,8 @@ Chosen: single instance, t3.small, no load balancer (a load balancer adds a fixe
 
 Observed on the existing environment `mlflow` (read-only `aws elasticbeanstalk describe-environments`, `describe-configuration-settings`, `ec2 describe-instances`, `ec2 describe-volumes`, `elbv2 describe-load-balancers`, checked 2026-11-24, us-east-1): `EnvironmentType=SingleInstance`, `InstanceType=t3.small`, `ServiceRole=LabRole`, `IamInstanceProfile=LabInstanceProfile`, one instance (`running`), one 8 GB gp3 root volume, no load balancer in the account, URL `sp-buy-mlflow.us-east-1.elasticbeanstalk.com`. This matches the values above.
 
+Further read-only observations (2026-11-24): `GET /health` returned 200 without a login; `GET /version` returned 401 "You are not authenticated", so the running server already requires a login. The environment properties set are `MLFLOW_ARTIFACTS_DESTINATION`, `MLFLOW_SERVER_ALLOWED_HOSTS` and `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` (names only; values not read). So the running environment is ahead of the basic design that `deploy.sh` and the values table describe (`deploy.sh` sets only the last two). Reconciling them belongs to #9 and is not decided here.
+
 Cost, **prices still to be sourced**: the AWS pricing API was not readable with the lab credentials, so no dollar figure is stated. Fill the PRICE cells from the AWS EC2 and EBS pricing pages for us-east-1 and cite the page and date.
 
 | Item | Running | Sandbox stopped |
