@@ -91,7 +91,7 @@ Before each deadline, back up the `fraud`, `mlflow` and `mlflow_auth` databases 
 
 ## Before the sandbox stops
 
-Run `uv run redeploy-check record` once, from any laptop. It saves the model's predictions to `output/redeploy_check.json` on that laptop, so run the drill from the same laptop.
+Each engineer runs `uv run redeploy-check record` once on their own laptop, because the drill reads the `output/redeploy_check.json` it saves there. Each time, it logs a run and registers a new version of the `redeploy-check` model, so a second engineer's run changes nothing the first relies on. Reset deletes the recorded run and model, so after a Reset, run it again before the next drill.
 
 ## Restart drill
 
@@ -114,7 +114,7 @@ Run `uv run redeploy-check record` once, from any laptop. It saves the model's p
    ```
    aws elasticbeanstalk restart-app-server --environment-name mlflow
    ```
-3. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times. It prints the time from its own start to each step, and gives up after 30 minutes.
+3. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times, tagged `purpose=restart-drill` so queries for model runs can skip it. It prints the time from its own start to each step, and gives up after 30 minutes.
 4. Record the drill's times in `docs/failure-log.md` (added by #31), with the RDS start-up wait from step 2 as its own stage, not added to the other times.
 
 Demo-day start time: TO RECORD, from the slowest total in `docs/failure-log.md` for a drill after RDS was stopped overnight, plus a margin of TO RECORD minutes.
@@ -122,14 +122,14 @@ Demo-day start time: TO RECORD, from the slowest total in `docs/failure-log.md` 
 ## Demo day
 
 - The day before, end and start the sandbox, run the drill, and change nothing afterwards. Note the image tag in `mlflow-server/Dockerrun.aws.json`, so the version that worked can be deployed again. Keep RDS running from then until the demo is over.
+- Before any drill or live query on the demo-site network or the backup hotspot, let that network reach port 3306. Without the rule, the drill waits 30 minutes and then fails. Find the address with `curl -s https://checkip.amazonaws.com` and add it with the `aws ec2 authorize-security-group-ingress` command from step 4 of "RDS database". The hotspot's address changes between sessions, so add its rule each time. Remove each rule afterwards with `aws ec2 revoke-security-group-ingress`, as "Who can reach port 3306" says.
 - Start the sandbox at least an hour early, and run `uv run restart-drill` from both laptops.
 - Just before presenting, click Start Lab again, which resets the session timer, so the session can't end during the demo.
-- To query RDS live, add the venue's address to port 3306, and remove it afterwards.
 - Have a fallback ready: a recording of the MLflow web UI, and a copy of the champion model on the demo laptop.
 
 ## Reaching RDS from each laptop
 
-Each engineer runs `uv run restart-drill` once on the demo-site network and once on the backup hotspot.
+Each engineer runs `uv run restart-drill` once on the demo-site network and once on the backup hotspot, after adding that network's port 3306 rule (see "Demo day").
 
 | Engineer | Demo-site network | Backup hotspot |
 | --- | --- | --- |
