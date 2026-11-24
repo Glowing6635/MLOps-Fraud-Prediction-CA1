@@ -6,11 +6,12 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.training import (
     _load_window,
-    baseline_model,
     check_feature_columns,
     check_label_history,
+    compare_customer_columns,
     fit_and_score,
     rerun,
     train,
@@ -211,3 +212,41 @@ def test_a_run_logs_every_field_and_reruns_within_tolerance(
     (data_dir / "labels_base.csv").write_text("changed", encoding="utf-8")
     with pytest.raises(ValueError, match="labels"):
         rerun(run_id, data_dir)
+
+
+def test_customer_columns_are_compared_under_one_parent_run(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    parent_id, (without_id, without), (with_id, with_columns) = (
+        compare_customer_columns(
+            boosted_trees_model(),
+            data_dir,
+            k=5,
+            seed=3,
+            tags={"k_status": "provisional"},
+        )
+    )
+    children = mlflow.search_runs(
+        filter_string=f"tags.mlflow.parentRunId = '{parent_id}'",
+        output_format="list",
+    )
+    assert {run.info.run_id for run in children} == {without_id, with_id}
+    parent, without_run, with_run = map(
+        mlflow.get_run, (parent_id, without_id, with_id)
+    )
+    assert "HistGradientBoostingClassifier" in parent.data.tags["mlflow.runName"]
+    assert without_run.data.params["exploratory"] == "False"
+    assert with_run.data.params["exploratory"] == "True"
+    assert with_run.data.tags["champion_eligible"] == "False"
+    for run in (parent, without_run, with_run):
+        assert run.data.tags["k_status"] == "provisional"
+    assert without_run.data.metrics["fraud_caught_at_k"] == (
+        without.report.at_k.fraud_caught
+    )
+    assert parent.data.metrics["fraud_caught_at_k_difference"] == (
+        with_columns.report.at_k.fraud_caught - without.report.at_k.fraud_caught
+    )
+    assert rerun(with_id, data_dir)["reproduced"]

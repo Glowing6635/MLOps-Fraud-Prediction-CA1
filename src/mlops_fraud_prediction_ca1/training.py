@@ -10,7 +10,9 @@ The features are the order columns `leakage.select_feature_inputs` allows. An ex
 run adds the seven customer columns (decision D4-02), withholding them for orders whose
 customer dates are inconsistent or cannot be checked (D4-03).
 
-`uv run train baseline --k K` trains and logs the baseline model, and `uv run train rerun
+`uv run train baseline --k K` trains and logs the baseline model, `uv run train
+boosted-trees --k K` logs the boosted-trees candidate with and without the customer
+columns under one parent run (`compare_customer_columns`), and `uv run train rerun
 RUN_ID` re-runs a logged run to check it reproduces. docs/training.md says what a run
 records.
 """
@@ -33,11 +35,6 @@ import pandas as pd
 import skops.io
 from dotenv import load_dotenv
 from sklearn.base import clone
-from sklearn.compose import make_column_selector, make_column_transformer
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from mlops_fraud_prediction_ca1.cleaning import CLEANING_POLICY_VERSION, clean_frame
 from mlops_fraud_prediction_ca1.data import load_base_data
@@ -47,6 +44,7 @@ from mlops_fraud_prediction_ca1.leakage import (
     historical_order_mask,
     select_feature_inputs,
 )
+from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.splitting import load_policy
 from mlops_fraud_prediction_ca1.top_k import TopKReport, evaluate_top_k, format_report
@@ -195,7 +193,13 @@ def fit_and_score(
 
 
 def train(
-    estimator, data_dir: str | Path, *, k: int, seed: int, exploratory: bool = False
+    estimator,
+    data_dir: str | Path,
+    *,
+    k: int,
+    seed: int,
+    exploratory: bool = False,
+    tags: dict[str, str] | None = None,
 ) -> tuple[str, FitResult]:
     """Run `fit_and_score` and log the run to MLflow; return the run ID and the result.
 
@@ -203,14 +207,10 @@ def train(
     the experiment MLFLOW_EXPERIMENT_NAME. The author is git's `user.name`, or "unknown"
     when git has none. A run from a
     tree with uncommitted changes is logged with `git_dirty` set to true and a warning,
-    because its commit alone does not reproduce it.
+    because its commit alone does not reproduce it. `tags` are added to the run's tags.
+    If a run is active, this run is logged as its child.
     """
-    load_dotenv()
-    experiment = os.environ.get("MLFLOW_EXPERIMENT_NAME")
-    if not experiment or not os.environ.get("MLFLOW_TRACKING_URI"):
-        raise RuntimeError(
-            "Set MLFLOW_TRACKING_URI and MLFLOW_EXPERIMENT_NAME in .env (see .env.example)."
-        )
+    _use_experiment()
     hashes = _dataset_hashes(data_dir)
     dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
     if dirty:
@@ -239,8 +239,7 @@ def train(
         metrics[f"precision_{suffix}"] = at.precision
         metrics[f"recall_{suffix}"] = at.recall
 
-    mlflow.set_experiment(experiment)
-    with mlflow.start_run() as run:
+    with mlflow.start_run(nested=True) as run:
         mlflow.log_params(
             {
                 **model_params,
@@ -260,6 +259,7 @@ def train(
                 "git_dirty": dirty,
                 # CI runners and new laptops often have no git identity.
                 "author": _git("config", "--default", "unknown", "user.name"),
+                **(tags or {}),
             }
         )
         # An undefined ratio (no order selected, or no fraud) is left out, not logged as 0.
@@ -283,6 +283,60 @@ def train(
             result.model, name="model", skops_trusted_types=trusted
         )
     return run.info.run_id, result
+
+
+def compare_customer_columns(
+    estimator, data_dir: str | Path, *, k: int, seed: int, tags: dict[str, str]
+) -> tuple[str, tuple[str, FitResult], tuple[str, FitResult]]:
+    """Train `estimator` without and with the unconfirmed customer columns (issue #14).
+
+    `train` logs both runs, from copies of `estimator`, as children of one parent run
+    named after the model. The with-columns run is exploratory and tagged
+    `champion_eligible` false. The parent logs the with-columns result minus the
+    without result for fraud caught at K and 2K and for average precision. `tags` go on
+    all three runs. Returns the parent run ID and `train`'s (run ID, result) for the
+    run without, then with, the columns.
+    """
+    _use_experiment()
+    model = estimator[-1] if hasattr(estimator, "steps") else estimator
+    with mlflow.start_run(
+        run_name=f"{type(model).__name__}: customer columns compared",
+        tags={
+            **tags,
+            "git_commit": _git("rev-parse", "HEAD"),
+            "author": _git("config", "--default", "unknown", "user.name"),
+        },
+    ) as parent:
+        without, with_columns = (
+            train(
+                clone(estimator),
+                data_dir,
+                k=k,
+                seed=seed,
+                exploratory=exploratory,
+                tags={
+                    **tags,
+                    "mlflow.runName": label,
+                    "champion_eligible": str(not exploratory),
+                },
+            )
+            for exploratory, label in (
+                (False, "without customer columns"),
+                (True, "with customer columns (exploratory)"),
+            )
+        )
+        before, after = without[1].report, with_columns[1].report
+        mlflow.log_metrics(
+            {
+                "fraud_caught_at_k_difference": after.at_k.fraud_caught
+                - before.at_k.fraud_caught,
+                "fraud_caught_at_2k_difference": after.at_2k.fraud_caught
+                - before.at_2k.fraud_caught,
+                "average_precision_difference": after.average_precision
+                - before.average_precision,
+            }
+        )
+    return parent.info.run_id, without, with_columns
 
 
 def rerun(run_id: str, data_dir: str | Path) -> dict:
@@ -333,27 +387,14 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
     }
 
 
-def baseline_model():
-    """Logistic regression on the numeric columns and the one-hot-encoded text columns.
-
-    Missing values are filled from the training window only. Date columns are dropped.
-    """
-    return make_pipeline(
-        make_column_transformer(
-            (
-                make_pipeline(SimpleImputer(strategy="median"), StandardScaler()),
-                make_column_selector(dtype_include="number"),
-            ),
-            (
-                make_pipeline(
-                    SimpleImputer(strategy="constant", fill_value="missing"),
-                    OneHotEncoder(handle_unknown="ignore"),
-                ),
-                make_column_selector(dtype_include=object),
-            ),
-        ),
-        LogisticRegression(max_iter=1000),
-    )
+def _use_experiment() -> None:
+    load_dotenv()
+    experiment = os.environ.get("MLFLOW_EXPERIMENT_NAME")
+    if not experiment or not os.environ.get("MLFLOW_TRACKING_URI"):
+        raise RuntimeError(
+            "Set MLFLOW_TRACKING_URI and MLFLOW_EXPERIMENT_NAME in .env (see .env.example)."
+        )
+    mlflow.set_experiment(experiment)
 
 
 def _dataset_hashes(data_dir: str | Path) -> dict[str, str]:
@@ -385,20 +426,31 @@ def main() -> None:
         "baseline", help="Train the baseline model and log the run to MLflow."
     )
     baseline.add_argument(
-        "--k",
-        type=int,
-        required=True,
-        help="Daily review capacity K, in orders per day, fixed before seeing results.",
-    )
-    baseline.add_argument("--seed", type=int, default=0)
-    baseline.add_argument(
         "--exploratory",
         action="store_true",
         help="Add the seven unconfirmed customer columns (never for a champion).",
     )
+    trees = commands.add_parser(
+        "boosted-trees",
+        help="Log the boosted-trees model without and with the customer columns.",
+    )
+    trees.add_argument(
+        "--k-status",
+        required=True,
+        help="Where K comes from, such as 'confirmed' or 'provisional: <reason>'.",
+    )
+    for command in (baseline, trees):
+        command.add_argument(
+            "--k",
+            type=int,
+            required=True,
+            help="Daily review capacity K, in orders per day, fixed before seeing"
+            " results.",
+        )
+        command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
     again.add_argument("run_id")
-    for command in (baseline, again):
+    for command in (baseline, trees, again):
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
@@ -415,6 +467,18 @@ def main() -> None:
         )
         print(format_report(result.report))
         print(f"Logged run {run_id}.")
+    elif args.command == "boosted-trees":
+        parent_id, *children = compare_customer_columns(
+            boosted_trees_model(),
+            args.data_dir,
+            k=args.k,
+            seed=args.seed,
+            tags={"k_status": args.k_status},
+        )
+        for label, (run_id, result) in zip(("Without", "With"), children, strict=True):
+            print(f"{label} the customer columns:\n{format_report(result.report)}")
+            print(f"Logged run {run_id}.")
+        print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
     else:
         for name, value in rerun(args.run_id, args.data_dir).items():
             print(f"{name}: {value}")
