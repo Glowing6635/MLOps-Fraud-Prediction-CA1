@@ -1,6 +1,6 @@
 # Runbook
 
-How to create the team's cloud services in the AWS sandbox account and set them up. Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy. Every command is for Bash: on Windows, run them in Git Bash, not PowerShell.
+How to create the team's cloud services in the AWS sandbox account and set them up. Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy.
 
 ## RDS database
 
