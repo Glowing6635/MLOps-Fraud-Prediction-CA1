@@ -65,15 +65,17 @@ and run `uv run log-test-run`. Open the printed run address to see the run.
 
 Chosen: single instance, t3.small, no load balancer (a load balancer adds a fixed hourly charge and nothing in the plan needs two instances).
 
-Cost with the sandbox stopped, **to be recorded (pending live evidence)**: fill these three numbers from the AWS pricing page and the account, then delete this note.
+Observed on the existing environment `mlflow` (read-only `aws elasticbeanstalk describe-environments`, `describe-configuration-settings`, `ec2 describe-instances`, `ec2 describe-volumes`, `elbv2 describe-load-balancers`, checked 2026-11-24, us-east-1): `EnvironmentType=SingleInstance`, `InstanceType=t3.small`, `ServiceRole=LabRole`, `IamInstanceProfile=LabInstanceProfile`, one instance (`running`), one 8 GB gp3 root volume, no load balancer in the account, URL `sp-buy-mlflow.us-east-1.elasticbeanstalk.com`. This matches the values above.
+
+Cost, **prices still to be sourced**: the AWS pricing API was not readable with the lab credentials, so no dollar figure is stated. Fill the PRICE cells from the AWS EC2 and EBS pricing pages for us-east-1 and cite the page and date.
 
 | Item | Running | Sandbox stopped |
 | --- | --- | --- |
-| t3.small compute | PENDING (price per hour, us-east-1) | PENDING (expected none while stopped; confirm instance state) |
-| Root EBS volume | PENDING | PENDING (volumes persist while stopped) |
+| t3.small compute | PRICE per hour | No compute charge while the instance is stopped (AWS EC2 billing rule: to be confirmed against the pricing page when sourcing; instance state while stopped is not yet observed) |
+| Root EBS volume, 8 GB gp3 | PRICE per GB-month | Still charged: volumes persist while the instance is stopped |
 | Load balancer | none | none |
 
-Commands that fill it (read-only): `aws ec2 describe-instances --filters Name=tag:elasticbeanstalk:environment-name,Values=mlflow --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,BlockDeviceMappings[].Ebs.VolumeId]'` and `aws ec2 describe-volumes --volume-ids <id> --query 'Volumes[].[Size,VolumeType]'`, then multiply by the published price.
+Read-only commands used: `aws ec2 describe-instances --filters Name=tag:elasticbeanstalk:environment-name,Values=mlflow --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,BlockDeviceMappings[0].Ebs.VolumeId]'` and `aws ec2 describe-volumes --volume-ids <id> --query 'Volumes[].[Size,VolumeType]'`.
 
 ## Troubleshooting
 
@@ -88,6 +90,6 @@ Commands that fill it (read-only): `aws ec2 describe-instances --filters Name=ta
 | Criterion | State |
 | --- | --- |
 | One script, clean checkout, no IAM resource | Script `mlflow-server/deploy.sh` written; not run live |
-| Environment type and stopped cost recorded | Type recorded; cost pending (table above) |
+| Environment type and stopped cost recorded | Type and resources recorded from the live environment (read-only); dollar prices and the stopped-instance observation pending |
 | Engineer who did not write it deploys from this runbook | Pending: a teammate follows Quickstart and reports |
 | Every service/value named, diagram, followed quickstart | Written here; "followed successfully" pending the teammate run |
