@@ -28,8 +28,8 @@ compared. Add
 seven unconfirmed customer columns, as two child runs under one parent run (see
 "Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
 `k_status` on all three runs. It defaults to `D5-01: product owner assumption, K = 250`;
-with another `--k`, say where that K comes from, such as `provisional: <reason>`. It
-prints both children's run IDs. The models are in
+with another `--k`, the command stops unless `--k-status` says where that K comes from,
+such as `provisional: <reason>`. It prints both children's run IDs. The models are in
 `src/mlops_fraud_prediction_ca1/models.py`.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
