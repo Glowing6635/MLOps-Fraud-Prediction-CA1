@@ -9,3 +9,5 @@
 - [Runbook](runbook.md) — creating and setting up the cloud services.
 - [Data dictionary](data-dictionary.md) — every table and column in the team
   database.
+- [Training harness](training.md) — how to train and re-run a model, and what
+  each MLflow run records.
