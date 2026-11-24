@@ -20,9 +20,9 @@ Services used: Elastic Beanstalk (Docker platform, single-instance environment),
 
 ## Prerequisites
 
-- EB CLI: `uv tool install --python 3.12 awsebcli`
-- AWS CLI, and sandbox credentials from the Learner Lab "AWS Details" panel in `~/.aws/credentials` (they expire when the session ends; paste fresh ones each session). Never commit them.
-- A CNAME prefix not yet taken, e.g. `sp-buy-mlflow`.
+- Bash, AWS CLI, and EB CLI: `uv tool install --python 3.12 awsebcli`
+- Sandbox credentials from the Learner Lab "AWS Details" panel in `~/.aws/credentials` (they expire when the session ends; paste fresh ones each session). Never commit them.
+- A free CNAME prefix for a new environment, or the existing environment’s prefix when redeploying.
 
 ## Quickstart
 
@@ -34,6 +34,8 @@ cd mlflow-server
 ```
 
 The script runs `eb init` (first time), then `eb create` (or `eb deploy` if the environment exists), prints `eb status`, and calls `/health`. Success is `Health: Green` and `curl http://<prefix>.<region>.elasticbeanstalk.com/health` returning OK.
+
+On redeploy, the script checks that the supplied prefix and region match the existing environment’s CNAME before deploying. It sets the two MLflow host and origin properties at creation time. Redeploy preserves the existing properties.
 
 Then, from each laptop, set in `.env`:
 

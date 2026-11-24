@@ -16,7 +16,20 @@ aws sts get-caller-identity >/dev/null || { echo "AWS credentials missing or exp
 
 [ -d .elasticbeanstalk ] || eb init mlflow-server --platform docker --region "$region"
 
-if eb list | grep -qx "\*\? *${env_name}"; then
+environments="$(eb list)"
+if awk -v name="$env_name" '
+  { sub(/^[*[:space:]]*/, "") }
+  $0 == name { found = 1 }
+  END { exit !found }
+' <<< "$environments"; then
+  status="$(eb status "$env_name")"
+  live_host="$(awk '$1 == "CNAME:" { print $2; exit }' <<< "$status")"
+  if [[ "$live_host" != "$host" ]]; then
+    printf 'Environment %s has CNAME %s; expected %s. Redeploy cancelled.\n' \
+      "$env_name" "${live_host:-unavailable}" "$host" >&2
+    exit 1
+  fi
+
   echo "Environment ${env_name} exists: redeploying."
   eb deploy "$env_name"
 else
