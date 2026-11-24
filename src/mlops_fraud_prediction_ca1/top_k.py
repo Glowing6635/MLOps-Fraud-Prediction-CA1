@@ -128,9 +128,10 @@ def select_top_k(
     """Select each group's top K orders by `scores` (higher means riskier).
 
     `orders` is a pandas DataFrame or a dict of equal-length columns holding at least
-    `order_date`, `country_code` and `order_id`; `scores` has one score per order, in the same
-    order, finite for every order that can be selected. `k` is the daily review capacity, a Python int of orders per day,
-    or a mapping from `country_code` to that country's capacity per day.
+    `order_date`, `country_code` and `order_id`; `scores` has one score per order, in
+    the same order, finite for every order that can be selected. `k` is the daily
+    review capacity, a Python int of orders per day, or a mapping from `country_code`
+    to that country's capacity per day.
 
     Returns a numpy array of bools, True for each selected order, by position in
     `orders` whatever its index.
