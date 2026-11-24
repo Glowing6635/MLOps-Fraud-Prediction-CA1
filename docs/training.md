@@ -58,7 +58,7 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 | Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
 | Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
-| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, and any `tags` the caller gives |
+| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
 | Model | The fitted model, under the name `model` |
 
 The dataset version is the SHA-256 of each input file. Once incoming batches are loaded,

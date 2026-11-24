@@ -172,6 +172,10 @@ def test_a_run_logs_every_field_and_reruns_within_tolerance(
     monkeypatch.chdir(tmp_path)  # MLflow stores artifacts under the working folder.
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
     monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    # No git identity, as on a CI runner.
+    (tmp_path / "gitconfig").touch()
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     run_id, result = train(baseline_model(), data_dir, k=5, seed=7)
     run = mlflow.get_run(run_id)
     params, metrics, tags = run.data.params, run.data.metrics, run.data.tags
@@ -186,7 +190,7 @@ def test_a_run_logs_every_field_and_reruns_within_tolerance(
         for name in ("customers", "orders", "labels")
     )
     assert len(tags["git_commit"]) == 40
-    assert tags["author"] and tags["git_dirty"] in ("True", "False")
+    assert tags["author"] == "unknown" and tags["git_dirty"] in ("True", "False")
     assert metrics["fraud_caught_at_k"] == result.report.at_k.fraud_caught
     for name in (
         "fraud_catchable_at_k",
