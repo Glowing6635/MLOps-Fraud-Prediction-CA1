@@ -17,5 +17,4 @@
   counts and MLflow evidence.
 - [Champion selection and rollback](champion.md) — compare validation runs,
   register the top two and manage aliases.
-
 - [Rehearsal batches and reset](rehearsal-batches.md) — synthetic practice batches, the guarded rehearsal reset and the one-command live run.
