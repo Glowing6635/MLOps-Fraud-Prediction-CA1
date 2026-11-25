@@ -107,7 +107,12 @@ def read_batch(
 ) -> Batch:
     """Fetch and check the three files, each a URL or a local path.
 
-    `timeout` and `sleep` exist so tests can use a local server without waiting.
+    Each download gets four attempts, each waiting up to `timeout` seconds to
+    connect and then for each read, with at most 30 s of retry waits between
+    them. So a server that never answers costs at worst about 4 * `timeout`
+    + 30 s per file (150 s at the default) before `DownloadFailed`; callers
+    with a time budget pass a shorter `timeout`. A server that keeps sending a
+    little at a time is not cut off. Tests pass `sleep` so they need not wait.
     Raises a `BatchError` subclass naming the file and the problem.
     """
     sources = {"customers": customers, "orders": orders, "labels": labels}
