@@ -501,6 +501,11 @@ def main() -> None:
         candidate_parsers.append(parser)
     for command in (baseline, comparison, *candidate_parsers):
         command.add_argument(
+            "--weighting",
+            choices=("balanced",),
+            help="Balance class weights using the training labels.",
+        )
+        command.add_argument(
             "--k",
             type=int,
             default=K,
@@ -523,7 +528,7 @@ def main() -> None:
     sys.stdout.reconfigure(errors="replace")
     if args.command == "baseline":
         run_id, result = train(
-            baseline_model(),
+            baseline_model(class_weight=args.weighting),
             args.data_dir,
             k=args.k,
             seed=args.seed,
@@ -533,7 +538,7 @@ def main() -> None:
         print(f"Logged run {run_id}.")
     elif args.command in candidates:
         parent_id, *children = compare_customer_columns(
-            candidates[args.command](),
+            candidates[args.command](class_weight=args.weighting),
             args.data_dir,
             k=args.k,
             seed=args.seed,

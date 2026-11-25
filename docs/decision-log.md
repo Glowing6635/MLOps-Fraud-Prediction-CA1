@@ -332,3 +332,41 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   baseline. `uv run train baseline` and `uv run train boosted-trees` do not yet wrap
   their models in `build_pipeline`, so models they register have no skew handling until a
   candidate is chosen using the validation comparison above (tracked in #16).
+
+## D17-01 — Training-only class weighting
+
+- Recorded: 2026-11-23. Updated: 2026-11-25. Accountable engineer: SpiralSky.
+  Affected PBIs: #17, #13, #5, #14.
+- Decision: Keep `class_weight=None` as the default and use the final
+  estimator's `class_weight="balanced"` for the opt-in comparison. Both
+  candidates in pinned PR #152 (`6c1326c`), logistic regression and histogram
+  gradient boosting, support this parameter. Each computes a weight of
+  n / (2 × class count) from the training labels. The harness scores the
+  original validation orders at their natural fraud rate.
+- Reason: Both candidates produced identical probabilities on a synthetic
+  fixture when native balancing was compared with explicit balanced sample
+  weights. The harness already logs the classifier parameter and restores
+  it when it clones the saved model for replay. Omitted weighting keeps
+  the existing estimator fit. Explicit unit weights were dropped because
+  supplying them can change seeded tree binning.
+- Alternatives: Resampling changes the training rows. A fit adapter adds
+  weight routing and serialization handling that neither candidate needs.
+- Scope: The production weighting decision stays open. This comparison uses
+  the frozen split, seed 0, and the product owner's K=250/day assumption
+  in D5-01. The final holdout stays locked. See
+  [training invocation](training.md#comparing-training-class-weights).
+
+### Frozen validation comparison
+
+The training window had 75,449 fraud labels across 721,354 orders. All four
+runs and their replays scored the same 101,190 validation orders, including
+13,066 fraud cases (12.91%). The local MLflow runs used the standard fit,
+parameter logging, artifact loading and replay. Each replay exactly matched
+its logged fraud caught at K and average precision.
+
+| Candidate | Class weight | Fraud caught at K | Fraud caught at 2K | Average precision |
+| --- | --- | ---: | ---: | ---: |
+| Logistic regression | `None` | 2,498 | 3,985 | 0.325879 |
+| Logistic regression | `balanced` | 2,479 | 3,933 | 0.322586 |
+| Boosted trees | `None` | 2,893 | 4,370 | 0.371637 |
+| Boosted trees | `balanced` | 2,856 | 4,395 | 0.371064 |
