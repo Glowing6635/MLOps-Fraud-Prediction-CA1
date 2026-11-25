@@ -2,9 +2,14 @@
 
 **Draft for [PBI #35][35], due 29 November 2026.** The team registry
 records `fraud-candidate` version 1 (histogram gradient boosting) as
-champion on validation evidence. That registration does not establish
-the artifact or result for the final [#23 evaluation][23]. See the
-[team registry record][registry].
+champion after the rollback check. The registered artifact points to
+MLflow run `9c3a59771cf8499d92972f5c7873e280`
+(`runs:/9c3a59771cf8499d92972f5c7873e280/model`). That run caught
+2,893 labelled fraud orders at K = 250/day, with average precision 0.3716
+on validation. The selection is provisional for final evaluation: #22
+can change the champion and #23 records the exact scored artifact and
+whether it was refit. [First model review and registry record][registry],
+[PBI #22][22], [PBI #23][23].
 
 ## Intended use
 
@@ -32,12 +37,20 @@ in the top K across the daily selection groups. Report it beside the
 maximum catchable at K, the sum across groups of the smaller of K and the
 group's labelled fraud count. [PBI #5][5].
 
-**Result against the rule at K: pending final evaluation.** The
-[#18 draft][157] records a validation-tuned proxy that flags orders above
-SGD 13.36 when account age is zero days, not a deployed fraud rule. The
-final report will cap rule flags at K per group by order value, show the
-model at K, and compare both at the rule's actual flag count wherever it
-flags fewer than K. [D18-04][proxy], [PBI #23][23], [PBI #34][34].
+**Validation comparison, not final performance.** The #18 comparison
+reproduced the boosted-trees candidate on validation. At K = 250/day
+it caught 2,893 fraud orders across 5,250 flags. The proxy rule flagged
+132 orders in total and caught 73. At the same 132 flags as the rule,
+the model caught 102. Compare 102 with 73 for the same review load,
+not 2,893 with 73. The rule flags orders above SGD 13.36 when account
+age is zero days; this threshold was tuned on validation, not taken
+from a deployed rule. [#18 comparison][157], [D18-04][proxy],
+[First model review][registry].
+
+**Final result against the rule at K: pending #23 and #34.** Use the
+frozen K and X, show the model at K, and compare both at the rule's
+actual flag count wherever it flags fewer than K. The validation
+numbers above are not substitutes. [PBI #23][23], [PBI #34][34].
 
 ## Limitations
 
@@ -71,8 +84,8 @@ flags fewer than K. [D18-04][proxy], [PBI #23][23], [PBI #34][34].
   synthetic practice batches, not live incoming orders. An operator starts
   the run and supplies three batch links. The batch preflight is in
   `dev`; it checks the inputs, not whether all stages finish within three
-  minutes. The stage budget is a target, not a measured time. Analysts decide what to do
-  with flags; a pipeline run does not select or promote a champion.
+  minutes. The stage budget is a target, not a measured time. Analysts
+  decide what to do with flags; a run does not select or promote a champion.
   [PBI #24][24], [D27-01][budget], [PR #99][99], [PBI #15][15].
 - **What the impact figures mean.** Fraud exposure is the order value of
   flagged orders labelled as fraud, not money saved. The comparison
@@ -80,11 +93,10 @@ flags fewer than K. [D18-04][proxy], [PBI #23][23], [PBI #34][34].
   at matched flag counts. If a 95% interval includes zero, the report
   says it did not show a difference on that measure. [D34-01][impact].
 
-## Evidence required to finalise
+## Final evaluation status
 
-- **#15 and final review** — The registry entry, exact model version and
-  artifact, originating MLflow run and recorded champion choice, including
-  the final review under #22. [PBI #15][15], [PBI #22][22].
+- **#22 final review:** Confirm or replace the #15 validation champion;
+  record the selected version, artifact and MLflow run. [PBI #22][22].
 - **#18** — The rule's X and source (or documented validation-tuned proxy
   and candidate thresholds), loyal definition, account-age handling and
   matched-flag comparison method. [PBI #18][18].
@@ -121,8 +133,8 @@ flags fewer than K. [D18-04][proxy], [PBI #23][23], [PBI #34][34].
 [35]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/35
 [99]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/99
 [157]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/157
-[registry]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/121e5e3574a09255e88508cb0479fec30f12b172/docs/model-review.md#5-team-registry-status
+[registry]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/c4d75a01deb53cb0cc4b0a5e296212f853101dc7/docs/model-review.md#4-criterion-3-acting-analyst-sign-off
 [capacity]: decision-log.md#d5-01-the-top-k-measure-uses-k--250-orders-a-day
 [budget]: decision-log.md#d27-01-wall-clock-budget-for-a-practice-batch
-[impact]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/7e163f4b77c4884e9abc3b4a260d45327ad08e81/docs/decision-log.md#d34-01--criterion-for-reading-the-model-versus-rule-result
+[impact]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/2b0bbf2b9bbf9f3434f88872c741e9367fb4c42d/docs/decision-log.md#d34-01--criterion-for-reading-the-model-versus-rule-result
 [proxy]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/dd749e1b9e294539a82e2d7e9bdc0faf1fd63b47/docs/decision-log.md#d18-04--the-proxy-rule-is-final-no-deployed-threshold-or-capacity-source-exists
