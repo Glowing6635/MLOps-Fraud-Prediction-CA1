@@ -13,6 +13,22 @@
 4. `uv run pytest` runs the tests.
 5. `uv run log-test-run` logs a test run to the MLflow server in `.env`, to check your laptop can reach it. `mlflow-server/README.md` says how to deploy the server.
 
+### Batch command
+
+From the repository root, run `uv sync` and configure `.env` or your environment
+using `.env.example`. The preflight requires the database host, name, username
+and password, plus the MLflow tracking URI, experiment name, username
+(`MLFLOW_TRACKING_USERNAME`) and password (`MLFLOW_TRACKING_PASSWORD`).
+
+Set `CUSTOMERS_URL`, `ORDERS_URL` and `LABELS_URL` to the corresponding CSV URLs.
+Pass them in that order and quote each URL to preserve its query string.
+
+```sh
+uv run run-batch "$CUSTOMERS_URL" "$ORDERS_URL" "$LABELS_URL"
+```
+
+The command prints the target database host, database name, and MLflow experiment. Until the fetch and validate stage (#19) is integrated, it then exits with status 1 before downloading data or connecting to either service.
+
 ### Checks
 CI (`.github/workflows/ci.yml`) runs on every pull request: `ruff check`, `ruff format --check`, `pytest`, a licence and vulnerability check of the dependencies, a gitleaks scan of the full history, and a check that the pull request's source and target branches follow `docs/contributors/README.md`. Run the first three locally with `uv run`.
 
