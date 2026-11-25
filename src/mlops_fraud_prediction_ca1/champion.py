@@ -3,7 +3,8 @@
 Eligible runs are validation runs from the #13 harness that are tagged
 `champion_eligible` = "True" (never the exploratory, with-customer-columns runs of
 #14) and have comparable validation evidence at the same K. They are ranked by
-most fraud caught at K, then higher average precision and then run ID.
+most fraud caught at K, then higher average precision and then run ID. The
+registry gets the best two of them whose model is within 50 MB (D15-03).
 
 Registry layout: one registered model; the best version carries the `champion`
 alias, the second carries `challenger`. Every version is tagged with its source run,
@@ -298,18 +299,44 @@ def _artifact_size(client, source: _ModelSource) -> int | None:
         return None
 
 
-def _top_sources(client, candidates: list[Candidate]) -> list[_ModelSource]:
-    if len(candidates) < TOP_TWO or candidates[0].run_id == candidates[1].run_id:
-        raise ValueError("Champion and challenger must come from two different runs.")
-    return [_artifact_source(client, candidate) for candidate in candidates[:TOP_TWO]]
+def _registration_picks(
+    client, candidates: list[Candidate]
+) -> tuple[list[Candidate], list[_ModelSource], list[int | None]]:
+    """Take the best two ranked candidates whose model fits within 50 MB.
+
+    Every candidate stays in the ranking. A candidate is passed over
+    when its exact artifact size, or failing that the harness's saved-copy size,
+    is known and above 50 MB. An unmeasured size shows as unknown and does not
+    block registration.
+    """
+    picked, sources, sizes = [], [], []
+    for candidate in candidates:
+        saved = candidate.saved_model_size_bytes
+        try:
+            source = _artifact_source(client, candidate)
+        except ValueError:
+            if saved is not None and saved > SIZE_NOTE_BYTES:
+                continue  # oversized and not registrable anyway
+            raise
+        exact = _artifact_size(client, source)
+        size = saved if exact is None else exact
+        if size is not None and size > SIZE_NOTE_BYTES:
+            continue
+        picked.append(candidate)
+        sources.append(source)
+        sizes.append(exact)
+        if len(picked) == TOP_TWO:
+            return picked, sources, sizes
+    raise ValueError("Fewer than two ranked candidates are within 50 MB.")
 
 
 def comparison_id(client, candidates: list[Candidate]) -> str:
     """Fingerprint the comparison and the two resolved sources for analyst approval."""
-    return _comparison_id(client, candidates, _top_sources(client, candidates))
+    picked, sources, _ = _registration_picks(client, candidates)
+    return _comparison_id(client, candidates, picked, sources)
 
 
-def _comparison_id(client, candidates, sources) -> str:
+def _comparison_id(client, candidates, picked, sources) -> str:
     ranking = [asdict(candidate) for candidate in candidates]
     for entry in ranking:
         # Size is informational. It may be measured or corrected after approval.
@@ -318,6 +345,7 @@ def _comparison_id(client, candidates, sources) -> str:
         "schema": 2,
         "tracking_uri": client.tracking_uri,
         "ranking": ranking,
+        "registered": [candidate.run_id for candidate in picked],
         "sources": [asdict(source) for source in sources],
     }
     return sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
@@ -344,8 +372,8 @@ def register_top_two(
     client, model_name: str, candidates: list[Candidate], *, approved_comparison: str
 ) -> dict[str, str]:
     """Register the approved top two artifacts and assign their aliases."""
-    sources = _top_sources(client, candidates)
-    if approved_comparison != _comparison_id(client, candidates, sources):
+    picked, sources, _ = _registration_picks(client, candidates)
+    if approved_comparison != _comparison_id(client, candidates, picked, sources):
         raise ValueError("Comparison changed. Preview it again and obtain approval.")
     aliases = _registered_aliases(client, model_name)
     if aliases is None:
@@ -356,9 +384,7 @@ def register_top_two(
         key=lambda version: int(version.version),
     )
     versions = {}
-    for role, cand, source in zip(
-        (CHAMPION, CHALLENGER), candidates[:TOP_TWO], sources, strict=True
-    ):
+    for role, cand, source in zip((CHAMPION, CHALLENGER), picked, sources, strict=True):
         matches = [
             v
             for v in existing
@@ -491,7 +517,7 @@ def main() -> None:
     parser.add_argument(
         "--register",
         metavar="MODEL_NAME",
-        help="Register the top two under MODEL_NAME and update the aliases.",
+        help="Register the best two ranked models within 50 MB under MODEL_NAME and update the aliases.",
     )
     parser.add_argument(
         "--approve-comparison",
@@ -515,20 +541,21 @@ def main() -> None:
     try:
         candidates = eligible_candidates(client, [experiment.experiment_id], args.k)
         if args.register is None:
-            sources = _top_sources(client, candidates)
-            approval_id = _comparison_id(client, candidates, sources)
+            picked, sources, sizes = _registration_picks(client, candidates)
+            approval_id = _comparison_id(client, candidates, picked, sources)
             sys.stdout.write(comparison_table(candidates) + "\n\n")
-            for rank, (candidate, source) in enumerate(
-                zip(candidates[:TOP_TWO], sources, strict=True), 1
+            for role, candidate, source, exact in zip(
+                (CHAMPION, CHALLENGER), picked, sources, sizes, strict=True
             ):
+                rank = candidates.index(candidate) + 1
                 uri = (
                     f"models:/{source.logged_id}"
                     if source.logged_id
                     else candidate.artifact_uri
                 )
-                size = _size_note(_artifact_size(client, source))
+                size = _size_note(exact)
                 sys.stdout.write(
-                    f"Rank {rank} artifact: {uri} (artifact size: {size})\n"
+                    f"{role} (rank {rank}) artifact: {uri} (artifact size: {size})\n"
                 )
             sys.stdout.write(f"Comparison ID: {approval_id}\n")
             return

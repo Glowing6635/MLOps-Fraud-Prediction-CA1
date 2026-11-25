@@ -163,6 +163,28 @@ def test_top_two_are_registered_with_aliases_and_artifact_tags(client):
     assert len(client.search_model_versions(f"name='{MODEL}'")) == 2
 
 
+def test_registry_gets_best_two_within_50_mb_and_ranking_keeps_the_rest(
+    client, monkeypatch
+):
+    huge = _log("huge forest", 300, 0.9, model_size_bytes=187_000_000)
+    real = champion._artifact_size
+    monkeypatch.setattr(
+        champion,
+        "_artifact_size",
+        lambda c, source: 187_000_000 if huge in source.location else real(c, source),
+    )
+    best = _log("best", 200, 0.3)
+    second = _log("second", 100, 0.4)
+    _log("third", 50, 0.1)
+    candidates = eligible_candidates(client, _experiment(client), 250)
+    assert len(candidates) == 4
+    assert "187,000,000 bytes (>50 MB)" in comparison_table(candidates)
+    versions = _register(client, MODEL, candidates)
+    assert client.get_model_version_by_alias(MODEL, CHAMPION).run_id == best
+    assert client.get_model_version_by_alias(MODEL, CHALLENGER).run_id == second
+    assert len(versions) == 2
+
+
 def test_alias_moves_to_the_second_model_and_back(client):
     _log("best", 100, 0.3)
     _log("second", 90, 0.4)
@@ -393,7 +415,7 @@ def test_cli_registers_and_loads_only_exact_sources(client, monkeypatch, tmp_pat
     nested = Path(unquote(urlsplit(location).path)) / "extra"
     nested.mkdir()
     with (nested / "payload").open("wb") as payload:
-        payload.truncate(50_000_001)
+        payload.truncate(1_000)
     alternate_source = _log_legacy_model(client, tmp_path, winner, 0, "alternate")
     legacy_source = _log_legacy_model(client, tmp_path, runner_up, 0, "model")
 
@@ -407,11 +429,11 @@ def test_cli_registers_and_loads_only_exact_sources(client, monkeypatch, tmp_pat
         path.stat().st_size for path in nested.parent.rglob("*") if path.is_file()
     )
     assert (
-        f"Rank 1 artifact: {logged.model_uri} (artifact size: {size:,} bytes (>50 MB))"
+        f"champion (rank 1) artifact: {logged.model_uri} (artifact size: {size:,} bytes)"
         in preview.stdout
     )
     assert "Exact scored-row identity is unverified" in preview.stdout
-    assert f"Rank 2 artifact: {legacy_source}" in preview.stdout
+    assert f"challenger (rank 2) artifact: {legacy_source}" in preview.stdout
     approval = preview.stdout.split("Comparison ID: ")[1].strip()
     assert not client.search_registered_models()
     client.create_registered_model(MODEL)
@@ -548,7 +570,10 @@ def test_cli_approval_survives_optional_size_inventory_failure(
 
     assert exit_status.value.code in (None, 0)
     output = capsys.readouterr().out
-    assert f"Rank 1 artifact: runs:/{winner}/model (artifact size: unknown)" in output
+    assert (
+        f"champion (rank 1) artifact: runs:/{winner}/model (artifact size: unknown)"
+        in output
+    )
     assert f"Comparison ID: {approval}" in output
     assert inventory.call_args_list == [call(None), call("nested"), call(None)]
     assert not client.search_registered_models()

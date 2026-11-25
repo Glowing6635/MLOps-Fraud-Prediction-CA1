@@ -285,6 +285,31 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   and rollback remain the record of that review. The runbook describes new
   comparisons and the [operator checks](champion.md#pick-at-the-model-review).
 
+## D15-03 — Register the best two ranked models within 50 MB
+
+- Recorded 2026-11-25 for [PBI #15](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/15)
+  after teammate review of PR #161. Accountable engineer: SpiralSky.
+  **Needs the Product Owner's one-line confirmation.**
+- Decision: keep D15-02's ranking of every eligible validation candidate, with
+  size notes. The team registry gets the best two ranked candidates whose
+  model size is not known to exceed 50,000,000 bytes (exact artifact size when
+  the inventory gives it, otherwise the harness's saved-copy size). Larger
+  candidates stay in the table with their note and are passed over
+  for registration. An unmeasured size shows as unknown and does not block it. The Comparison ID binds the registered run IDs as well as
+  the ranking.
+- Rationale: the registry holds what the team can actually retrain and serve
+  under #25 and #27. A 187 MB forest as challenger (v2) fails that, yet
+  dropping it from the ranking would hide the validation result that D15-02
+  keeps visible.
+- Alternatives: (1) exclude oversized models from the ranking: rejected by
+  D15-02. (2) Register the unfiltered top two and note the size: this was
+  the state teammate review rejected. (3) Reduce and remeasure the forest:
+  possible later, and it would re-enter by rank once measured.
+- Effect on the team registry: the recorded `fraud-candidate` v2 (random
+  forest, 187 MB) is not within the limit. Under this rule the pair is the
+  boosted-trees run and the next-ranked within-limit run. Registering it needs
+  a live registry operation, which this change does not perform.
+
 ## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
 
 - Recorded: 2026-11-24. Affected PBI: #25.

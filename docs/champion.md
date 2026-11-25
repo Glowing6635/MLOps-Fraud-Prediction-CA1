@@ -59,7 +59,9 @@ requires investigation before registration. Each registry version records
 `resolved_artifact` location, `k` and its metrics. Reuse requires the same run
 and the verified registry source and download location.
 
-The best takes `champion` and the second takes `challenger`. Any displaced
+The best two ranked runs whose model is within 50 MB take `champion` and
+`challenger` ([D15-03](decision-log.md#d15-03--register-the-best-two-ranked-models-within-50-mb)).
+A run known to be larger stays in the table and is passed over. Any displaced
 version keeps its registry entry. A new champion records the prior version in
 `previous_champion_version`.
 
@@ -111,6 +113,8 @@ ready versions and source runs after each move. The destination version recorded
 the previous champion version on each move.
 
 See the [acting-analyst sign-off](model-review.md#4-criterion-3-acting-analyst-sign-off).
+Historical version 2 (random forest, 187 MB) is above 50 MB, so it no longer
+qualifies as challenger. Re-registering needs a live registry operation.
 The exact bytes of historical version 2 remain unverified. Size measurements for
 separate PR #164 fits cannot establish that version's size. The historical
 sign-off applies to the recorded pair. New team registry changes remain on hold
