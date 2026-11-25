@@ -253,7 +253,7 @@ def render_report(
     if mocked_inputs:
         lines += [
             (
-                "**Synthetic dry run only.** Policy selections and inputs are mocked; "
+                "**Synthetic dry run only.** The inputs are synthetic; "
                 "this is not final-window or holdout evidence."
             ),
             "",

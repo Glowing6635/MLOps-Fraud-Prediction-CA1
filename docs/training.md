@@ -13,6 +13,9 @@ files must be in `data/`, or in the folder given by `--data-dir`.
 ```
 uv run train baseline --seed 0
 uv run train boosted-trees
+uv run train random-forest --seed 0
+uv run train extra-trees --seed 0
+uv run train compare-feature-groups
 uv run train rerun <run ID>
 ```
 
@@ -24,13 +27,22 @@ Safety gives a capacity. Every candidate must use the same K, or the runs can't 
 compared. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
-`boosted-trees` trains histogram gradient-boosted trees twice, without and with the
-seven unconfirmed customer columns, as two child runs under one parent run (see
-"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
-`k_status` on all three runs. It defaults to `D5-01: product owner assumption, K = 250`;
-with another `--k`, the command stops unless `--k-status` says where that K comes from,
-such as `provisional: <reason>`. It prints both children's run IDs. The models are in
+The candidate commands are `boosted-trees` (histogram gradient-boosted trees),
+`random-forest` (random forest) and `extra-trees` (extremely randomized trees). Each
+trains twice, without and with the seven unconfirmed customer columns, as two child
+runs under one parent run (see "Comparing the customer columns"). Each command prints
+both children's run IDs. Random forest caps its 100 trees at 2,400 leaves per tree to
+fit within the retraining model-size limit (#25). Extra trees uses 200 trees. Both
+require at least 50 training samples per leaf. The models are in
 `src/mlops_fraud_prediction_ca1/models.py`.
+
+`--k-status` says where K comes from, and is tagged `k_status` on all three runs. It
+defaults to `D5-01: product owner assumption, K = 250`; with another `--k`, the command
+stops unless `--k-status` says where that K comes from, such as
+`provisional: <reason>`.
+
+`compare-feature-groups` fits and logs the baseline separately for each
+[order feature group](feature-pipeline.md) and prints the validation results and run IDs.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
@@ -51,6 +63,21 @@ active is logged as its child.
 The model receives a DataFrame of the feature columns. Numbers and true/false values
 are floats, text is a Python string, and every missing value is NaN. Missing values must
 be filled by a step fitted inside the pipeline, so only the training window is used.
+
+## Comparing training class weights
+
+Both commands default to the estimator's unweighted fit. Add
+`--weighting balanced` to opt in, or pass `class_weight="balanced"` to
+`baseline_model()` or `boosted_trees_model()` before calling `train()`.
+To compare the two methods without exploratory customer columns, call `train()`
+with each candidate twice, omitting `class_weight` on the first call and setting
+it to `"balanced"` on the second. Use the frozen split, `k=250`, and `seed=0`
+for both calls.
+
+The classifier derives weights from training labels during fit. The validation
+report uses the original orders and fraud rate. MLflow records the final
+classifier's `class_weight` parameter, and rerun restores it from the logged
+model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 
 ## What each run records
 
@@ -89,7 +116,7 @@ run shows what leaving the columns out costs.
 
 The with-columns run adds seven columns, one of them the customer's first order date
 as `days_since_first_order`, and their values are NaN for orders whose customer dates
-fail the D4-03 checks. A pipeline that picks columns by type, as both models in
+fail the D4-03 checks. A pipeline that picks columns by type, as the models in
 `models.py` do, handles them; one that names its columns must name these too.
 
 The parent logs the with-columns result minus the without result as

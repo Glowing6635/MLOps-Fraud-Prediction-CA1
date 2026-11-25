@@ -2,7 +2,7 @@
 
 This log records the feature-timing assumptions and handling for PBI #4, the temporal policy for PBI #6,
 the daily review capacity K for PBI #5 (D5-01), where the MLflow server keeps its data (D8-01),
-and the #34 reading criterion (D34-01).
+and the champion registry workflow for PBI #15 (D15-01).
 No Operations confirmation has been received, so every timing status in D4-01 to D4-05 remains
 unconfirmed. K is a product owner assumption, set on 23 November 2026. Feature-timing decisions were
 recorded on 15 November 2026, temporal windows on 16 November and the MLflow server's storage
@@ -223,6 +223,99 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
 
+## D15-01 — Approved comparison and exact registry sources
+
+- Recorded 2026-11-25 for [PBI #15](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/15).
+  Accountable engineer: SpiralSky.
+- Decision: record the Comparison ID with the analyst's sign-off and require
+  it for registration. It binds the tracking store, ranking and scores, and
+  the resolved top two sources. Recheck it before any registry writes. A
+  logged model uses its exact artifact location. A legacy run uses its run
+  artifact location. Reuse a ready version only when the run, source reference
+  and download URI match the elected artifact.
+- Rationale and alternatives: repeating an unbound search can register late
+  runs that were absent at the review. Saving a roster of run IDs alone
+  preserves membership but can miss changes in scores or model identity.
+  The ID checks the comparison without a separate snapshot file. The sign-off
+  still documents who approved it. A run ID or a version tag alone cannot
+  distinguish two versions of different artifacts from the same run.
+- Alias recovery: write challenger first and champion last so an interrupted
+  operation can be retried using the same arguments. Attempt to restore the
+  challenger on a reported error when the visible state still matches the
+  first write. MLflow provides separate alias operations. Operators serialize
+  writes and verify both aliases after retry.
+- Scope and open verification: the historical Lane A comparison and acting-analyst
+  sign-off stand. The installed CLI and local SQLite checks support offline
+  verification. The team registry operator needs to verify the exact historical
+  artifact and run the approved source, alias, retry and rollback checks on a
+  socket-capable host. SpiralSky owns #15 integration, which depends on #165.
+
+## D15-02 — Rank for review and qualify retraining separately
+
+- Settled 2026-11-25. Decision owner: SpiralSky (Product Owner), response to
+  `agile-mlops-20261124-15`. Affected PBIs: #15 and #25.
+- Decision: #15 ranks every otherwise eligible validation candidate by #5
+  fraud caught at K, then average precision, then ascending run ID for exact
+  ties. Keep #14 exploratory runs out. Annotate measured sizes above 50 MB
+  and report unavailable measurements as unknown. The Comparison ID binds the
+  reviewed scores, cohort and elected sources. Size measurements are
+  informational and may be updated without a new approval.
+- Rationale and alternative: applying the #25 cap to #15 would omit an
+  otherwise eligible winner or challenger and change the validation record.
+  The two decisions answer different questions: which models caught most
+  fraud, and which models the pipeline can afford to retrain within its budget.
+- Impact: #25 still needs a measured roster within its 50 MB and #27 fit-time
+  limits. Baseline logistic regression and qualifying boosted-tree or light
+  candidates can enter that roster once measured. Oversized random-forest
+  artifacts stay out unless reduced and remeasured within the limits. The
+  saved-copy measurement from the harness or another fit does not measure the
+  exact registry artifact. SpiralSky owns the #25 roster and its measured
+  evidence, including confirmation of the cap's implementation boundary for
+  #25. The #15 display uses 50,000,000 bytes for its MB note.
+- Validation evidence: AP is undefined for fraud-free cohorts, as in #5.
+  The current #13 harness records inputs, cutoffs, policy version and totals.
+  Accept wholly legacy comparisons with matching recorded evidence and an
+  explicit scored-row identity limitation. Reject malformed, mixed or
+  conflicting row fingerprints. Accept matching fingerprints when present.
+  Requiring them for every run now would reject the live producer's output.
+  Backfilling them from equal counts would invent provenance. SpiralSky and
+  the #13 owner (Glowing6635) still need to agree on the producer's fingerprint
+  contract before requiring it for fresh exact-cohort evidence.
+- The historical Lane A selection, exact run references, analyst sign-off
+  and rollback remain the record of that review. The runbook describes new
+  comparisons and the [operator checks](champion.md#pick-at-the-model-review).
+
+## D15-03 — Register the best two ranked models within 50 MB
+
+- Recorded 2026-11-25 for [PBI #15](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/15)
+  after teammate review of PR #161. Accountable engineer: SpiralSky.
+  **Needs the Product Owner's one-line confirmation.**
+- Decision: keep D15-02's ranking of every eligible validation candidate, with
+  size notes. The team registry gets the best two ranked candidates whose
+  model size is not known to exceed 50,000,000 bytes (exact artifact size when
+  the inventory gives it, otherwise the harness's saved-copy size). Larger
+  candidates stay in the table with their note and are passed over
+  for registration. An unmeasured size shows as unknown and does not block it. The Comparison ID binds the registered run IDs as well as
+  the ranking.
+- Rationale: the registry holds what the team can actually retrain and serve
+  under #25 and #27. A 187 MB forest as challenger (v2) fails that, yet
+  dropping it from the ranking would hide the validation result that D15-02
+  keeps visible.
+- Alternatives: (1) exclude oversized models from the ranking: rejected by
+  D15-02. (2) Register the unfiltered top two and note the size: this was
+  the state teammate review rejected. (3) Reduce and remeasure the forest:
+  possible later, and it would re-enter by rank once measured.
+- Effect on the team registry: the recorded `fraud-candidate` v2 (random
+  forest, 187 MB) is not within the limit. Under this rule the pair is the
+  boosted-trees run and the next-ranked within-limit run. Registering it needs
+  a live registry operation, which this change does not perform.
+
+## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
+
+- Recorded: 2026-11-24. Affected PBI: #25.
+- Decision: use the #20 reader and #6 train predicate for the shared RDS snapshot. Count exclusions in the database and score all candidates and the current champion on the same frozen validation input. No window changed. Release mode follows #23.
+- Reason: this lets retraining run independently of the #24 rehearsal tooling and keeps the frozen test rows out of the training process.
+
 ## D27-01: Wall-clock budget for a practice batch
 
 Recorded 2026-11-20 for [the three-minute pipeline (#27)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/27)
@@ -247,6 +340,124 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D26-01 — Apply and verify the deployment settings before rollout
+
+- Settled: 2026-11-24. Owner: SpiralSky. Affected PBI: #26.
+- Decision: use a uniquely named EB saved configuration for creation. Check all
+  seven #9 settings in the deployed configuration before redeploying and stop
+  if any are missing or invalid. Require one artifact setting in the active
+  application environment namespace and apply one offline URI check on both
+  rollout paths. Require a literal S3 key prefix without raw `?` or `#`.
+  The check reports setting names and leaves configuration changes to the
+  operator.
+- Rationale: the offline EB CLI 3.27.5 resolver uploads a saved configuration
+  under its basename and passes `--cfg` verbatim to `CreateEnvironment`. A
+  local path therefore selects a different name. A CNAME match alone lets an
+  incomplete environment attempt a rollout that the container cannot start.
+  [DescribeConfigurationSettings](https://docs.aws.amazon.com/elasticbeanstalk/latest/api/API_DescribeConfigurationSettings.html)
+  can include a draft configuration alongside the active one. A URI can end in
+  `/artifacts` and still have an invalid bucket name. Validating the bucket
+  component against the [S3 general purpose naming rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html)
+  in one place keeps create and redeploy consistent and allows nested key
+  prefixes. MLflow 3.18.0 treats raw `?` and `#` as URI delimiters, so either
+  can redirect artifact writes to a different key even when rollout passes.
+- Alternatives: applying settings after creation leaves first boot without
+  required values. Automatically repairing an existing configuration would
+  change a running environment and require selecting a destination and secret
+  references on the operator's behalf. Keeping a second URI rule in the AWS
+  query can lead to different behavior on create and redeploy. Percent-encoding
+  the delimiters would store the escape sequences literally in the S3 key.
+  Probing S3 would add a network call and test the deployer's permissions, which can
+  differ from the instance role's.
+- Impact: creation receives the settings at launch. Redeploy requires read
+  access to the environment's configuration and leaves a mismatched
+  environment untouched. The URI check verifies the name and path syntax.
+  Bucket existence and instance-role access still require the live persistence
+  check.
+- Open: SpiralSky owns the clean sandbox deployment and stopped-session billing
+  evidence and will arrange the unaided teammate deployment and quickstart.
+  The live evidence for #26 AC1–4 is tracked in owner request
+  `agile-mlops-20261124-10`.
+
+## D16-01 — Skew and outlier handling for scoring inputs
+
+- Recorded: 2026-11-23. Owner: SpiralSky. Affected PBIs: #16 (criterion 2), #119.
+- Decision: the two numeric scoring inputs from D4-01, `order_value` and
+  `num_items_ordered`, receive a fixed signed `log1p` (`skew_outliers.transform_skewed_features`),
+  appended as `<feature>_log1p`. Raw cleaned values are kept; nothing is capped, removed or imputed.
+- Reason: notebook section 3.5.4 shows every numeric feature right-skewed (items ordered
+  41.04), with a largest item count of 1,600 against a median of 2 and P99 of 22, and no
+  negative or infinite values. The extremes are located but not established as errors, and
+  large orders may carry fraud signal, so the log scale limits leverage without discarding them.
+- Training-only fitting: the transform learns nothing, so no threshold is fitted and a
+  held-out row's output never depends on other rows. Missing values stay missing;
+  infinities become missing. Missing-value imputation remains a later, train-fitted step.
+- Not transformed: `collect_type`/`payment_method` (categorical), `refund_value`
+  (evaluation-only, D4-01) and the customer fields (withheld, D4-02). `skew_outliers.TREATMENTS`
+  holds the per-feature reasons. This does not claim model performance, #118/#120 or registration.
+
+## D16-02: Feature groups and their validation comparison
+
+- Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #16 (criteria 1, 3, 4).
+- Groups (`feature_pipeline.FEATURE_GROUPS`): `order_raw`, the four allowed order columns (D4-01); `order_log`, `order_raw` plus signed log1p of `order_value` and `num_items_ordered` (D16-01). Customer columns stay out (D4-02).
+- Comparison: baseline logistic regression, K = 250, seed 0, validation window, run through the #13 harness into a local SQLite MLflow store (not the team server).
+
+| Group | Fraud caught at K | Average precision |
+| --- | --- | --- |
+| `order_raw` | 2498 | 0.3259 |
+| `order_log` | 2450 | 0.3240 |
+
+- Decision: `order_log` stays the packaging default so a candidate using the default
+  exercises the signed-log treatment end to end, including after model loading. It
+  keeps the original values available and compresses plausible extremes in the added
+  columns. For the measured logistic baseline, choose `order_raw` on validation
+  evidence. It caught 48 more frauds at K (about 2% of the raw group's catch) and had
+  higher average precision. Choose the group for each candidate using its validation
+  results. The local comparison did not test boosted-tree performance. A comparison
+  against the team MLflow server is pending.
+- Which candidates use it: `uv run train compare-feature-groups` puts it in front of the
+  baseline. `uv run train baseline` and `uv run train boosted-trees` do not yet wrap
+  their models in `build_pipeline`, so models they register have no skew handling until a
+  candidate is chosen using the validation comparison above (tracked in #16).
+
+## D17-01 — Training-only class weighting
+
+- Recorded: 2026-11-23. Updated: 2026-11-25. Accountable engineer: SpiralSky.
+  Affected PBIs: #17, #13, #5, #14.
+- Decision: Keep `class_weight=None` as the default and use the final
+  estimator's `class_weight="balanced"` for the opt-in comparison. Both
+  candidates in pinned PR #152 (`6c1326c`), logistic regression and histogram
+  gradient boosting, support this parameter. Each computes a weight of
+  n / (2 × class count) from the training labels. The harness scores the
+  original validation orders at their natural fraud rate.
+- Reason: Both candidates produced identical probabilities on a synthetic
+  fixture when native balancing was compared with explicit balanced sample
+  weights. The harness already logs the classifier parameter and restores
+  it when it clones the saved model for replay. Omitted weighting keeps
+  the existing estimator fit. Explicit unit weights were dropped because
+  supplying them can change seeded tree binning.
+- Alternatives: Resampling changes the training rows. A fit adapter adds
+  weight routing and serialization handling that neither candidate needs.
+- Scope: The production weighting decision stays open. This comparison uses
+  the frozen split, seed 0, and the product owner's K=250/day assumption
+  in D5-01. The final holdout stays locked. See
+  [training invocation](training.md#comparing-training-class-weights).
+
+### Frozen validation comparison
+
+The training window had 75,449 fraud labels across 721,354 orders. All four
+runs and their replays scored the same 101,190 validation orders, including
+13,066 fraud cases (12.91%). The local MLflow runs used the standard fit,
+parameter logging, artifact loading and replay. Each replay exactly matched
+its logged fraud caught at K and average precision.
+
+| Candidate | Class weight | Fraud caught at K | Fraud caught at 2K | Average precision |
+| --- | --- | ---: | ---: | ---: |
+| Logistic regression | `None` | 2,498 | 3,985 | 0.325879 |
+| Logistic regression | `balanced` | 2,479 | 3,933 | 0.322586 |
+| Boosted trees | `None` | 2,893 | 4,370 | 0.371637 |
+| Boosted trees | `balanced` | 2,856 | 4,395 | 0.371064 |
 
 ## D34-01 — Criterion for reading the model-versus-rule result
 
@@ -344,11 +555,12 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   excluded, and the number of test-window comparisons made before the final one, taken from the
   run records.
   Those statements belong to the report, not to this entry.
-- Open questions: (1) bootstrap seed value, to be fixed and logged by SpiralSky
-  before scoring; (2) settled here, no longer open: repeated draws keep their multiplicity
-  as described under Intervals. (3) Whether the rule or loyal definition changes after Trust & Safety
-  confirmation (owner: Trust & Safety for X; PO for assumptions). Such a change
-  reopens #23's freeze and #18's comparison, and this criterion is reread then.
+- Reproduction convention (recorded before final scoring): seed 34,
+  predeclared from the PBI number, with 1,000 paired customer-level draws.
+  The report and receipt log it. Retain both with the authorized run record.
+- Open question: whether the rule or loyal definition changes (owner: Trust
+  & Safety for X; PO for assumptions). A change reopens #23's freeze and
+  #18's comparison, and this criterion is reread then.
 - Sources: [#34](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/34),
   [#18](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/18),
   [#23](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/23),
