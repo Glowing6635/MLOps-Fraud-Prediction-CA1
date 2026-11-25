@@ -21,7 +21,11 @@ import pandas as pd
 
 from mlops_fraud_prediction_ca1.rules import baseline_rule_flags
 from mlops_fraud_prediction_ca1.splitting import calendar_dates
-from mlops_fraud_prediction_ca1.top_k import ORDER_COLUMNS, evaluate_top_k
+from mlops_fraud_prediction_ca1.top_k import (
+    ORDER_COLUMNS,
+    evaluate_top_k,
+    select_top_k,
+)
 
 THRESHOLD_GRID = (50, 100, 200, 500, 1000, 2000)
 _ORDER_COLUMNS = (*ORDER_COLUMNS, "order_value")
@@ -59,46 +63,6 @@ def _validate_labels(orders: pd.DataFrame) -> None:
         raise ValueError("Each order's is_fraud label must be 0 or 1.")
 
 
-def _group_k(orders: pd.DataFrame, k) -> pd.Series:
-    """Each row's K, and so the group's, by position."""
-    if isinstance(k, int):
-        return pd.Series(k, index=range(len(orders)))
-    return pd.Series([k[c] for c in orders["country_code"]], index=range(len(orders)))
-
-
-def _group_keys(orders: pd.DataFrame, k) -> list:
-    columns = ["order_date"] if isinstance(k, int) else ["order_date", "country_code"]
-    return [orders[c].tolist() for c in columns]
-
-
-def _ranked_positions(orders: pd.DataFrame, primary: np.ndarray, k) -> pd.DataFrame:
-    """Rows in rank order (primary descending, then country_code, order_id) with group
-    and within-group rank. Positions refer to the rows of `orders`."""
-    frame = pd.DataFrame(
-        {
-            "pos": np.arange(len(orders)),
-            "primary": np.asarray(primary, dtype=float),
-            "country_code": orders["country_code"].to_numpy(),
-            "order_id": orders["order_id"].to_numpy(),
-        }
-    )
-    for name, values in zip(
-        ["g1", "g2"][: len(_group_keys(orders, k))],
-        _group_keys(orders, k),
-        strict=False,
-    ):
-        frame[name] = values
-    keys = [c for c in ("g1", "g2") if c in frame]
-    frame = frame.sort_values(
-        [*keys, "primary", "country_code", "order_id"],
-        ascending=[*[True] * len(keys), False, True, True],
-        kind="mergesort",
-    )
-    frame["rank"] = frame.groupby(keys, sort=False).cumcount()
-    frame["group"] = frame.groupby(keys, sort=False).ngroup()
-    return frame
-
-
 def cut_rule_flags(orders: pd.DataFrame, flags: Sequence[bool], k) -> np.ndarray:
     """Boolean array: the rule's flags after keeping each group's top K by order_value."""
     orders = _comparison_orders(orders, k)
@@ -109,15 +73,11 @@ def _cut_rule_flags(orders, flags, k):
     flags = np.asarray(flags, dtype=bool)
     if len(flags) != len(orders):
         raise ValueError("The flags and the orders must have the same length.")
-    flagged = orders.reset_index(drop=True)[flags]
     out = np.zeros(len(orders), dtype=bool)
-    if flagged.empty:
+    if not flags.any():
         return out
-    positions = np.flatnonzero(flags)
-    ranked = _ranked_positions(flagged, flagged["order_value"].to_numpy(), k)
-    capacity = _group_k(flagged, k).to_numpy()[ranked["pos"].to_numpy()]
-    keep = ranked["rank"].to_numpy() < capacity
-    out[positions[ranked["pos"].to_numpy()[keep]]] = True
+    flagged = orders.reset_index(drop=True)[flags]
+    out[flags] = select_top_k(flagged, flagged["order_value"].to_numpy(dtype=float), k)
     return out
 
 
@@ -127,30 +87,30 @@ def match_model_to_rule(
     """Boolean array: per group, the model's top-n orders where n is the rule's count
     (already at most K) in that group, ranked by score then country_code, order_id."""
     orders = _comparison_orders(orders, k)
-    scores = _scores(orders, scores)
-    return _match_model_to_rule(_ranked_positions(orders, scores, k), rule_selected)
+    return _match_model_to_rule(orders, _scores(orders, scores), rule_selected, k)
 
 
-def _match_model_to_rule(ranked, rule_selected):
-    if len(rule_selected) != len(ranked):
+def _match_model_to_rule(orders, scores, rule_selected, k):
+    rule_selected = np.asarray(rule_selected, dtype=bool)
+    if len(rule_selected) != len(orders):
         raise ValueError("The rule selection and the orders must have the same length.")
-    counts = (
-        pd.Series(np.asarray(rule_selected, dtype=bool))
-        .groupby(ranked.sort_values("pos")["group"].to_numpy())
-        .sum()
+    columns = ["order_date"] if isinstance(k, int) else ["order_date", "country_code"]
+    keys = list(zip(*(orders[c].tolist() for c in columns), strict=True))
+    if isinstance(k, int):
+        keys = [key[0] for key in keys]
+    limits = pd.Series(rule_selected).groupby(pd.Series(keys, dtype=object)).sum()
+    return select_top_k(
+        orders,
+        scores,
+        k,
+        group_limits={group: int(n) for group, n in limits.items()},
     )
-    limit = counts.reindex(ranked["group"].to_numpy()).to_numpy()
-    keep = ranked["rank"].to_numpy() < limit
-    out = np.zeros(len(ranked), dtype=bool)
-    out[ranked["pos"].to_numpy()[keep]] = True
-    return out
 
 
 def top_k_selection(orders: pd.DataFrame, scores: Sequence[float], k) -> np.ndarray:
     """Boolean array: each group's top K orders by score (the model at K)."""
     orders = _comparison_orders(orders, k)
-    scores = _scores(orders, scores)
-    return _top_k_mask(orders, _ranked_positions(orders, scores, k), k)
+    return select_top_k(orders, _scores(orders, scores), k)
 
 
 def _scores(orders, scores):
@@ -160,13 +120,6 @@ def _scores(orders, scores):
     if not np.isfinite(scores).all():
         raise ValueError("Every score must be finite.")
     return scores
-
-
-def _top_k_mask(orders, ranked, k):
-    capacity = _group_k(orders, k).to_numpy()[ranked["pos"].to_numpy()]
-    out = np.zeros(len(orders), dtype=bool)
-    out[ranked["pos"].to_numpy()[ranked["rank"].to_numpy() < capacity]] = True
-    return out
 
 
 def selection_metrics(
@@ -240,9 +193,8 @@ def compare(
     scores = _scores(orders, scores)
     flags = baseline_rule_flags(orders["order_value"], account_age, threshold)
     rule = _cut_rule_flags(orders, flags["rule_flag"].to_numpy(dtype=bool), k)
-    ranked = _ranked_positions(orders, scores, k)
-    matched = _match_model_to_rule(ranked, rule)
-    at_k = _top_k_mask(orders, ranked, k)
+    matched = _match_model_to_rule(orders, scores, rule, k)
+    at_k = select_top_k(orders, scores, k)
     evaluation = evaluate_top_k(orders, scores, k).at_k
     model_at_k = selection_metrics(orders, at_k, loyalty_status)
     model_at_k.update(
