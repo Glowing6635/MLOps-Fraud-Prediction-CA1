@@ -1,7 +1,8 @@
 # Decision log
 
 This log records the feature-timing assumptions and handling for PBI #4, the temporal policy for PBI #6,
-the daily review capacity K for PBI #5 (D5-01) and where the MLflow server keeps its data (D8-01).
+the daily review capacity K for PBI #5 (D5-01), where the MLflow server keeps its data (D8-01),
+and the champion registry workflow for PBI #15 (D15-01).
 No Operations confirmation has been received, so every timing status in D4-01 to D4-05 remains
 unconfirmed. K is a product owner assumption, set on 23 November 2026. Feature-timing decisions were
 recorded on 15 November 2026, temporal windows on 16 November and the MLflow server's storage
@@ -221,6 +222,68 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
+
+## D15-01 — Approved comparison and exact registry sources
+
+- Recorded 2026-11-25 for [PBI #15](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/15).
+  Accountable engineer: SpiralSky.
+- Decision: record the Comparison ID with the analyst's sign-off and require
+  it for registration. It binds the tracking store, ranking and scores, and
+  the resolved top two sources. Recheck it before any registry writes. A
+  logged model uses its exact artifact location. A legacy run uses its run
+  artifact location. Reuse a ready version only when the run, source reference
+  and download URI match the elected artifact.
+- Rationale and alternatives: repeating an unbound search can register late
+  runs that were absent at the review. Saving a roster of run IDs alone
+  preserves membership but can miss changes in scores or model identity.
+  The ID checks the comparison without a separate snapshot file. The sign-off
+  still documents who approved it. A run ID or a version tag alone cannot
+  distinguish two versions of different artifacts from the same run.
+- Alias recovery: write challenger first and champion last so an interrupted
+  operation can be retried using the same arguments. Attempt to restore the
+  challenger on a reported error when the visible state still matches the
+  first write. MLflow provides separate alias operations. Operators serialize
+  writes and verify both aliases after retry.
+- Scope and open verification: the historical Lane A comparison and acting-analyst
+  sign-off stand. The installed CLI and local SQLite checks support offline
+  verification. The team registry operator needs to verify the exact historical
+  artifact and run the approved source, alias, retry and rollback checks on a
+  socket-capable host. SpiralSky owns #15 integration, which depends on #165.
+
+## D15-02 — Rank for review and qualify retraining separately
+
+- Settled 2026-11-25. Decision owner: SpiralSky (Product Owner), response to
+  `agile-mlops-20261124-15`. Affected PBIs: #15 and #25.
+- Decision: #15 ranks every otherwise eligible validation candidate by #5
+  fraud caught at K, then average precision, then ascending run ID for exact
+  ties. Keep #14 exploratory runs out. Annotate measured sizes above 50 MB
+  and report unavailable measurements as unknown. The Comparison ID binds the
+  reviewed scores, cohort and elected sources. Size measurements are
+  informational and may be updated without a new approval.
+- Rationale and alternative: applying the #25 cap to #15 would omit an
+  otherwise eligible winner or challenger and change the validation record.
+  The two decisions answer different questions: which models caught most
+  fraud, and which models the pipeline can afford to retrain within its budget.
+- Impact: #25 still needs a measured roster within its 50 MB and #27 fit-time
+  limits. Baseline logistic regression and qualifying boosted-tree or light
+  candidates can enter that roster once measured. Oversized random-forest
+  artifacts stay out unless reduced and remeasured within the limits. The
+  saved-copy measurement from the harness or another fit does not measure the
+  exact registry artifact. SpiralSky owns the #25 roster and its measured
+  evidence, including confirmation of the cap's implementation boundary for
+  #25. The #15 display uses 50,000,000 bytes for its MB note.
+- Validation evidence: AP is undefined for fraud-free cohorts, as in #5.
+  The current #13 harness records inputs, cutoffs, policy version and totals.
+  Accept wholly legacy comparisons with matching recorded evidence and an
+  explicit scored-row identity limitation. Reject malformed, mixed or
+  conflicting row fingerprints. Accept matching fingerprints when present.
+  Requiring them for every run now would reject the live producer's output.
+  Backfilling them from equal counts would invent provenance. SpiralSky and
+  the #13 owner (Glowing6635) still need to agree on the producer's fingerprint
+  contract before requiring it for fresh exact-cohort evidence.
+- The historical Lane A selection, exact run references, analyst sign-off
+  and rollback remain the record of that review. The runbook describes new
+  comparisons and the [operator checks](champion.md#pick-at-the-model-review).
 
 ## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
 

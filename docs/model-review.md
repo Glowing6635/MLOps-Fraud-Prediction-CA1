@@ -56,7 +56,7 @@ defaults:
 
 At the Product Owner's request, the top two runs above were registered as
 `fraud-candidate` versions 1 and 2 on the team server. Version 1 is the
-`champion` after the rollback check. The recorded challenger, version 2,
-exceeds the current 50 MiB size cap. See the
+`champion` after the rollback check. The exact artifact size of version 2
+remains unverified. See the
 [team registry record](champion.md#team-registry-record) for the run IDs and
 rollback evidence.
