@@ -252,3 +252,42 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D26-01 — Apply and verify the deployment settings before rollout
+
+- Settled: 2026-11-24. Owner: SpiralSky. Affected PBI: #26.
+- Decision: use a uniquely named EB saved configuration for creation. Check all
+  seven #9 settings in the deployed configuration before redeploying and stop
+  if any are missing or invalid. Require one artifact setting in the active
+  application environment namespace and apply one offline URI check on both
+  rollout paths. Require a literal S3 key prefix without raw `?` or `#`.
+  The check reports setting names and leaves configuration changes to the
+  operator.
+- Rationale: the offline EB CLI 3.27.5 resolver uploads a saved configuration
+  under its basename and passes `--cfg` verbatim to `CreateEnvironment`. A
+  local path therefore selects a different name. A CNAME match alone lets an
+  incomplete environment attempt a rollout that the container cannot start.
+  [DescribeConfigurationSettings](https://docs.aws.amazon.com/elasticbeanstalk/latest/api/API_DescribeConfigurationSettings.html)
+  can include a draft configuration alongside the active one. A URI can end in
+  `/artifacts` and still have an invalid bucket name. Validating the bucket
+  component against the [S3 general purpose naming rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html)
+  in one place keeps create and redeploy consistent and allows nested key
+  prefixes. MLflow 3.18.0 treats raw `?` and `#` as URI delimiters, so either
+  can redirect artifact writes to a different key even when rollout passes.
+- Alternatives: applying settings after creation leaves first boot without
+  required values. Automatically repairing an existing configuration would
+  change a running environment and require selecting a destination and secret
+  references on the operator's behalf. Keeping a second URI rule in the AWS
+  query can lead to different behavior on create and redeploy. Percent-encoding
+  the delimiters would store the escape sequences literally in the S3 key.
+  Probing S3 would add a network call and test the deployer's permissions, which can
+  differ from the instance role's.
+- Impact: creation receives the settings at launch. Redeploy requires read
+  access to the environment's configuration and leaves a mismatched
+  environment untouched. The URI check verifies the name and path syntax.
+  Bucket existence and instance-role access still require the live persistence
+  check.
+- Open: SpiralSky owns the clean sandbox deployment and stopped-session billing
+  evidence and will arrange the unaided teammate deployment and quickstart.
+  The live evidence for #26 AC1–4 is tracked in owner request
+  `agile-mlops-20261124-10`.
