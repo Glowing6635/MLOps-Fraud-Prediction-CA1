@@ -9,8 +9,9 @@ never committed (``*.csv`` is ignored).
 Expected rejections in the edge batch follow #20 only: a label whose order or
 customer is missing is rejected and counted. The unseen category and malformed
 values are not rejection rules (#19: they go to cleaning), so the edge batch
-marks them as "must pass", not "must reject". Whether the loader really rejects
-the flagged rows is for the #20 integration to verify, not asserted here.
+marks them as "must pass", not "must reject". The loader (`loading.py`) is on this
+branch and the live rehearsal ran it on these batches; the flags themselves are not
+asserted against it by the unit tests.
 """
 
 import argparse

@@ -27,19 +27,24 @@ Edge batch cases (identifiers all start with `SYN-EDGE-`):
 - **Label whose customer is missing:** order `SYN-EDGE-O-NOCUST` is labelled
   to `SYN-EDGE-C-ABSENT`, which has no customers row. #20 names this case too.
 
-These flags record what #20 says should happen. They are not verified loader
-behaviour: the loader does not exist yet, and this change does not define its
-rejection policy. Verify against the real command once #20 lands.
+These flags record what #20 says should happen. The loader (`uv run load-batch`)
+is part of this branch and the live rehearsal loaded these batches with it; the unit
+tests do not assert its rejection counts, and this change does not define its policy.
 
 ## Rebuilding the rehearsal environment (reset command)
 
 `uv run rehearsal-reset --data-dir data` drops the rehearsal database's four
 tables, recreates them (`rds_schema.create_tables`), loads the three base CSV files
-with the #20 loader and deletes the runs in the rehearsal MLflow experiment.
+with the #20 loader and marks the runs in the rehearsal MLflow experiment as deleted (MLflow `delete_run` only
+hides them: their files stay in the artifact bucket until the MLflow server's garbage collection).
 
 - **Selection:** `.env` (#2 settings) points `DB_NAME` and `MLFLOW_EXPERIMENT_NAME`
-  at the rehearsal resources. Each engineer's read-only user is created on that
-  database with `uv run rds-schema reader ...` (see `docs/runbook.md`).
+  at the rehearsal resources. Each engineer's existing read-only user
+  (`<name>_reader`, created once with `uv run rds-schema reader <name>`, see
+  `docs/runbook.md`) gets access to this database with a plain
+  `GRANT SELECT ON rehearsal.* TO '<name>_reader'@'%'`. Do not rerun
+  `rds-schema reader` for this: MySQL users are server-wide, so it would reset that
+  user's password on the team database too.
 - **Refusal:** before touching anything, both names must start with `rehearsal`, and
   neither may equal `TEAM_DB_NAME` / `TEAM_MLFLOW_EXPERIMENT_NAME` when set. Set those
   two to the team names in the operator's `.env` for a second line of defence.
@@ -53,13 +58,13 @@ with the #20 loader and deletes the runs in the rehearsal MLflow experiment.
 
 `scripts/rehearsal-live.sh run` (environment variables listed at the top of the script)
 adds this machine's `/32` to the RDS security group, creates the `rehearsal` schema, the
-tables, optional reader users (`READERS="name1 name2"`), runs the reset, creates a private
+tables, optional reader grants (`READERS="name1 name2"`: `GRANT SELECT` only, the `<name>_reader` users must already exist), runs the reset, creates a private
 bucket (tagged `created-by=rehearsal-live`) and prints presigned links with their expiry.
-It removes its security-group rule when it ends. On success the bucket, objects and schema
+It removes only the security-group rule it added itself, names any cleanup step that failed and exits non-zero in that case. `BUCKET` must start with `fraud-rehearsal-`. On success the bucket, objects and schema
 stay so the links keep working; on failure it deletes only what that run created. After
 the rehearsal, `scripts/rehearsal-live.sh cleanup` deletes the bucket only if it carries
 the tag (never a bucket someone else made) and drops the `rehearsal` schema
-(`KEEP_SCHEMA=1` keeps it). It refuses to start if the bucket already exists.
+(`KEEP_SCHEMA=1` keeps it; `cleanup` also opens and closes its own `/32` rule). It refuses to start if the bucket already exists.
 `--expires` / `PRESIGN_EXPIRES` sets the link lifetime in seconds (default 3600, enough for
 a 3-minute batch run; use more for a longer demo). Links are valid only while the session
 credentials that signed them are, so generate them in the demo session.

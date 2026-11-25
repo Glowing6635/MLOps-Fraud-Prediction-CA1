@@ -1,8 +1,8 @@
 """Rebuild the rehearsal environment and serve practice batches (PBI #24).
 
 `uv run rehearsal-reset --data-dir data` drops and recreates the rehearsal database's
-tables, loads the three base CSV files with the #20 loader, and deletes the runs in the
-rehearsal MLflow experiment. `uv run rehearsal-reset --presign BUCKET` uploads the
+tables, loads the three base CSV files with the #20 loader, and marks the runs in the
+rehearsal MLflow experiment as deleted (their artifact files stay in S3). `uv run rehearsal-reset --presign BUCKET` uploads the
 synthetic practice batches and prints presigned URLs.
 
 The database and experiment come from the #2 settings (`DB_NAME`,
@@ -61,7 +61,7 @@ def _drop_tables(engine) -> None:
 
 
 def clear_experiment(client, experiment_name: str) -> int:
-    """Delete every run in the experiment; return how many. A missing experiment is fine."""
+    """Mark every run in the experiment deleted (files stay in S3); return how many. A missing experiment is fine."""
     experiment = client.get_experiment_by_name(experiment_name)
     if experiment is None:
         client.create_experiment(experiment_name)
@@ -83,9 +83,6 @@ def rebuild(
     *,
     engine,
     client,
-    load_files,
-    create_tables,
-    drop_tables=_drop_tables,
 ) -> dict:
     """Guard, then rebuild the database from the base CSVs and clear the experiment."""
     check_rehearsal_target(settings, environ)
@@ -93,7 +90,10 @@ def rebuild(
     missing = [str(path) for path in paths if not path.is_file()]
     if missing:
         raise FileNotFoundError(f"Missing base files: {', '.join(missing)}")
-    reset_database(engine, drop_tables, create_tables)
+    from .loading import load_files
+    from .rds_schema import create_tables
+
+    reset_database(engine, _drop_tables, create_tables)
     report = load_files(engine, *map(str, paths))
     deleted = clear_experiment(client, settings.mlflow_experiment_name)
     return {
@@ -166,17 +166,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             return
         from mlflow import MlflowClient
 
-        from .loading import load_files
-        from .rds_schema import create_tables
-
         summary = rebuild(
             settings,
             dict(os.environ),
             Path(args.data_dir),
             engine=create_db_engine(settings),
             client=MlflowClient(),
-            load_files=load_files,
-            create_tables=create_tables,
         )
         sys.stdout.write(f"{summary}\n")
     except RehearsalRefused as error:

@@ -3,8 +3,8 @@
 #   DB_HOST DB_PORT DB_USER DB_PASSWORD   (admin login valid on the rehearsal schema)
 #   MLFLOW_TRACKING_URI MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD
 #   AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_DEFAULT_REGION=us-east-1
-# Optional: SG_ID (default sg-075357648cbf564b9), BUCKET, READERS="name1 name2" (each asks
-# for a password), PRESIGN_EXPIRES seconds (default 3600).
+# Optional: SG_ID (default sg-075357648cbf564b9), BUCKET, READERS="name1 name2" (each must
+# already have <name>_reader from `rds-schema reader`; the script only GRANTs SELECT on rehearsal), PRESIGN_EXPIRES seconds (default 3600).
 # Usage: scripts/rehearsal-live.sh run | cleanup
 #
 # `run` removes the security-group rule it added when it ends, and deletes what it
@@ -15,6 +15,7 @@
 set -euo pipefail
 SG_ID=${SG_ID:-sg-075357648cbf564b9}
 BUCKET=${BUCKET:-fraud-rehearsal-516375498949}
+case "$BUCKET" in fraud-rehearsal-*) ;; *) echo "BUCKET must start with fraud-rehearsal-" >&2; exit 1;; esac
 TAG='TagSet=[{Key=created-by,Value=rehearsal-live}]'
 export DB_NAME=rehearsal MLFLOW_EXPERIMENT_NAME=rehearsal
 export TEAM_DB_NAME=fraud TEAM_MLFLOW_EXPERIMENT_NAME=${TEAM_MLFLOW_EXPERIMENT_NAME:-fraud}
@@ -34,37 +35,57 @@ delete_bucket() {
   fi
 }
 
-if [ "${1:-}" = cleanup ]; then
-  delete_bucket
-  if [ -z "${KEEP_SCHEMA:-}" ]; then sql "DROP DATABASE IF EXISTS rehearsal"; fi
-  exit 0
-fi
-
 MYIP=$(curl -s https://checkip.amazonaws.com)/32
 RULE_ADDED=; CREATED_BUCKET=; CREATED_SCHEMA=; OK=
+FAILED=
+step() {  # run a cleanup step; remember its name if it fails
+  local name=$1; shift
+  "$@" || { FAILED="$FAILED $name"; echo "CLEANUP FAILED: $name" >&2; }
+}
 cleanup_run() {
+  local status=$?
   if [ -n "$RULE_ADDED" ]; then
-    aws ec2 revoke-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 3306 --cidr "$MYIP" || true
-    echo "removed ingress $MYIP"
+    # only the rule this run added (RULE_ADDED is set after authorize succeeded)
+    step revoke-ingress aws ec2 revoke-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 3306 --cidr "$MYIP"
+    [ -z "$FAILED" ] && echo "removed ingress $MYIP"
   fi
   if [ -z "$OK" ]; then  # failure: remove only what this run created
-    [ -n "$CREATED_BUCKET" ] && { delete_bucket || true; }
-    [ -n "$CREATED_SCHEMA" ] && { sql "DROP DATABASE rehearsal" || true; }
+    [ -n "$CREATED_BUCKET" ] && step delete-bucket delete_bucket
+    [ -n "$CREATED_SCHEMA" ] && step drop-schema sql "DROP DATABASE rehearsal"
   fi
+  if [ -n "$FAILED" ]; then
+    echo "CLEANUP INCOMPLETE, fix by hand:$FAILED (port 3306 on $SG_ID may still be open to $MYIP)" >&2
+    exit 1
+  fi
+  exit "$status"
 }
 trap cleanup_run EXIT
+open_port() {
+  aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 3306 --cidr "$MYIP"
+  RULE_ADDED=1
+  echo "added ingress $MYIP tcp/3306 on $SG_ID"
+}
+
+if [ "${1:-}" = cleanup ]; then
+  OK=1  # nothing to undo beyond the ingress rule
+  open_port
+  step delete-bucket delete_bucket
+  if [ -z "${KEEP_SCHEMA:-}" ]; then step drop-schema sql "DROP DATABASE IF EXISTS rehearsal"; fi
+  exit 0
+fi
 
 # Refuse to reuse a bucket this script did not create.
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
   echo "bucket $BUCKET already exists; refusing to use or delete it" >&2; exit 1
 fi
-aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 3306 --cidr "$MYIP"
-RULE_ADDED=1
-echo "added ingress $MYIP tcp/3306 on $SG_ID"
+open_port
 [ "$(sql "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='rehearsal'")" = 0 ] && CREATED_SCHEMA=1
 sql "CREATE DATABASE IF NOT EXISTS rehearsal"
 uv run rds-schema tables
-for name in ${READERS:-}; do uv run rds-schema reader "$name"; done
+for name in ${READERS:-}; do  # SELECT only; never touches the user's password
+  case "$name" in *[!a-z0-9_]*|"") echo "bad reader name $name" >&2; exit 1;; esac
+  sql "GRANT SELECT ON rehearsal.* TO '${name}_reader'@'%'"
+done
 time uv run rehearsal-reset --data-dir data
 aws s3api create-bucket --bucket "$BUCKET"; CREATED_BUCKET=1
 aws s3api put-bucket-tagging --bucket "$BUCKET" --tagging "$TAG"
