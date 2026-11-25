@@ -340,6 +340,33 @@ def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
     assert "--k-status" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("weighting", [None, "balanced"])
+def test_feature_group_cli_logs_weighting_for_both_runs(
+    weighting, data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "feature-weights-test")
+    argv = ["train", "compare-feature-groups", "--data-dir", str(data_dir)]
+    if weighting is not None:
+        argv.extend(["--weighting", weighting])
+    monkeypatch.setattr(sys, "argv", argv)
+    main()
+
+    runs = mlflow.search_runs(
+        experiment_names=["feature-weights-test"], output_format="list"
+    )
+    assert len(runs) == 2
+    assert {run.data.params["features__group"] for run in runs} == {
+        "order_raw",
+        "order_log",
+    }
+    for run in runs:
+        assert run.data.params["model__logisticregression__class_weight"] == str(
+            weighting
+        )
+
+
 def test_rerun_without_mlflow_settings_says_what_to_set(
     data_dir, tmp_path, monkeypatch
 ):

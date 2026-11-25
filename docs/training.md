@@ -69,6 +69,7 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 Both commands default to the estimator's unweighted fit. Add
 `--weighting balanced` to opt in, or pass `class_weight="balanced"` to
 `baseline_model()` or `boosted_trees_model()` before calling `train()`.
+For `train compare-feature-groups`, the option applies to both feature groups.
 To compare the two methods without exploratory customer columns, call `train()`
 with each candidate twice, omitting `class_weight` on the first call and setting
 it to `"balanced"` on the second. Use the frozen split, `k=250`, and `seed=0`

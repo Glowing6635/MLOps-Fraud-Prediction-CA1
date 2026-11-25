@@ -494,7 +494,9 @@ def _git(*args: str) -> str:
     ).stdout.strip()
 
 
-def compare_groups(data_dir: str | Path, *, k: int, seed: int = 0) -> pd.DataFrame:
+def compare_groups(
+    data_dir: str | Path, *, k: int, seed: int = 0, class_weight: str | None = None
+) -> pd.DataFrame:
     """Train the baseline classifier on each feature group; log one MLflow run each.
 
     Each run is scored on the validation window by the harness, so the groups are
@@ -503,7 +505,7 @@ def compare_groups(data_dir: str | Path, *, k: int, seed: int = 0) -> pd.DataFra
     rows = []
     for group in FEATURE_GROUPS:
         run_id, result = train(
-            build_pipeline(baseline_model(), group),
+            build_pipeline(baseline_model(class_weight=class_weight), group),
             data_dir,
             k=k,
             seed=seed,
@@ -613,7 +615,9 @@ def main() -> None:
             print(f"Logged run {run_id}.")
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
     elif args.command == "compare-feature-groups":
-        table = compare_groups(args.data_dir, k=args.k, seed=args.seed)
+        table = compare_groups(
+            args.data_dir, k=args.k, seed=args.seed, class_weight=args.weighting
+        )
         print(table.to_string(index=False))
     else:
         for name, value in rerun(args.run_id, args.data_dir).items():
