@@ -2,6 +2,8 @@
 
 import math
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from mlops_fraud_prediction_ca1.top_k import (
@@ -10,6 +12,7 @@ from mlops_fraud_prediction_ca1.top_k import (
     evaluate_top_k,
     format_report,
     rank_models,
+    select_top_k,
 )
 
 
@@ -104,6 +107,7 @@ def test_negative_scores_still_rank_highest_first():
     )
     report = evaluate_top_k(orders, scores, k=1)
     assert (report.at_k.fraud_caught, report.average_precision) == (1, 1.0)
+    assert type(report.average_precision) is float
 
 
 def test_ratios_without_a_denominator_are_shown_as_not_available():
@@ -218,10 +222,10 @@ ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
 @pytest.mark.parametrize(
     ("orders", "scores", "k", "message"),
     [
-        (ORDER, [0.5], 0, "K must be a whole number"),
-        (ORDER, [0.5], 0.5, "K must be a whole number"),
-        (ORDER, [0.5], True, "K must be a whole number"),
-        (ORDER, [0.5], {"SG": 1.0}, "K must be a whole number"),
+        (ORDER, [0.5], 0, "K must be a Python int"),
+        (ORDER, [0.5], 0.5, "K must be a Python int"),
+        (ORDER, [0.5], True, "K must be a Python int"),
+        (ORDER, [0.5], {"SG": 1.0}, "K must be a Python int"),
         (ORDER, [0.5], {"MY": 1}, "K is not set for country SG"),
         (
             {"order_date": ["d1"], "is_fraud": [1]},
@@ -246,3 +250,83 @@ ORDER = _orders(("d1", "SG", "o1", 1, 0.5))[0]
 def test_invalid_input_is_rejected(orders, scores, k, message):
     with pytest.raises(ValueError, match=message):
         evaluate_top_k(orders, scores, k)
+
+
+def test_the_selection_is_by_position_whatever_the_index():
+    orders, scores = _orders(
+        ("d1", "SG", "a1", 0, 0.2),
+        ("d2", "SG", "b1", 0, 0.9),
+        ("d1", "SG", "a2", 0, 0.7),
+        ("d2", "SG", "b2", 0, 0.1),
+    )
+    frame = pd.DataFrame(orders, index=[7, 3, 5, 9])
+    assert select_top_k(frame, scores, 1).tolist() == [False, True, True, False]
+
+
+def test_ineligible_orders_take_no_place():
+    orders, scores = _orders(
+        ("d1", "SG", "o1", 0, 0.9),
+        ("d1", "SG", "o2", 0, 0.8),
+        ("d1", "SG", "o3", 0, 0.7),
+    )
+    selected = select_top_k(orders, scores, 1, eligible=[False, True, True])
+    assert selected.tolist() == [False, True, False]
+
+
+def test_a_group_with_no_eligible_order_can_be_limited():
+    assert select_top_k(
+        ORDER, [0.5], 2, eligible=[False], group_limits={"d1": 0}
+    ).tolist() == [False]
+
+
+def test_only_eligible_orders_need_a_finite_score():
+    orders, _ = _orders(("d1", "SG", "o1", 0, 0.9), ("d1", "SG", "o2", 0, 0.8))
+    scores = [math.nan, 0.8]
+    assert select_top_k(orders, scores, 2, eligible=[False, True]).tolist() == [
+        False,
+        True,
+    ]
+    with pytest.raises(ValueError, match="not finite"):
+        select_top_k(orders, scores, 2, eligible=[True, True])
+
+
+@pytest.mark.parametrize(
+    ("k", "group_limits", "selected"),
+    [
+        (2, {"d1": 0}, [False, False, False, True, True]),
+        (2, {"d1": np.int64(0)}, [False, False, False, True, True]),
+        (
+            {"SG": 2, "MY": 2},
+            {("d1", "SG"): 1, ("d2", "MY"): 0},
+            [True, False, False, False, False],
+        ),
+    ],
+)
+def test_group_limits_select_fewer_than_k(k, group_limits, selected):
+    orders, scores = _orders(
+        ("d1", "SG", "s1", 0, 0.9),
+        ("d1", "SG", "s2", 0, 0.8),
+        ("d1", "SG", "s3", 0, 0.7),
+        ("d2", "MY", "m1", 0, 0.6),
+        ("d2", "MY", "m2", 0, 0.5),
+    )
+    assert (
+        select_top_k(orders, scores, k, group_limits=group_limits).tolist() == selected
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"eligible": [True, True]}, "eligible must hold one True or False per order"),
+        ({"eligible": [1]}, "eligible must hold one True or False per order"),
+        ({"group_limits": {"d1": 3}}, "from 0 to its K, 2, but it is 3"),
+        ({"group_limits": {"d1": -1}}, "from 0 to its K, 2, but it is -1"),
+        ({"group_limits": {"d1": True}}, "from 0 to its K, 2, but it is True"),
+        ({"group_limits": {"d1": 1.0}}, "from 0 to its K, 2, but it is 1.0"),
+        ({"group_limits": {"d2": 1}}, "names 'd2', which is no group"),
+    ],
+)
+def test_invalid_selection_options_are_rejected(options, message):
+    with pytest.raises(ValueError, match=message):
+        select_top_k(ORDER, [0.5], 2, **options)

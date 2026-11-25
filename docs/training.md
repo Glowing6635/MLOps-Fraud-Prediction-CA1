@@ -11,36 +11,37 @@ The run goes to the MLflow server named by `MLFLOW_TRACKING_URI`, in the experim
 files must be in `data/`, or in the folder given by `--data-dir`.
 
 ```
-uv run train baseline --k 250 --seed 0
-uv run train boosted-trees --k 250 --k-status "confirmed PO assumption (23 Nov 2026): 250 orders a day, about 5% of daily orders; no Trust & Safety capacity received yet"
+uv run train baseline --seed 0
+uv run train boosted-trees
 uv run train rerun <run ID>
 ```
 
 `baseline` trains the baseline model, a logistic regression on the order columns, and
 prints the top-K report and the run ID. `--k` is the daily review capacity, in orders
-per day. It has no default, because K must be fixed before any result is seen. Every
-candidate must use the same K, or the runs can't be compared. No capacity has come from
-Trust & Safety yet, so the runs use 250 orders a day, about 5% of daily orders. That is a
-product owner assumption, confirmed on 23 Nov 2026 (decision D5-01 in [the decision log](decision-log.md)), and it holds until Trust & Safety
-gives a capacity. Add
+per day. It defaults to `top_k.K`, 250 orders a day, the product owner assumption
+recorded as D5-01 in [the decision log](decision-log.md), which holds until Trust &
+Safety gives a capacity. Every candidate must use the same K, or the runs can't be
+compared. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
 `boosted-trees` trains histogram gradient-boosted trees twice, without and with the
 seven unconfirmed customer columns, as two child runs under one parent run (see
-"Comparing the customer columns"). `--k-status` says where K comes from and why, and is
-tagged on all three runs. K is a confirmed product owner assumption, so its value starts
-with `confirmed`, as above; for a K that isn't confirmed, write `provisional: <reason>`. It prints both children's run IDs. The models are in
+"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
+`k_status` on all three runs. It defaults to `D5-01: product owner assumption, K = 250`;
+with another `--k`, the command stops unless `--k-status` says where that K comes from,
+such as `provisional: <reason>`. It prints both children's run IDs. The models are in
 `src/mlops_fraud_prediction_ca1/models.py`.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
 
 ```python
+from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import compare_customer_columns, train
 
-run_id, result = train(my_pipeline, "data", k=250, seed=0)
+run_id, result = train(my_pipeline, "data", k=K, seed=0)
 parent_id, (without_id, without), (with_id, with_columns) = compare_customer_columns(
-    my_pipeline, "data", k=250, seed=0, tags={"k_status": "<where K comes from>"}
+    my_pipeline, "data", k=K, seed=0, tags={"k_status": "<where K comes from>"}
 )
 ```
 
@@ -86,10 +87,10 @@ parent run, named after the model's class, such as
 champion, so each child has the tag `champion_eligible`, `True` or `False`. The exploratory
 run shows what leaving the columns out costs.
 
-The with-columns run adds seven columns, one of them a date (`first_order_datetime`),
-and their values are NaN for orders whose customer dates fail the D4-03 checks. A
-pipeline that picks columns by type, as both models in `models.py` do, handles them;
-one that names its columns must name these too.
+The with-columns run adds seven columns, one of them the customer's first order date
+as `days_since_first_order`, and their values are NaN for orders whose customer dates
+fail the D4-03 checks. A pipeline that picks columns by type, as both models in
+`models.py` do, handles them; one that names its columns must name these too.
 
 The parent logs the with-columns result minus the without result as
 `fraud_caught_at_k_difference`, `fraud_caught_at_2k_difference` and
@@ -114,8 +115,9 @@ precision within 0.005. `same_commit` shows whether the code is at the logged co
 - The features are the four order columns that `leakage.select_feature_inputs` allows
   (decision D4-01 in [the decision log](decision-log.md)). An exploratory run adds the
   seven customer columns, and withholds them for orders whose customer dates are
-  inconsistent or cannot be checked (D4-02 and D4-03). An exploratory model is never a
-  champion.
+  inconsistent or cannot be checked (D4-02 and D4-03). The customer's first order date
+  becomes `days_since_first_order`, the whole days from it to the order, because the
+  models drop date columns. An exploratory model is never a champion.
 - Before fitting, `check_feature_columns` stops the run if a column's name contains
   `is_fraud`, `refund_value`, `order_id`, `customer_id` or `batch_id`.
 - A feature built from a customer's earlier labels must pass `check_label_history`.

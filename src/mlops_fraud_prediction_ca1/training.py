@@ -10,8 +10,8 @@ The features are the order columns `leakage.select_feature_inputs` allows. An ex
 run adds the seven customer columns (decision D4-02), withholding them for orders whose
 customer dates are inconsistent or cannot be checked (D4-03).
 
-`uv run train baseline --k K` trains and logs the baseline model, `uv run train
-boosted-trees --k K` logs the boosted-trees candidate with and without the customer
+`uv run train baseline` trains and logs the baseline model, `uv run train
+boosted-trees` logs the boosted-trees candidate with and without the customer
 columns under one parent run (`compare_customer_columns`), and `uv run train rerun
 RUN_ID` re-runs a logged run to check it reproduces. docs/training.md says what a run
 records.
@@ -47,7 +47,12 @@ from mlops_fraud_prediction_ca1.leakage import (
 from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.splitting import load_policy
-from mlops_fraud_prediction_ca1.top_k import TopKReport, evaluate_top_k, format_report
+from mlops_fraud_prediction_ca1.top_k import (
+    K,
+    TopKReport,
+    evaluate_top_k,
+    format_report,
+)
 
 # A column whose name contains one of these is never a feature, which also catches
 # derived columns such as raw_refund_value.
@@ -126,6 +131,12 @@ def _load_window(
         extra = select_feature_inputs(
             joined[customers.columns], source="customers", exploratory=True
         )
+        # The model pipelines drop date columns, so the customer's first order becomes
+        # a number: whole days from it to this order. Order dates have no time of day.
+        first_order = extra.pop("first_order_datetime").dt.normalize()
+        extra["days_since_first_order"] = (
+            pd.to_datetime(joined.order_date) - first_order
+        ).dt.days
         timing, _ = customer_timing_audit(*(raw[name] for name in TABLES))
         flagged = timing.loc[
             timing.date_evidence.isin(["before_first_order", "unevaluable"]),
@@ -146,7 +157,7 @@ def _model_inputs(features: pd.DataFrame) -> pd.DataFrame:
     for name, column in result.items():
         if pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column):
             result[name] = column.astype("float64")
-        elif not pd.api.types.is_datetime64_any_dtype(column):
+        else:
             result[name] = column.astype(object).where(column.notna(), np.nan)
     return result
 
@@ -346,9 +357,9 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
     refitted with the logged seed, K and feature choice on the same input files. It
     reproduces when fraud caught at K is within 1% of the logged count and average
     precision within 0.005. Raises `ValueError` if an input file's SHA-256 differs from
-    the logged one.
+    the logged one, and `RuntimeError` if MLflow's settings are missing, as `train` does.
     """
-    load_dotenv()
+    _use_experiment()
     run = mlflow.get_run(run_id)
     params, metrics = run.data.params, run.data.metrics
     changed = [
@@ -436,16 +447,16 @@ def main() -> None:
     )
     trees.add_argument(
         "--k-status",
-        required=True,
-        help="Where K comes from, such as 'confirmed' or 'provisional: <reason>'.",
+        help="Where K comes from, tagged on every run. Required when --k differs from"
+        f" D5-01's K (default: D5-01: product owner assumption, K = {K}).",
     )
     for command in (baseline, trees):
         command.add_argument(
             "--k",
             type=int,
-            required=True,
-            help="Daily review capacity K, in orders per day, fixed before seeing"
-            " results.",
+            default=K,
+            help="Daily review capacity K, in orders per day (default: %(default)s,"
+            " from decision D5-01).",
         )
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
@@ -455,6 +466,10 @@ def main() -> None:
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
     args = parser.parse_args()
+    if args.command == "boosted-trees" and args.k_status is None:
+        if args.k != K:
+            parser.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
+        args.k_status = f"D5-01: product owner assumption, K = {K}"
     # MLflow prints an emoji when a run ends, which Windows cannot encode when piped.
     sys.stdout.reconfigure(errors="replace")
     if args.command == "baseline":

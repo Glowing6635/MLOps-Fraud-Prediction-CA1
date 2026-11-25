@@ -1,5 +1,8 @@
 """Tests for the training harness on small made-up base files in a temporary folder."""
 
+import re
+import sys
+
 import mlflow
 import numpy as np
 import pandas as pd
@@ -7,12 +10,14 @@ import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
+from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import (
     _load_window,
     check_feature_columns,
     check_label_history,
     compare_customer_columns,
     fit_and_score,
+    main,
     rerun,
     train,
 )
@@ -127,6 +132,13 @@ def test_exploratory_runs_add_customer_columns_only_on_request(data_dir):
     assert with_customers.loc[withheld, "mobile_verified"].isna().all()
     assert with_customers.loc[~withheld, "mobile_verified"].eq(1.0).all()
     assert with_customers.loc[~withheld, "num_refund_orders_last_50days"].eq(0).all()
+    # The pipelines drop date columns, so the first order date must arrive as a number.
+    assert "first_order_datetime" not in with_customers
+    assert with_customers.loc[withheld, "days_since_first_order"].isna().all()
+    first_train_day = pd.Timestamp(WINDOWS["train"][0]) - pd.Timestamp("2022-01-01")
+    assert (
+        with_customers.loc[~withheld, "days_since_first_order"] >= first_train_day.days
+    ).all()
 
 
 @pytest.mark.parametrize(
@@ -250,3 +262,37 @@ def test_customer_columns_are_compared_under_one_parent_run(
         with_columns.report.at_k.fraud_caught - without.report.at_k.fraud_caught
     )
     assert rerun(with_id, data_dir)["reproduced"]
+
+
+def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
+    data_dir, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    monkeypatch.setattr(
+        sys, "argv", ["train", "boosted-trees", "--data-dir", str(data_dir)]
+    )
+    main()
+    run_id = re.findall(r"Logged run (\w+)\.", capsys.readouterr().out)[-1]
+    run = mlflow.get_run(run_id)
+    assert run.data.params["k"] == str(K)
+    assert run.data.tags["k_status"] == f"D5-01: product owner assumption, K = {K}"
+
+
+def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["train", "boosted-trees", "--k", "100"])
+    with pytest.raises(SystemExit):
+        main()
+    assert "--k-status" in capsys.readouterr().err
+
+
+def test_rerun_without_mlflow_settings_says_what_to_set(
+    data_dir, tmp_path, monkeypatch
+):
+    # Without the check, MLflow would quietly open a new local store in the working folder.
+    monkeypatch.chdir(tmp_path)
+    # An empty value also stops load_dotenv from filling it in from a developer's .env.
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "")
+    with pytest.raises(RuntimeError, match="MLFLOW_TRACKING_URI"):
+        rerun("0" * 32, data_dir)
