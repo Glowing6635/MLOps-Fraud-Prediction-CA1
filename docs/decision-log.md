@@ -328,3 +328,7 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   higher average precision. Choose the group for each candidate using its validation
   results. The local comparison did not test boosted-tree performance. A comparison
   against the team MLflow server is pending.
+- Which candidates use it: `uv run train compare-feature-groups` puts it in front of the
+  baseline. `uv run train baseline` and `uv run train boosted-trees` do not yet wrap
+  their models in `build_pipeline`, so models they register have no skew handling until a
+  candidate is chosen using the validation comparison above (tracked in #16).
