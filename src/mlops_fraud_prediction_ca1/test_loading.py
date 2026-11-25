@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.exc import DBAPIError
 
 from mlops_fraud_prediction_ca1.batch_files import (
@@ -122,6 +122,12 @@ def test_a_failure_on_the_third_table_leaves_all_three_unchanged_and_shows_no_ro
             mlflow_tracking_password="unused",
         )
     )
+
+    # The test MySQL has a self-signed certificate, not RDS's, so connect without TLS.
+    @event.listens_for(engine, "do_connect")
+    def _without_rds_certificate(dialect, conn_rec, cargs, cparams):
+        cparams.pop("ssl")
+
     with pytest.raises(DBAPIError, match="labels insert failed") as failure:
         load_files(engine, *write_batch("2", [C2], [O2], [L2]))
     engine.dispose()

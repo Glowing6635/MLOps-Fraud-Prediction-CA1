@@ -1,0 +1,8 @@
+{
+  "AWSEBDockerrunVersion": "1",
+  "Image": {
+    "Name": "516375498949.dkr.ecr.us-east-1.amazonaws.com/mlflow-server:3.18.0-r1",
+    "Update": "true"
+  },
+  "Ports": [{ "ContainerPort": 5000 }]
+}

@@ -8,7 +8,7 @@
 `uv` 0.12 is the package manager for this environment. On Windows, install it in PowerShell with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.12.24/install.ps1 | iex"`, then open a new terminal.
 
 1. `uv sync` creates `.venv` with Python 3.12 and every pinned dependency.
-2. Copy `.env.example` to `.env` and fill in the database and MLflow settings. `.env` is git-ignored: never commit it. Variables set in the environment override it.
+2. Copy `.env.example` to `.env` and fill in the database and MLflow settings. Your MLflow login is your own; the admin creates it as in `mlflow-server/README.md`, "Logins". `.env` is git-ignored: never commit it. Variables set in the environment override it.
 3. Put the three base CSV files in `data/`. They are git-ignored.
 4. `uv run pytest` runs the tests.
 5. `uv run log-test-run` logs a test run to the MLflow server in `.env`, to check your laptop can reach it. `mlflow-server/README.md` says how to deploy the server.
