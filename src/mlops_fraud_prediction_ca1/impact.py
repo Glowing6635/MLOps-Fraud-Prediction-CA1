@@ -1,65 +1,65 @@
 """SGD impact comparison of the model and the baseline rule (PBI #34).
 
-Input contract: one row per scored order in the final evaluation window with
-columns ``group`` (#5 selection group), ``customer_id``, ``order_id``,
-``country_code``, ``order_value`` (SGD), ``is_fraud`` (0/1), ``loyal`` (bool,
-loyal definition frozen under #23), ``score`` (champion score, higher = riskier)
-and ``rule_flag`` (bool, baseline rule from #18). Reading rules are those of
-decision D34-01 in docs/decision-log.md.
+Input contract: one row per scored order with ``order_date``, ``country_code``,
+``order_id``, ``customer_id``, ``order_value`` (numeric SGD), ``is_fraud`` (0/1),
+``loyal`` (bool), ``score`` (higher = riskier) and precomputed ``rule_flag``
+(bool, #18). #23 owns the frozen inputs, including the rule threshold and loyalty
+definition. Reading rules are those of D34-01 in docs/decision-log.md.
 
-The reporting stage accepts preselected flags. Until the shared #5/#18 selector
-and #23 scored frame are available, tests supply synthetic flags directly; this
-does not verify selection, threshold policy, or final-window integration.
+Selection follows #18's matched-count method using the shared #5 evaluator.
+The reporting stage can also accept its positional masks independently.
 """
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 
-REQUIRED = (
-    "group", "customer_id", "order_id", "country_code",
-    "order_value", "is_fraud", "loyal", "score", "rule_flag",
-)  # fmt: skip
+from mlops_fraud_prediction_ca1.splitting import _calendar_dates
+from mlops_fraud_prediction_ca1.top_k import select_top_k
+
 MEASURES = ("exposure_sgd", "loyal_wrongly_flagged")
 CUSTOMER_KEY = ["country_code", "customer_id"]
 
 
-def _check(frame: pd.DataFrame) -> None:
-    missing = [c for c in REQUIRED if c not in frame.columns]
-    if missing:
-        raise ValueError(f"missing columns: {missing}")
+def select_flags(frame: pd.DataFrame, k: int | Mapping[str, int]) -> pd.DataFrame:
+    """Attach the shared policy masks in row order, preserving the caller's index.
 
-
-def select_flags(frame: pd.DataFrame, k: int) -> pd.DataFrame:
-    """Return boolean columns ``rule_sel``, ``model_sel`` and ``model_k_sel``.
-
-    The rule keeps its flags ranked by order value (ties by country, order id),
-    cut at K per group. The model flags the same number as the rule per group
-    (``model_sel``); ``model_k_sel`` is the model at K.
+    K may be a global daily integer or a mapping of country to daily capacity.
+    The #18 rule flags must already be computed; this does not tune X.
     """
-    _check(frame)
-    f = frame.reset_index(drop=True)
-    rule_sel = np.zeros(len(f), dtype=bool)
-    model_sel = np.zeros(len(f), dtype=bool)
-    model_k = np.zeros(len(f), dtype=bool)
-    for idx in f.groupby("group", sort=True).groups.values():
-        g = f.loc[idx]
-        flagged = g[g["rule_flag"].astype(bool)].sort_values(
-            ["order_value", "country_code", "order_id"],
-            ascending=[False, True, True],
-            kind="mergesort",
-        )
-        rule_rows = flagged.index[:k]
-        rule_sel[rule_rows] = True
-        ranked = g.sort_values(
-            ["score", "country_code", "order_id"],
-            ascending=[False, True, True],
-            kind="mergesort",
-        ).index
-        model_sel[ranked[: len(rule_rows)]] = True
-        model_k[ranked[:k]] = True
-    return f.assign(rule_sel=rule_sel, model_sel=model_sel, model_k_sel=model_k)
+    flags = frame["rule_flag"]
+    if not pd.api.types.is_bool_dtype(flags.dtype) or flags.isna().any():
+        raise ValueError("Each rule_flag must be a non-missing boolean.")
+
+    dates = _calendar_dates(frame["order_date"]).to_numpy()
+    values = pd.to_numeric(frame["order_value"], errors="raise")
+    scores = pd.to_numeric(frame["score"], errors="raise")
+    orders = frame.assign(order_date=dates, order_value=values.to_numpy())
+    rule = select_top_k(
+        orders,
+        values.to_numpy(dtype=float, na_value=np.nan),
+        k,
+        eligible=flags.to_numpy(dtype=bool),
+    )
+    keys = orders["order_date"].tolist()
+    if isinstance(k, Mapping):
+        keys = list(zip(keys, orders["country_code"], strict=True))
+    limits = Counter(dict.fromkeys(keys, 0))
+    limits.update(key for key, selected in zip(keys, rule, strict=True) if selected)
+
+    scores = scores.to_numpy(dtype=float, na_value=np.nan)
+    matched = select_top_k(orders, scores, k, group_limits=limits)
+    at_k = select_top_k(orders, scores, k)
+    return frame.assign(
+        order_value=orders["order_value"].to_numpy(),
+        rule_sel=rule,
+        model_sel=matched,
+        model_k_sel=at_k,
+    )
 
 
 def _linked(frame: pd.DataFrame) -> pd.Series:
@@ -185,8 +185,8 @@ def wording(measure: str, row: dict[str, float]) -> str:
 def capacity_curve(frame: pd.DataFrame, capacities: list[int]) -> pd.DataFrame:
     """Fraud caught (count and SGD exposure) at each capacity K, same scores.
 
-    Rule flags are cut at K per group as in :func:`select_flags`; the model
-    flags its top K per group.
+    For each daily K, use the #18 rule cut and model at K (not the matched
+    model), with the same input scores at every capacity.
     """
     rows = []
     for k in capacities:
