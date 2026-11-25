@@ -13,6 +13,8 @@ files must be in `data/`, or in the folder given by `--data-dir`.
 ```
 uv run train baseline --seed 0
 uv run train boosted-trees
+uv run train random-forest --seed 0
+uv run train extra-trees --seed 0
 uv run train rerun <run ID>
 ```
 
@@ -24,13 +26,19 @@ Safety gives a capacity. Every candidate must use the same K, or the runs can't 
 compared. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
-`boosted-trees` trains histogram gradient-boosted trees twice, without and with the
-seven unconfirmed customer columns, as two child runs under one parent run (see
-"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
-`k_status` on all three runs. It defaults to `D5-01: product owner assumption, K = 250`;
-with another `--k`, the command stops unless `--k-status` says where that K comes from,
-such as `provisional: <reason>`. It prints both children's run IDs. The models are in
+The candidate commands are `boosted-trees` (histogram gradient-boosted trees),
+`random-forest` (random forest) and `extra-trees` (extremely randomized trees). Each
+trains twice, without and with the seven unconfirmed customer columns, as two child
+runs under one parent run (see "Comparing the customer columns"). Each command prints
+both children's run IDs. Random forest caps its 100 trees at 2,400 leaves per tree to
+fit within the retraining model-size limit (#25). Extra trees uses 200 trees. Both
+require at least 50 training samples per leaf. The models are in
 `src/mlops_fraud_prediction_ca1/models.py`.
+
+`--k-status` says where K comes from, and is tagged `k_status` on all three runs. It
+defaults to `D5-01: product owner assumption, K = 250`; with another `--k`, the command
+stops unless `--k-status` says where that K comes from, such as
+`provisional: <reason>`.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
@@ -89,7 +97,7 @@ run shows what leaving the columns out costs.
 
 The with-columns run adds seven columns, one of them the customer's first order date
 as `days_since_first_order`, and their values are NaN for orders whose customer dates
-fail the D4-03 checks. A pipeline that picks columns by type, as both models in
+fail the D4-03 checks. A pipeline that picks columns by type, as the models in
 `models.py` do, handles them; one that names its columns must name these too.
 
 The parent logs the with-columns result minus the without result as

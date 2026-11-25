@@ -9,7 +9,12 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
+from mlops_fraud_prediction_ca1.models import (
+    baseline_model,
+    boosted_trees_model,
+    extra_trees_model,
+    random_forest_model,
+)
 from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import (
     _load_window,
@@ -296,3 +301,18 @@ def test_rerun_without_mlflow_settings_says_what_to_set(
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "")
     with pytest.raises(RuntimeError, match="MLFLOW_TRACKING_URI"):
         rerun("0" * 32, data_dir)
+
+
+@pytest.mark.parametrize("build", [random_forest_model, extra_trees_model])
+def test_forest_candidates_log_both_runs_and_rerun(
+    build, data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "forest-test")
+    _, (without_id, _), (with_id, _) = compare_customer_columns(
+        build(), data_dir, k=5, seed=3, tags={"k_status": "provisional"}
+    )
+    assert mlflow.get_run(without_id).data.tags["champion_eligible"] == "True"
+    assert mlflow.get_run(with_id).data.tags["champion_eligible"] == "False"
+    assert rerun(without_id, data_dir)["reproduced"]
