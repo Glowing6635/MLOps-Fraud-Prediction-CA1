@@ -1,9 +1,11 @@
 # Decision log
 
-This log records the feature-timing assumptions and handling for PBI #4 and the temporal policy for PBI #6.
-No Operations confirmation has been received, so every timing status remains
-unconfirmed. Feature-timing decisions were recorded on 15 November 2026 and
-temporal windows on 16 November. Owner identifies the accountable engineer.
+This log records the feature-timing assumptions and handling for PBI #4, the temporal policy for PBI #6,
+the daily review capacity K for PBI #5 (D5-01) and where the MLflow server keeps its data (D8-01).
+No Operations confirmation has been received, so every timing status in D4-01 to D4-05 remains
+unconfirmed. K is a product owner assumption, set on 23 November 2026. Feature-timing decisions were
+recorded on 15 November 2026, temporal windows on 16 November and the MLflow server's storage
+on 18 November. Owner identifies the accountable engineer.
 
 Sources: [live #4](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/4),
 [#14](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/14), and
@@ -161,6 +163,14 @@ comparison and champion enforcement. Operations timing and label evidence may
 replace assumptions when field-specific evidence becomes available.
 Other #30 decisions and its engineer handover remain pending.
 
+## D5-01: The top-K measure uses K = 250 orders a day
+
+- Settled: 2026-11-23, as a product owner assumption. Owner: Glowing6635. Affected PBIs: #5, #13, #14, #15, #30.
+- Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each #14 candidate run records where K comes from in its `k_status` tag.
+- Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and about 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and a single K applied to every country wouldn't work, since Thailand has only about 19 fraud a day, so any K above 19 could never be filled with fraud there.
+- Set before any model result was seen, from the training and validation windows' daily order and fraud counts only. The team MLflow server's run list for the experiment `fraud-prediction` (checked on 25 November 2026) shows that before 23 November it holds only the 17 November server tests. The first model runs are the #14 boosted-trees runs, all tagged `git_commit` 83d2fea: the parent run, "HistGradientBoostingClassifier: customer columns compared" (`7d57012eafcc4f278070bd4368eba4a4`), started on 23 November 2026 at 15:06 (UTC+8), and its two child runs at 15:09 and 15:15. Commit fa0a687 (22 November, 20:51) already used K = 250 provisionally, but no model run reached the server that day.
+- If Trust & Safety gives a capacity that differs, the candidates are re-run at the new K and the change is logged here, as #5 says.
+
 ## D6-01 — Frozen retrospective windows and protected exposure
 
 - Recorded: 2026-11-16. Accountable engineer: SpiralSky. Affected PBIs:
@@ -211,3 +221,28 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Reason: the sandbox replaces the server's instance on every redeploy and at the start of a new session, so anything stored on it is lost.
 - Source: the #8 research conversation, https://claude.ai/share/02998146-af10-472d-a21f-05e215dc7623.
 - Details, the limits found and where we didn't follow the advice: [MLflow server design](mlflow-design.md).
+
+## D27-01: Wall-clock budget for a practice batch
+
+Recorded 2026-11-20 for [the three-minute pipeline (#27)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/27)
+and [per-batch retraining (#25)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/25).
+Use these initial targets when choosing the candidate list and instrumenting the pipeline.
+
+| Stage | Target (seconds) | Work covered |
+| --- | ---: | --- |
+| Fetch and validate | 25 | Download and validate all three inputs. |
+| Clean and load | 30 | Clean the batch, capture starting counts and commit the database writes. |
+| Read training data | 15 | Read the eligible rows from RDS once for all candidates. |
+| Train and log | 85 | Fit the full candidate list, evaluate it as required and finish MLflow logging, including artifact uploads. |
+| Report | 15 | Obtain final counts and print the batch summary and filtered MLflow URL. |
+
+The five stages have 170 seconds in total. The remaining 10 seconds cover process
+startup, configuration and shutdown within the 180-second command limit. Training
+gets the largest allocation because each additional candidate requires a fit and
+an upload. The 85 seconds are shared across all candidates.
+
+For each timed rehearsal, print elapsed wall-clock seconds alongside each stage
+target and measure the whole command from invocation to exit. Record the input
+row counts for all three files with each result so the timing has a batch size.
+These allocations are planning assumptions. Verification requires three runs on
+the demo machine and network, each starting from a rebuilt rehearsal database.

@@ -98,3 +98,11 @@ def test_dotenv_fills_unset_variables_and_the_environment_wins(tmp_path, monkeyp
 def test_passwords_never_appear_in_repr():
     shown = repr(load_settings(ENVIRON))
     assert "p@ss:w/rd" not in shown and "secret" not in shown
+
+
+def test_connections_are_encrypted_and_check_the_rds_certificate(monkeypatch):
+    calls = []
+    monkeypatch.setattr(config, "create_engine", lambda url, **kw: calls.append(kw))
+    create_db_engine(load_settings(ENVIRON))
+    assert calls[0]["connect_args"]["ssl"] == {"ca": str(config.RDS_CA_BUNDLE)}
+    assert "BEGIN CERTIFICATE" in config.RDS_CA_BUNDLE.read_text(encoding="ascii")

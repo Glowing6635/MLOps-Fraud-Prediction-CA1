@@ -69,8 +69,9 @@ flags fewer than K. [D18-04][proxy], [PBI #23][23], [PBI #34][34].
   [D6-01][split], [PBI #34][34].
 - **What remains manual.** Rehearsals use labelled replay data and
   synthetic practice batches, not live incoming orders. An operator starts
-  the run and supplies three batch links. The stage budget does not show
-  the pipeline finishes within three minutes. Analysts decide what to do
+  the run and supplies three batch links. The batch preflight is in
+  `dev`; it checks the inputs, not whether all stages finish within three
+  minutes. The stage budget is a target, not a measured time. Analysts decide what to do
   with flags; a pipeline run does not select or promote a champion.
   [PBI #24][24], [D27-01][budget], [PR #99][99], [PBI #15][15].
 - **What the impact figures mean.** Fraud exposure is the order value of
@@ -121,7 +122,7 @@ flags fewer than K. [D18-04][proxy], [PBI #23][23], [PBI #34][34].
 [99]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/99
 [157]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/157
 [registry]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/121e5e3574a09255e88508cb0479fec30f12b172/docs/model-review.md#5-team-registry-status
-[capacity]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/47c02b222c58214a989cccca0149d551a0ffb527/docs/decision-log.md#d5-01-the-top-k-measure-uses-k--250-orders-a-day
-[budget]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/9648fd673381eea3026f5edf8fbdc0c587a9b283/docs/decision-log.md#d27-01-wall-clock-budget-for-a-practice-batch
-[impact]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/0d4c085c4b371ea34e743b888e93e268d2f50577/docs/decision-log.md#d34-01--criterion-for-reading-the-model-versus-rule-result
+[capacity]: decision-log.md#d5-01-the-top-k-measure-uses-k--250-orders-a-day
+[budget]: decision-log.md#d27-01-wall-clock-budget-for-a-practice-batch
+[impact]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/7e163f4b77c4884e9abc3b4a260d45327ad08e81/docs/decision-log.md#d34-01--criterion-for-reading-the-model-versus-rule-result
 [proxy]: https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/dd749e1b9e294539a82e2d7e9bdc0faf1fd63b47/docs/decision-log.md#d18-04--the-proxy-rule-is-final-no-deployed-threshold-or-capacity-source-exists

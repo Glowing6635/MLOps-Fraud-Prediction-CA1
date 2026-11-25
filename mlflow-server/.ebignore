@@ -1,0 +1,10 @@
+# Beanstalk runs the image from ECR named in Dockerrun.aws.json, so the bundle holds only
+# that file, .ebextensions/ and .platform/. The rest builds the image.
+.elasticbeanstalk/
+Dockerfile
+requirements.in
+requirements.txt
+start.sh
+README.md
+.ebignore
+.gitignore

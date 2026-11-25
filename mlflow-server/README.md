@@ -1,47 +1,52 @@
 # MLflow server
 
-The Docker bundle that Elastic Beanstalk builds into the team's MLflow server (issue #7). This basic design keeps runs in SQLite and artifacts in a folder inside the container, so a redeploy or a replaced instance loses them, and so may the instance stopping when the sandbox session ends. Issue #9 moves them to RDS and S3.
-
-Until issue #9 adds a login, anyone who knows the server's address can read and change everything on it, and traffic is plain HTTP that others on the network can read. Never log source data, passwords or keys to it.
+The team's MLflow server: a Docker image kept in ECR, and the bundle that tells Elastic Beanstalk to run it. Runs, registered models and logins are kept in the team's RDS MySQL instance and artifacts in S3 (issue #9), so a redeploy or a new sandbox session keeps them. Laptops reach artifacts through the server, so they need no AWS keys. The server requires a login, but traffic is plain HTTP, so never log source data, passwords or keys to it.
 
 ## Files
 
-- `Dockerfile`: installs MLflow and starts its server on port 5000.
-- `.platform/`: raises the upload limit of Beanstalk's nginx web proxy from 1 MB to 200 MB, so models can be logged.
+- `Dockerfile`: builds the image from a base image pinned to one build, the packages in `requirements.txt`, and RDS's certificates.
+- `requirements.in`: the four packages chosen by hand. `requirements.txt`: every package they pull in, locked with hashes.
+- `Dockerrun.aws.json`: the ECR image Beanstalk runs, so every new instance runs the same packages.
+- `.ebignore`: keeps the files that build the image out of the bundle.
+- `start.sh`: checks every setting is set, waits up to 15 minutes for RDS, sets up the login database and starts the server. A missing setting stops it.
+- `.ebextensions/health.config`: points the health check at `/health`, the one page that needs no login.
+- `.platform/`: raises nginx's upload limit from 1 MB to 200 MB.
+- `DEPLOY.md`: setting up RDS and S3, building and pushing the image, and deploying it.
 
-## Deploy
+## Settings
 
-You need the EB CLI (`uv tool install --python 3.12 awsebcli`) and the sandbox credentials in `~/.aws/credentials`. Learner Lab credentials expire when the session ends, so paste fresh ones from "AWS Details" each session.
+None is in the image or in git. The four secrets are encrypted `SecureString` parameters in Parameter Store, which Beanstalk reads into environment variables when an instance starts, so they never show on the Beanstalk settings page. The rest are plain environment properties. In a database address, write `@`, `:`, `/` or `%` in the password as `%40`, `%3A`, `%2F` or `%25`.
 
-Run these from this folder, replacing `<prefix>` with a name not yet taken, such as `sp-buy-mlflow`. This folder has no `.git` of its own, so the EB CLI uploads the folder as it is on disk, uncommitted edits included.
+| Variable | Kept in | Value |
+| --- | --- | --- |
+| `MLFLOW_BACKEND_STORE_URI` | parameter `/mlflow/backend-store-uri` | `mysql+pymysql://mlflow:<password>@<rds-endpoint>:3306/mlflow?ssl_ca=/etc/ssl/rds-global-bundle.pem` |
+| `MLFLOW_AUTH_DATABASE_URI` | parameter `/mlflow/auth-database-uri` | the same, with `/mlflow_auth` in place of `/mlflow` |
+| `MLFLOW_AUTH_ADMIN_PASSWORD` | parameter `/mlflow/auth-admin-password` | the first admin password, used only while the login database is empty |
+| `MLFLOW_FLASK_SERVER_SECRET_KEY` | parameter `/mlflow/flask-secret-key` | a long random string; changing it signs everyone out |
+| `MLFLOW_ARTIFACTS_DESTINATION` | environment property | `s3://<bucket>/artifacts` |
+| `MLFLOW_SERVER_ALLOWED_HOSTS` | environment property | `<prefix>.us-east-1.elasticbeanstalk.com` |
+| `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` | environment property | the same with `http://`, or the web UI cannot change anything |
+
+`ssl_ca` makes the server encrypt its database connections and check the RDS certificate. RDS refuses unencrypted connections (`require_secure_transport` in the `fraud-mysql84` parameter group).
+
+## Logins
+
+Every login can read every experiment. Make each engineer's login an admin so they can log runs; leave reviewers' logins as they are. Passwords need at least 12 characters. With the admin login in `.env`:
 
 ```
-eb init mlflow-server --platform docker --region us-east-1
-eb create mlflow --single --instance_type t3.small --service-role LabRole --instance_profile LabInstanceProfile --cname <prefix> --envvars MLFLOW_SERVER_ALLOWED_HOSTS=<prefix>.us-east-1.elasticbeanstalk.com,MLFLOW_SERVER_CORS_ALLOWED_ORIGINS=http://<prefix>.us-east-1.elasticbeanstalk.com
-eb status
+uv run --with Flask-WTF==1.3.0 python -c "from mlflow.server import get_app_client as c; a = c('basic-auth', tracking_uri='<server URL>'); a.create_user('<name>', '<password>'); a.update_user_admin('<name>', True)"
 ```
 
-- `--single` runs one instance with no load balancer.
-- `LabRole` and `LabInstanceProfile` are the sandbox account's own service role and instance profile, so nothing creates an IAM resource.
-- `MLFLOW_SERVER_ALLOWED_HOSTS` must name the environment's URL: MLflow refuses requests for any other host name, except `/health` and `/version`. The setting replaces MLflow's default list, so even `localhost` is refused on the instance itself.
-- `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` must name the same URL with `http://`: otherwise MLflow refuses every change and search made in the web UI, such as listing, renaming or deleting runs, because the browser sends that address as the request's origin.
-- `eb status` shows `Health: Green` once the environment is healthy.
-
-To deploy changes later, run `eb deploy` from this folder.
+`a.update_user_password('admin', '<new>', '<current>')` changes the admin password; update the `/mlflow/auth-admin-password` parameter to match.
 
 ## Test locally with Docker
 
-Before you deploy a change, you can run the same image on your laptop. You need Docker Desktop (on Windows it uses WSL 2, so run `wsl --update` first if Docker's engine fails to start). From this folder:
-
-```
-docker build -t mlflow-server .
-docker run --rm -m 2g -p 5000:5000 mlflow-server
-```
-
-- `-m 2g` caps the container at the t3.small's 2 GB, so a change that needs more fails on your laptop first. On the instance, the operating system, Docker and nginx share those 2 GB, so leave headroom below it.
-- Open `http://localhost:5000/health` to check it answers OK, and `http://localhost:5000` for the web UI. The allowed-hosts and browser-origin settings above are not needed here, because MLflow accepts `localhost` by default.
-- Press Ctrl+C to stop it. Runs logged to it disappear when it stops.
+Run a MySQL 8.4 container with `--log-bin-trust-function-creators=1` in place of RDS, set it up as in step 2, then run this image on the same Docker network with `-m 2g` (the t3.small's memory; the server uses about 600 MB), the settings above without `?ssl_ca=...`, and `MLFLOW_ARTIFACTS_DESTINATION=/artifacts` on a volume in place of S3. In Git Bash, `export MSYS_NO_PATHCONV=1` first, or it rewrites `/artifacts` into a Windows path.
 
 ## Check from each laptop
 
-Set `MLFLOW_TRACKING_URI=http://<prefix>.us-east-1.elasticbeanstalk.com` and `MLFLOW_EXPERIMENT_NAME` in `.env`, then run `uv run log-test-run`. It logs a run under your login name with a small artifact, and MLflow prints the run's address. Open it to see the run in the web UI.
+Set the server URL, `MLFLOW_EXPERIMENT_NAME` and your own login in `.env`, then:
+
+- `uv run log-test-run` logs a run with a small artifact.
+- `uv run redeploy-check record` logs a run and a small registered model before a redeploy. After it, `uv run redeploy-check verify` fails unless both are unchanged.
+- `uv run redeploy-check large` sends a 100 MB artifact through the server and back.
