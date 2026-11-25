@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from mlops_fraud_prediction_ca1 import training
 from mlops_fraud_prediction_ca1.models import (
     baseline_model,
     boosted_trees_model,
@@ -283,6 +284,53 @@ def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
     run = mlflow.get_run(run_id)
     assert run.data.params["k"] == str(K)
     assert run.data.tags["k_status"] == f"D5-01: product owner assumption, K = {K}"
+
+
+def test_candidate_cli_tags_cannot_replace_dirty_git_provenance(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "provenance-test")
+    actual_commit = "a" * 40
+    git_results = {
+        "rev-parse": actual_commit,
+        "status": " M training.py",
+        "config": "Fixture Author",
+    }
+    monkeypatch.setattr(training, "_git", lambda command, *args: git_results[command])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "boosted-trees",
+            "--data-dir",
+            str(data_dir),
+            "--tag",
+            "git_dirty=False",
+            "--tag",
+            "git_commit=overridden",
+            "--tag",
+            "author=overridden",
+            "--tag",
+            "pr=164",
+        ],
+    )
+    with pytest.warns(UserWarning, match="working tree has uncommitted changes"):
+        main()
+
+    runs = mlflow.search_runs(
+        experiment_names=["provenance-test"], output_format="list"
+    )
+    assert len(runs) == 3
+    for run in runs:
+        tags = run.data.tags
+        assert tags["git_dirty"] == "True"
+        assert tags["git_commit"] == actual_commit
+        assert tags["author"] == "Fixture Author"
+        assert tags["pr"] == "164"
+    assert sum(run.data.tags.get("champion_eligible") == "True" for run in runs) == 1
 
 
 def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):

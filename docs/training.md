@@ -101,6 +101,8 @@ nothing to divide by is not logged.
 
 A run from a working tree with uncommitted changes is still logged, with `git_dirty`
 set to true and a warning, because the commit alone does not hold its code.
+The harness ignores caller-supplied values for `git_commit`, `git_dirty` and
+`author`.
 
 ## Comparing the customer columns
 

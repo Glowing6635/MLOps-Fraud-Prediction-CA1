@@ -254,6 +254,11 @@ def train(
     seed: int | None,
     exploratory: bool = False,
     tags: dict[str, str] | None = None,
+    labelled_windows: tuple[pd.DataFrame, pd.DataFrame] | None = None,
+    run_name: str | None = None,
+    extra_params: dict[str, object] | None = None,
+    extra_metrics: Callable[[FitResult], dict[str, float]] | None = None,
+    max_model_size_bytes: int | None = None,
 ) -> tuple[str, FitResult]:
     """Run `fit_and_score` and log the run to MLflow; return the run ID and the result.
 
@@ -261,8 +266,10 @@ def train(
     the experiment MLFLOW_EXPERIMENT_NAME. The author is git's `user.name`, or "unknown"
     when git has none. A run from a
     tree with uncommitted changes is logged with `git_dirty` set to true and a warning,
-    because its commit alone does not reproduce it. `tags` are added to the run's tags.
-    If a run is active, this run is logged as its child.
+    because its commit alone does not reproduce it. Provenance takes precedence over
+    caller-supplied `tags`.
+    If a run is active, this run is logged as its child. Extra parameters and
+    metrics record caller context. An optional size limit is checked before upload.
     """
     _use_experiment()
     provenance = _provenance_tags()
@@ -304,7 +311,10 @@ def train(
         metrics[f"precision_{suffix}"] = at.precision
         metrics[f"recall_{suffix}"] = at.recall
 
-    with mlflow.start_run(nested=True) as run:
+    if extra_metrics is not None:
+        metrics.update(extra_metrics(result))
+
+    with mlflow.start_run(nested=True, run_name=run_name) as run:
         mlflow.log_params(
             {
                 **model_params,
@@ -315,21 +325,13 @@ def train(
                 "label_delay_days": ASSUMED_LABEL_DELAY_DAYS,
                 "cleaning_policy_version": CLEANING_POLICY_VERSION,
                 **{name: getattr(policy, name).isoformat() for name in _CUTOFFS},
-                **hashes,
+                **data_params,
+                **(extra_params or {}),
             }
         )
-        mlflow.set_tags(
-            {
-                "git_commit": _git("rev-parse", "HEAD"),
-                "git_dirty": dirty,
-                # CI runners and new laptops often have no git identity.
-                "author": _git("config", "--default", "unknown", "user.name"),
-                **(tags or {}),
-            }
-        )
+        mlflow.set_tags({**(tags or {}), **provenance})
         # An undefined ratio (no order selected, or no fraud) is left out, not logged as 0.
         mlflow.log_metrics(
-        mlflow.set_tags({**(tags or {}), **provenance})
             {name: value for name, value in metrics.items() if value is not None}
         )
         # MLflow saves with skops, which loads only the types listed here. The model was
@@ -371,11 +373,7 @@ def compare_customer_columns(
     model = estimator[-1] if hasattr(estimator, "steps") else estimator
     with mlflow.start_run(
         run_name=f"{type(model).__name__}: customer columns compared",
-        tags={
-            **tags,
-            "git_commit": _git("rev-parse", "HEAD"),
-            "author": _git("config", "--default", "unknown", "user.name"),
-        },
+        tags={**tags, **_provenance_tags()},
     ) as parent:
         without, with_columns = (
             train(
@@ -477,6 +475,15 @@ def _dataset_hashes(data_dir: str | Path) -> dict[str, str]:
     return hashes
 
 
+def _provenance_tags() -> dict[str, str]:
+    return {
+        "git_commit": _git("rev-parse", "HEAD"),
+        "git_dirty": str(bool(_git("status", "--porcelain", "--untracked-files=no"))),
+        # CI runners and new laptops often have no git identity.
+        "author": _git("config", "--default", "unknown", "user.name"),
+    }
+
+
 def _git(*args: str) -> str:
     return subprocess.run(
         ["git", *args],
@@ -549,7 +556,8 @@ def main() -> None:
             action="append",
             default=[],
             metavar="KEY=VALUE",
-            help="Extra tag on every run (repeatable), such as pr=164.",
+            help="Extra tag on every run (repeatable), such as pr=164. "
+            "git_commit, git_dirty, and author are set by the harness.",
         )
         candidate_parsers.append(parser)
     for command in (baseline, comparison, *candidate_parsers):
