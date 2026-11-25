@@ -89,8 +89,8 @@ model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 | Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
 | Model | The fitted model, under the name `model` |
 
-The dataset version is the SHA-256 of each input file. Once incoming batches are loaded,
-it will be their batch IDs instead.
+CSV runs record a SHA-256 for each input file. [Per-batch retraining](retraining.md)
+uses the labelled database snapshot and logs the batch ID and validation digest.
 
 `validation_customer_overlap` is the share of validation orders whose customer also
 has an order in the training window. A high share means the validation score partly

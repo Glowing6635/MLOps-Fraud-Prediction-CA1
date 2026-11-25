@@ -185,13 +185,8 @@ def main(argv=None) -> int:
     module, separator, factory = args.inputs.partition(":")
     if not separator or not module or not factory:
         parser.error("inputs must be module:factory")
-    try:
-        from .training import score_labelled_rows, train
-    except ImportError as error:
-        parser.error(
-            f"Shared training harness unavailable ({error}). "
-            "See docs/retraining.md for the required #151 integration."
-        )
+    from .training import score_labelled_rows, train
+
     settings = load_settings()
     inputs = getattr(import_module(module), factory)()
     engine = create_db_engine(settings)

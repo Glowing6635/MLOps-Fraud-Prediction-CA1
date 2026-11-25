@@ -1,11 +1,12 @@
 """The shared training harness (issue #13): fit a model on the training window, score the
 validation window with the top-K evaluator and log the run to MLflow.
 
-Data comes only through the protected reader (`data.load_base_data`), once for the
+In CSV mode, data comes through the protected reader (`data.load_base_data`), once for the
 training window and once for the validation window, so the locked test window is never
 loaded. `cleaning.clean_frame` then cleans each table. Labels join orders by country and
 order ID through `relationships.link_orders_customers`, and orders without a valid label
-are left out.
+are left out. Batch retraining supplies cleaned, joined windows from the protected
+RDS reader and uses the order-only feature set.
 The features are the order columns `leakage.select_feature_inputs` allows. An exploratory
 run adds the seven customer columns (decision D4-02), withholding them for orders whose
 customer dates are inconsistent or cannot be checked (D4-03).
@@ -25,6 +26,7 @@ import sys
 import tempfile
 import time
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -168,32 +170,67 @@ def _model_inputs(features: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def _labelled_window(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Prepare cleaned, joined RDS rows for the same order-only harness."""
+    features = select_feature_inputs(rows, source="orders")
+    for column in ("order_value", "num_items_ordered"):
+        # MySQL represents money as Decimal, which pandas stores as object.
+        features[column] = pd.to_numeric(features[column])
+    return rows[_KEYS].astype({"is_fraud": int}), _model_inputs(features)
+
+
+def _score_window(estimator, keys, features, k: int) -> TopKReport:
+    return evaluate_top_k(keys, estimator.predict_proba(features)[:, 1], k)
+
+
+def score_labelled_rows(estimator, rows: pd.DataFrame, *, k: int) -> TopKReport:
+    """Score an already fitted order-only model on cleaned, labelled rows."""
+    keys, features = _labelled_window(rows)
+    return _score_window(estimator, keys, features, k)
+
+
 def fit_and_score(
-    estimator, data_dir: str | Path, *, k: int, seed: int, exploratory: bool = False
+    estimator,
+    data_dir: str | Path | None = None,
+    *,
+    k: int,
+    seed: int | None,
+    exploratory: bool = False,
+    labelled_windows: tuple[pd.DataFrame, pd.DataFrame] | None = None,
 ) -> FitResult:
     """Fit `estimator` on the training window and evaluate it on the validation window.
 
-    `estimator` is a scikit-learn classifier or pipeline with `predict_proba`; it gets a
-    DataFrame of the feature columns. `seed` goes to every `random_state` parameter it
-    has. `k` is the daily review capacity for the top-K evaluator, set before any result
-    is seen.
+    Supply a CSV directory or the cleaned, joined train and validation frames.
+    Labelled frames support order-only features. The classifier receives a DataFrame
+    and must implement `predict_proba`. A seed overrides every `random_state`
+    parameter when supplied. Set daily review capacity `k` before seeing any result.
     """
-    estimator.set_params(
-        **{
-            name: seed
-            for name in estimator.get_params()
-            if name.endswith("random_state")
-        }
-    )
-    train_keys, train_x = _load_window(data_dir, "train", exploratory)
-    validation_keys, validation_x = _load_window(data_dir, "validation", exploratory)
+    if (data_dir is None) == (labelled_windows is None):
+        raise ValueError("Supply exactly one of data_dir and labelled_windows.")
+    if labelled_windows is None:
+        train_keys, train_x = _load_window(data_dir, "train", exploratory)
+        validation_keys, validation_x = _load_window(
+            data_dir, "validation", exploratory
+        )
+    else:
+        if exploratory:
+            raise ValueError("Labelled windows support order-only training.")
+        (train_keys, train_x), (validation_keys, validation_x) = map(
+            _labelled_window, labelled_windows
+        )
+    if seed is not None:
+        estimator.set_params(
+            **{
+                name: seed
+                for name in estimator.get_params()
+                if name.endswith("random_state")
+            }
+        )
     check_feature_columns(train_x)
     start = time.perf_counter()
     estimator.fit(train_x, train_keys.is_fraud)
     fit_seconds = time.perf_counter() - start
-    report = evaluate_top_k(
-        validation_keys, estimator.predict_proba(validation_x)[:, 1], k
-    )
+    report = _score_window(estimator, validation_keys, validation_x, k)
     customer_keys = ["country_code", "customer_id"]
     seen = pd.MultiIndex.from_frame(train_keys[customer_keys].astype(str))
     overlap = validation_keys.customer_id.notna() & pd.MultiIndex.from_frame(
@@ -211,10 +248,10 @@ def fit_and_score(
 
 def train(
     estimator,
-    data_dir: str | Path,
+    data_dir: str | Path | None = None,
     *,
     k: int,
-    seed: int,
+    seed: int | None,
     exploratory: bool = False,
     tags: dict[str, str] | None = None,
 ) -> tuple[str, FitResult]:
@@ -228,15 +265,26 @@ def train(
     If a run is active, this run is logged as its child.
     """
     _use_experiment()
-    hashes = _dataset_hashes(data_dir)
-    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
-    if dirty:
+    provenance = _provenance_tags()
+    if provenance["git_dirty"] == "True":
         warnings.warn(
             "The working tree has uncommitted changes, so the logged commit alone does"
             " not reproduce this run.",
             stacklevel=2,
         )
-    result = fit_and_score(estimator, data_dir, k=k, seed=seed, exploratory=exploratory)
+    data_params = (
+        _dataset_hashes(data_dir)
+        if data_dir is not None and labelled_windows is None
+        else {"data_source": "rds_labelled_windows"}
+    )
+    result = fit_and_score(
+        estimator,
+        data_dir,
+        k=k,
+        seed=seed,
+        exploratory=exploratory,
+        labelled_windows=labelled_windows,
+    )
     policy = load_policy()
     model_params = {
         name: value
@@ -281,6 +329,7 @@ def train(
         )
         # An undefined ratio (no order selected, or no fraud) is left out, not logged as 0.
         mlflow.log_metrics(
+        mlflow.set_tags({**(tags or {}), **provenance})
             {name: value for name, value in metrics.items() if value is not None}
         )
         # MLflow saves with skops, which loads only the types listed here. The model was
@@ -296,6 +345,10 @@ def train(
                 if path.is_file()
             )
         mlflow.log_metric("model_size_bytes", size)
+        if max_model_size_bytes is not None and not 0 < size <= max_model_size_bytes:
+            raise ValueError(
+                f"Saved model has {size:,} bytes. Expected 1–{max_model_size_bytes:,} bytes."
+            )
         mlflow.sklearn.log_model(
             result.model, name="model", skops_trusted_types=trusted
         )
