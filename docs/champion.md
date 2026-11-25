@@ -61,7 +61,8 @@ and the verified registry source and download location.
 
 The best two ranked runs whose model is within 50 MB take `champion` and
 `challenger` ([D15-03](decision-log.md#d15-03--register-the-best-two-ranked-models-within-50-mb)).
-A run known to be larger stays in the table and is passed over. Any displaced
+A run known to be larger stays in the table and is passed over. The comparison
+shows the validation rank and identifies the elected champion separately. Any displaced
 version keeps its registry entry. A new champion records the prior version in
 `previous_champion_version`.
 

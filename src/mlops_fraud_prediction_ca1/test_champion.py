@@ -164,7 +164,7 @@ def test_top_two_are_registered_with_aliases_and_artifact_tags(client):
 
 
 def test_registry_gets_best_two_within_50_mb_and_ranking_keeps_the_rest(
-    client, monkeypatch
+    client, monkeypatch, capsys
 ):
     huge = _log("huge forest", 300, 0.9, model_size_bytes=187_000_000)
     real = champion._artifact_size
@@ -176,13 +176,32 @@ def test_registry_gets_best_two_within_50_mb_and_ranking_keeps_the_rest(
     best = _log("best", 200, 0.3)
     second = _log("second", 100, 0.4)
     _log("third", 50, 0.1)
-    candidates = eligible_candidates(client, _experiment(client), 250)
-    assert len(candidates) == 4
-    assert "187,000,000 bytes (>50 MB)" in comparison_table(candidates)
-    versions = _register(client, MODEL, candidates)
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "e")
+    cli = _installed_cli()
+    monkeypatch.setattr(sys, "argv", [str(cli), "--k", "250"])
+    with pytest.raises(SystemExit) as status:
+        runpy.run_path(str(cli), run_name="__main__")
+    assert status.value.code in (None, 0)
+
+    preview = capsys.readouterr().out
+    assert f"| 1 | huge forest ({huge}) |" in preview
+    assert "187,000,000 bytes (>50 MB)" in preview
+    assert f"Champion: best ({best}) (rank 2)." in preview
+    assert f"Champion: huge forest ({huge})" not in preview
+    approval = preview.split("Comparison ID: ")[1].strip()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(cli), "--k", "250", "--register", MODEL, "--approve-comparison", approval],
+    )
+    with pytest.raises(SystemExit) as status:
+        runpy.run_path(str(cli), run_name="__main__")
+    assert status.value.code in (None, 0)
+    assert f"Champion: best ({best}) (rank 2)." in capsys.readouterr().out
     assert client.get_model_version_by_alias(MODEL, CHAMPION).run_id == best
     assert client.get_model_version_by_alias(MODEL, CHALLENGER).run_id == second
-    assert len(versions) == 2
+    assert len(client.search_model_versions(f"name='{MODEL}'")) == 2
 
 
 def test_alias_moves_to_the_second_model_and_back(client):
