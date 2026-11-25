@@ -188,12 +188,14 @@ def _name(client, run) -> str:
     return source.data.tags.get("mlflow.runName", "")
 
 
-def comparison_table(candidates: list[Candidate]) -> str:
-    """Markdown table of the ranked candidates with the reason for the order."""
+def comparison_table(
+    candidates: list[Candidate], *, elected: Candidate | None = None
+) -> str:
+    """Show the validation ranking and the elected registry champion when known."""
     lines = [
         (
             "| Rank | Run | Fraud caught at K | Fraud catchable at K | Average precision "
-            "| Saved model size (harness) | Top two |"
+            "| Saved model size (harness) | Top two by rank |"
         ),
         "|---|---|---|---|---|---|---|",
     ]
@@ -222,7 +224,10 @@ def comparison_table(candidates: list[Candidate]) -> str:
         reason = (
             "same fraud caught at K and average precision, so run ID breaks the tie"
         )
-    lines.append(f"\nChampion: {best.name} ({best.run_id}): {reason}.")
+    lines.append(f"\nRank 1: {best.name} ({best.run_id}): {reason}.")
+    if elected is not None:
+        rank = candidates.index(elected) + 1
+        lines.append(f"Champion: {elected.name} ({elected.run_id}) (rank {rank}).")
     return "\n".join(lines)
 
 
@@ -373,6 +378,14 @@ def register_top_two(
 ) -> dict[str, str]:
     """Register the approved top two artifacts and assign their aliases."""
     picked, sources, _ = _registration_picks(client, candidates)
+    return _register_approved(
+        client, model_name, candidates, picked, sources, approved_comparison
+    )
+
+
+def _register_approved(
+    client, model_name, candidates, picked, sources, approved_comparison
+):
     if approved_comparison != _comparison_id(client, candidates, picked, sources):
         raise ValueError("Comparison changed. Preview it again and obtain approval.")
     aliases = _registered_aliases(client, model_name)
@@ -540,10 +553,11 @@ def main() -> None:
 
     try:
         candidates = eligible_candidates(client, [experiment.experiment_id], args.k)
+        picked, sources, sizes = _registration_picks(client, candidates)
+        table = comparison_table(candidates, elected=picked[0])
         if args.register is None:
-            picked, sources, sizes = _registration_picks(client, candidates)
             approval_id = _comparison_id(client, candidates, picked, sources)
-            sys.stdout.write(comparison_table(candidates) + "\n\n")
+            sys.stdout.write(table + "\n\n")
             for role, candidate, source, exact in zip(
                 (CHAMPION, CHALLENGER), picked, sources, sizes, strict=True
             ):
@@ -559,15 +573,12 @@ def main() -> None:
                 )
             sys.stdout.write(f"Comparison ID: {approval_id}\n")
             return
-        versions = register_top_two(
-            client,
-            args.register,
-            candidates,
-            approved_comparison=args.approve_comparison,
+        versions = _register_approved(
+            client, args.register, candidates, picked, sources, args.approve_comparison
         )
     except (ValueError, MlflowException) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")
 
-    sys.stdout.write(comparison_table(candidates) + "\n")
+    sys.stdout.write(table + "\n")
     for alias, version in versions.items():
         sys.stdout.write(f"{args.register} {alias}: version {version}\n")
