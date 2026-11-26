@@ -293,6 +293,6 @@ not met.
 
 ## D30-01: Model reviews meet on Friday afternoons
 
-- Settled: 2026-11-27, set by the product owner (Glowing6635). Owner: the Scrum Master, not named yet. Affected PBIs: #15, #30.
+- Settled: 2026-11-27, set by the product owner (Glowing6635). Owner: the Scrum Master, not named yet. Affected PBIs: #15, #22, #30.
 - Decision: the model-review meeting is held on Friday afternoons.
 - Reason: not recorded yet. The Scrum Master adds it once named.
