@@ -16,6 +16,7 @@ uv run train boosted-trees
 uv run train random-forest --seed 0
 uv run train extra-trees --seed 0
 uv run train compare-feature-groups
+uv run train boosted-trees-country
 uv run train rerun <run ID>
 ```
 
@@ -43,6 +44,9 @@ stops unless `--k-status` says where that K comes from, such as
 
 `compare-feature-groups` fits and logs the baseline separately for each
 [order feature group](feature-pipeline.md) and prints the validation results and run IDs.
+
+`boosted-trees-country` logs the boosted-trees candidate's two versions for #22 (see
+"Version 2: the country input").
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
@@ -84,7 +88,7 @@ model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 
 | Kind | Recorded |
 | --- | --- |
-| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
+| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `country_input`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
 | Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
 | Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
@@ -128,6 +132,26 @@ The parent logs the with-columns result minus the without result as
 `average_precision_difference`. The parent holds no model, so re-run a child by its own
 run ID.
 
+## Version 2: the country input
+
+`uv run train boosted-trees-country` logs the boosted-trees candidate twice under one
+parent run, `HistGradientBoostingClassifier: v2 country input compared`: `v1 order
+columns` on the four order columns, and `v2 country input`, which also gives the model
+the order's `country_code` ([D22-03](decision-log.md#d22-03--the-orders-country-as-a-model-input)).
+Both children are tagged `champion_eligible` `True`, and each logs the diagnostics
+tables. The parent's description (`mlflow.note.content`) states the weakness, the change,
+the change in fraud caught at K and in average precision, and how many places v2 gives
+the country with v1's lowest precision at K. A country v1 gave no place has no
+precision, so it is never the one named. The parent also logs
+`fraud_caught_at_k_difference` and `average_precision_difference`.
+
+From Python, pass `country_input=True` to `train` or `fit_and_score`. It works for rows
+passed in too, since every row carries its `country_code`. A model fitted with the
+country input needs the column whenever it scores. `score_labelled_rows` adds it for any
+model that was fitted with it, so per-batch retraining can score version 2 as the
+champion. Training version 2 there as a candidate needs `retrain.py` to pass
+`country_input=True` for it, which `ModelSpec` can't ask for yet.
+
 ## Re-running a run
 
 `uv run train rerun <run ID>` builds an unfitted copy of the logged model, with the same
@@ -144,7 +168,8 @@ precision within 0.005. `same_commit` shows whether the code is at the logged co
 - Labels join orders by country and order ID. Orders without a valid label are left
   out of both fitting and scoring.
 - The features are the four order columns that `leakage.select_feature_inputs` allows
-  (decision D4-01 in [the decision log](decision-log.md)). An exploratory run adds the
+  (decision D4-01 in [the decision log](decision-log.md)). A run with the country input
+  also gets the order's `country_code` (D22-03). An exploratory run adds the
   seven customer columns, and withholds them for orders whose customer dates are
   inconsistent or cannot be checked (D4-02 and D4-03). The customer's first order date
   becomes `days_since_first_order`, the whole days from it to the order, because the

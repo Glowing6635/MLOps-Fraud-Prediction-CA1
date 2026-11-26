@@ -433,6 +433,74 @@ def test_history_comparison_logs_description_and_reruns(
     assert rerun(v2_id, data_dir)["reproduced"]
 
 
+def _move_even_orders_to_thailand(data_dir, order_values, label_values):
+    """Move orders whose ID ends in an even digit to TH, setting the given columns."""
+    orders = pd.read_csv(data_dir / "orders_base.csv")
+    labels = pd.read_csv(data_dir / "labels_base.csv")
+    moved = orders.order_id.str[-1].isin(list("02468"))
+    orders.loc[moved, ["country_code", *order_values]] = ["TH", *order_values.values()]
+    labels.loc[
+        labels.order_id.isin(orders.order_id[moved]), ["country_code", *label_values]
+    ] = ["TH", *label_values.values()]
+    orders.to_csv(data_dir / "orders_base.csv", index=False)
+    labels.to_csv(data_dir / "labels_base.csv", index=False)
+    return orders, labels
+
+
+def test_country_input_reaches_each_order_only_on_request(data_dir):
+    # TH orders are marked by an item count no MY order has.
+    _move_even_orders_to_thailand(data_dir, {"num_items_ordered": 99}, {})
+    plain, country = _Recorder(), _Recorder()
+    fit_and_score(plain, data_dir, k=5, seed=0)
+    fit_and_score(country, data_dir, k=5, seed=0, country_input=True)
+    for without, features in zip(plain.seen_, country.seen_, strict=True):
+        assert list(features.columns) == [*without.columns, "country_code"]
+        assert features.country_code.eq("TH").equals(features.num_items_ordered.eq(99))
+        assert features.country_code.eq("TH").any()
+
+
+def test_country_command_logs_both_versions_and_country_runs_rerun_and_score(
+    data_dir, tmp_path, monkeypatch, capsys
+):
+    # Every TH order is fraud, so only a model that sees the country can tell.
+    orders, labels = _move_even_orders_to_thailand(data_dir, {}, {"is_fraud": 1})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["train", "boosted-trees-country", "--data-dir", str(data_dir), "--k", "5"],
+    )
+    main()
+    out = capsys.readouterr().out
+    order_only_id, country_id = re.findall(r"Logged run (\w+)\.", out)
+    (parent_id,) = re.findall(r"Logged parent run (\w+)\.", out)
+    order_only, country = map(mlflow.get_run, (order_only_id, country_id))
+    assert order_only.data.params["country_input"] == "False"
+    assert country.data.params["country_input"] == "True"
+    for run in (order_only, country):
+        assert run.data.tags["champion_eligible"] == "True"
+    before, after = (
+        int(run.data.metrics["fraud_caught_at_k"]) for run in (order_only, country)
+    )
+    assert after > before
+    parent = mlflow.get_run(parent_id)
+    note = parent.data.tags["mlflow.note.content"]
+    assert "Weakness:" in note and "D22-03" in note and "Cost: MY gets" in note
+    assert f"fraud caught {before} -> {after}" in note
+    assert parent.data.metrics["fraud_caught_at_k_difference"] == after - before
+    again = rerun(country_id, data_dir)
+    assert again["fraud_caught_at_k"] == after and again["reproduced"]
+    validation = orders.merge(labels, on=["country_code", "order_id"]).loc[
+        lambda rows: rows.order_id.str.startswith("validation")
+    ]
+    model = mlflow.sklearn.load_model(f"runs:/{country_id}/model")
+    assert training.score_labelled_rows(model, validation, k=5).at_k.fraud_caught == (
+        after
+    )
+
+
 def test_boosted_trees_v2_command_logs_two_runs(
     data_dir, tmp_path, monkeypatch, capsys
 ):

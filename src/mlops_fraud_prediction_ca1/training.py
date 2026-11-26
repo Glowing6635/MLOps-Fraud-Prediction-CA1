@@ -6,16 +6,23 @@ training window and once for the validation window, so the locked test window is
 loaded. `cleaning.clean_frame` then cleans each table. Labels join orders by country and
 order ID through `relationships.link_orders_customers`, and orders without a valid label
 are left out. Batch retraining supplies cleaned, joined windows from the protected
-RDS reader and uses the order-only feature set.
+RDS reader and trains on the order-only feature set; scoring adds the country for a
+model fitted with it.
 The features are the order columns `leakage.select_feature_inputs` allows. An exploratory
 run adds the seven customer columns (decision D4-02), withholding them for orders whose
-customer dates are inconsistent or cannot be checked (D4-03).
+customer dates are inconsistent or cannot be checked (D4-03). A run with
+`country_input` also gives the model the order's `country_code` (D22-03).
 
 `uv run train baseline` trains and logs the baseline model, `uv run train
 boosted-trees` logs the boosted-trees candidate with and without the customer
-columns under one parent run (`compare_customer_columns`), and `uv run train rerun
-RUN_ID` re-runs a logged run to check it reproduces. docs/training.md says what a run
-records.
+columns under one parent run (`compare_customer_columns`), `uv run train
+boosted-trees-country` logs it without and with the country input
+(`compare_country`), and `uv run train rerun RUN_ID` re-runs a logged run to check it
+reproduces. docs/training.md says what a run records.
+
+The file is over the 500-line target. The comparisons and the command line call the
+harness's private experiment and provenance helpers, which is why they stay together
+with it; moving them out needs those helpers made public, a refactor of its own (AI-3).
 """
 
 import argparse
@@ -181,7 +188,7 @@ def _model_inputs(features: pd.DataFrame) -> pd.DataFrame:
 
 
 def _labelled_window(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Prepare cleaned, joined RDS rows for the same order-only harness."""
+    """The keys and the order-column features of cleaned, joined RDS rows."""
     features = select_feature_inputs(rows, source="orders")
     for column in ("order_value", "num_items_ordered"):
         # MySQL represents money as Decimal, which pandas stores as object.
@@ -213,9 +220,19 @@ def _score_window(estimator, keys, features, k: int) -> TopKReport:
     return evaluate_top_k(keys, estimator.predict_proba(features)[:, 1], k)
 
 
+def _with_country(keys: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+    """`features` plus each order's `country_code` from `keys`, matched by position."""
+    return features.assign(country_code=keys.country_code.astype(object).to_numpy())
+
+
 def score_labelled_rows(estimator, rows: pd.DataFrame, *, k: int) -> TopKReport:
-    """Score an already fitted order-only model on cleaned, labelled rows."""
+    """Score an already fitted model on cleaned, labelled rows.
+
+    A model fitted with the country input (D22-03) also gets each row's `country_code`.
+    """
     keys, features = _labelled_window(rows)
+    if "country_code" in getattr(estimator, "feature_names_in_", ()):
+        features = _with_country(keys, features)
     return _score_window(estimator, keys, features, k)
 
 
@@ -228,14 +245,16 @@ def fit_and_score(
     exploratory: bool = False,
     labelled_windows: tuple[pd.DataFrame, pd.DataFrame] | None = None,
     history: bool = False,
+    country_input: bool = False,
 ) -> FitResult:
     """Fit `estimator` on the training window and evaluate it on the validation window.
 
     Supply a CSV directory or the cleaned, joined train and validation frames.
-    Labelled frames support order-only features. The classifier receives a DataFrame
+    Labelled frames don't support the exploratory customer columns. The classifier receives a DataFrame
     and must implement `predict_proba`. A seed overrides every `random_state`
     parameter when supplied. Set daily review capacity `k` before seeing any result.
     `history` adds the three v2 customer-history counts (decision D22-01).
+    `country_input` adds the order's `country_code` as a text column (D22-03).
     """
     if (data_dir is None) == (labelled_windows is None):
         raise ValueError("Supply exactly one of data_dir and labelled_windows.")
@@ -254,6 +273,9 @@ def fit_and_score(
         train_x, validation_x = _add_history(
             train_keys, train_x, validation_keys, validation_x
         )
+    if country_input:
+        train_x = _with_country(train_keys, train_x)
+        validation_x = _with_country(validation_keys, validation_x)
     if seed is not None:
         estimator.set_params(
             **{
@@ -299,6 +321,7 @@ def train(
     extra_metrics: Callable[[FitResult], dict[str, float]] | None = None,
     max_model_size_bytes: int | None = None,
     history: bool = False,
+    country_input: bool = False,
 ) -> tuple[str, FitResult]:
     """Run `fit_and_score` and log the run to MLflow; return the run ID and the result.
 
@@ -332,6 +355,7 @@ def train(
         exploratory=exploratory,
         labelled_windows=labelled_windows,
         history=history,
+        country_input=country_input,
     )
     policy = load_policy()
     model_params = {
@@ -364,6 +388,7 @@ def train(
                 "seed": seed,
                 "exploratory": exploratory,
                 "history_features": history,
+                "country_input": country_input,
                 "label_delay_days": ASSUMED_LABEL_DELAY_DAYS,
                 "cleaning_policy_version": CLEANING_POLICY_VERSION,
                 **{name: getattr(policy, name).isoformat() for name in _CUTOFFS},
@@ -501,6 +526,70 @@ def compare_history(
     return parent.info.run_id, v1, v2
 
 
+def compare_country(
+    estimator, data_dir: str | Path, *, k: int, seed: int, tags: dict[str, str]
+) -> tuple[str, tuple[str, FitResult], tuple[str, FitResult]]:
+    """Train `estimator` on the order columns (v1), then with the country input (#22).
+
+    Both runs are children of one parent run, whose description (`mlflow.note.content`)
+    states the weakness, the change, the validation change in the primary measure and
+    what the change costs the country with v1's lowest precision at K (D22-03). A
+    country v1 gave no place has no precision, so it is never the one named. The
+    parent logs the differences too. Returns the parent run ID and `train`'s
+    (run ID, result) for v1, then v2.
+    """
+    _use_experiment()
+    model = estimator[-1] if hasattr(estimator, "steps") else estimator
+    with mlflow.start_run(
+        run_name=f"{type(model).__name__}: v2 country input compared",
+        tags={**tags, **_provenance_tags()},
+    ) as parent:
+        order_only, with_country = (
+            train(
+                clone(estimator),
+                data_dir,
+                k=k,
+                seed=seed,
+                country_input=country_input,
+                tags={**tags, "mlflow.runName": label, "champion_eligible": "True"},
+            )
+            for country_input, label in (
+                (False, "v1 order columns"),
+                (True, "v2 country input"),
+            )
+        )
+        before, after = order_only[1], with_country[1]
+        caught = after.report.at_k.fraud_caught - before.report.at_k.fraud_caught
+        precision = after.report.average_precision - before.report.average_precision
+        mlflow.log_metrics(
+            {
+                "fraud_caught_at_k_difference": caught,
+                "average_precision_difference": precision,
+            }
+        )
+        was, now = (
+            result.diagnostics.slices["country"].set_index("country")
+            for result in (before, after)
+        )
+        # A country with no selected order has no precision, and idxmin skips it.
+        worst = was.precision_at_k.idxmin()
+        mlflow.set_tag(
+            "mlflow.note.content",
+            "Weakness: v1 has no country input, so its daily list holds orders from"
+            f" low-fraud countries. {worst} had the lowest precision at K: v1 caught"
+            f" {int(was.caught[worst])} fraud with {int(was.selected[worst])} places."
+            " Change: add the order's country_code as a model input (D22-03)."
+            f" Validation, K = {k}: fraud caught {before.report.at_k.fraud_caught} ->"
+            f" {after.report.at_k.fraud_caught} ({caught:+d}); average precision"
+            f" {before.report.average_precision:.4f} ->"
+            f" {after.report.average_precision:.4f} ({precision:+.4f}). Cost: {worst}"
+            f" gets {int(now.selected[worst])} places ({int(now.caught[worst])} fraud"
+            " caught), because one shared K (D5-01) favours the countries with the"
+            " most fraud.",
+        )
+    return parent.info.run_id, order_only, with_country
+
+
 def rerun(run_id: str, data_dir: str | Path) -> dict:
     """Re-run a logged run and check it reproduces.
 
@@ -530,6 +619,7 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
         seed=int(params["seed"]),
         exploratory=params["exploratory"] == "True",
         history=params.get("history_features") == "True",
+        country_input=params.get("country_input") == "True",
     )
     caught, logged_caught = (
         result.report.at_k.fraud_caught,
@@ -628,6 +718,10 @@ def main() -> None:
         "boosted-trees-v2",
         help="Log boosted trees on the order columns (v1) and with the v2 history counts.",
     )
+    country_parser = commands.add_parser(
+        "boosted-trees-country",
+        help="Log boosted trees on the order columns (v1) and with the country input.",
+    )
     comparison = commands.add_parser(
         "compare-feature-groups",
         help="Train and compare the baseline on each order feature group.",
@@ -661,7 +755,13 @@ def main() -> None:
             "git_commit, git_dirty, and author are set by the harness.",
         )
         candidate_parsers.append(parser)
-    for command in (baseline, comparison, history_parser, *candidate_parsers):
+    for command in (
+        baseline,
+        comparison,
+        history_parser,
+        country_parser,
+        *candidate_parsers,
+    ):
         command.add_argument(
             "--weighting",
             choices=("balanced",),
@@ -677,7 +777,14 @@ def main() -> None:
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
     again.add_argument("run_id")
-    for command in (baseline, comparison, history_parser, *candidate_parsers, again):
+    for command in (
+        baseline,
+        comparison,
+        history_parser,
+        country_parser,
+        *candidate_parsers,
+        again,
+    ):
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
@@ -715,6 +822,20 @@ def main() -> None:
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
     elif args.command == "boosted-trees-v2":
         parent_id, *children = compare_history(
+            boosted_trees_model(class_weight=args.weighting),
+            args.data_dir,
+            k=args.k,
+            seed=args.seed,
+            tags={"k_status": f"D5-01: product owner assumption, K = {K}"}
+            if args.k == K
+            else {},
+        )
+        for label, (run_id, result) in zip(("v1", "v2"), children, strict=True):
+            print(f"{label}:\n{format_report(result.report)}")
+            print(f"Logged run {run_id}.")
+        print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
+    elif args.command == "boosted-trees-country":
+        parent_id, *children = compare_country(
             boosted_trees_model(class_weight=args.weighting),
             args.data_dir,
             k=args.k,

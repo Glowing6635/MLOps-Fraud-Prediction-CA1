@@ -36,6 +36,8 @@ and the unconfirmed/#14 fallback.
   date derivations; it is not a direct input from this selector.
   Keys (`country_code`, `customer_id`, `order_id`), `refund_value`, `is_fraud`,
   and unknown columns are excluded, even if present in the wrong source.
+  The selector still excludes `country_code`; since D22-03 the harness adds the
+  order's country itself for a run that asks for it.
   `refund_value` is evaluation-only, because a later refund is not established
   pre-shipping information. `is_fraud` is target-only for the current order.
 - Code: `src/mlops_fraud_prediction_ca1/leakage.py`; audit inventory remains
@@ -52,7 +54,8 @@ and the unconfirmed/#14 fallback.
 - Per-field evidence and required follow-up:
   - `country_code`: The supplied field definitions describe country identity; normalized linkage checks
     support historical matching only. Placement-time customer record/version
-    remains unconfirmed. Link/group only, never a feature.
+    remains unconfirmed. Link/group only, never a feature. Separately, the order's own
+    `country_code` is a model input where D22-03 adds it.
   - `customer_id`: The supplied field definitions describe customer identity; composite-key/label-bridge
     checks support historical identity only. The scoring-time order-to-customer
     mapping is unconfirmed. Link/group only, never a feature.
@@ -514,6 +517,36 @@ local result. Still open as listed above: the team-server log, the #15 review an
 - Impact: runs upload five small extra artifacts; the PR curve is thinned to 500 points.
 - Settled: table form, bands, thinning. Open: whether the team wants a figure rendering in a
   notebook (needs the owner's preview approval).
+
+## D22-03 — The order's country as a model input
+
+- Recorded: 2026-11-26. Owner: Glowing6635 (SpiralSky to review). Affected PBIs: #22, #15,
+  #25. Amends D4-01 and D4-02, which keep `country_code` as a key only.
+- Decision: version 2 of the boosted-trees candidate (#14, #142) gives the model the order's
+  `country_code` as a fifth input, beside D4-01's four order columns. The harness adds it only
+  for a run with `country_input=True` (`training.compare_country`, `uv run train
+  boosted-trees-country`), so v1, the baseline and every other candidate keep the four columns
+  and their logged runs still reproduce. The customer table's `country_code` stays a key.
+- Reason: like D4-01's four columns, this rests on an **engineering assumption**, not
+  Operations confirmation: the order's country is known when the order is placed, because it
+  is the marketplace the order is placed in. Without it, v1 can't tell a risky order in Pakistan from the same
+  order in the Philippines, and payment method can't stand in for country: payment on delivery
+  (42% of all fraud) and credit card are used in all five countries. On the validation window
+  (K = 250 a day, seed 0), the Philippines (5.9% fraud) took 649 of v1's 5,250 places and v1
+  caught 83 fraud with them, precision 0.13; Pakistan's precision was 0.68. Two changes on the
+  four columns caught less than v1: native category splits 2,884 and 300 trees at learning
+  rate 0.05 2,876, against v1's 2,893. Adding the country input raised fraud caught at K from
+  2,893 to 3,272 (+379) and average precision from 0.3716 to 0.4663.
+- Cost: under one shared K (D5-01), v2 gives the Philippines 13 places instead of 649, so its
+  fraud gets almost no review; the list goes to Pakistan and Bangladesh, where fraud is
+  densest. A K per country would change that, and D5-01 decides K.
+- Alternatives: a K per country (outside #22; D5-01 rejected it); customer-history counts
+  (D22-01), which are SpiralSky's change for his own candidate.
+- Scoring: `training.score_labelled_rows` gives `country_code` to any model fitted with it,
+  so per-batch retraining (#25) can score v2 as the champion.
+- Open: (1) logging v1 and v2 to the team server needs the AWS lab; (2) training v2 as a #25
+  candidate needs a `ModelSpec` field for the country input and `retrain.py` passing it to
+  `train`; (3) the #27 timed run and the #15 second review.
 
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 

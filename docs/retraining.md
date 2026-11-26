@@ -14,8 +14,11 @@ frame, K, and the fitted #15 champion and its run ID.
 Use a fresh estimator factory per manifest entry, such as #14's order-only
 pipeline factories, and pass the stored estimator parameter overrides in
 `ModelSpec.params`. Factory defaults supply the other stored settings. Include
-each logged #22 candidate version as its own entry when available. Both the
-champion and candidates must accept the same four order features. The command
+each logged #22 candidate version as its own entry when available. A version
+fitted with the country input (D22-03) can't be an entry yet, because
+`ModelSpec` has no way to ask `train` for that input. Candidates accept the four
+order features; the champion may also take the order's country, which
+`score_labelled_rows` adds for a model fitted with it. The command
 checks manifest coverage against the supplied roster before reading data.
 
 The #20/#154 reader fetches order records once with the #6 `train` SQL
@@ -27,8 +30,9 @@ omitted from fits. Old and new counts are eligible, valid-label orders from
 other batches and the invocation's batch, respectively. The command prints
 these counts and records them on every successful candidate run.
 
-Every candidate and the champion use the shared harness's order features and
-top-K evaluator on the same validation frame. Each candidate run records its
+Every candidate and the champion use the shared harness's features (the order
+features, plus the country for a model fitted with it) and top-K evaluator on
+the same validation frame. Each candidate run records its
 scores, champion run ID and scores, score deltas, validation digest and
 estimator parameters. The command reports a failed candidate, attempts the
 remaining candidates, and exits 1 if any candidate failed. Evaluation runs
