@@ -422,6 +422,8 @@ def test_history_comparison_logs_description_and_reruns(
     parent = mlflow.get_run(parent_id)
     assert mlflow.get_run(v1_id).data.params["history_features"] == "False"
     assert mlflow.get_run(v2_id).data.params["history_features"] == "True"
+    for child_id in (v1_id, v2_id):
+        assert mlflow.get_run(child_id).data.tags["champion_eligible"] == "True"
     note = parent.data.tags["mlflow.note.content"]
     assert "Weakness:" in note and "n_prior_fraud_30d" in note
     assert f"{v1.report.at_k.fraud_caught} -> {v2.report.at_k.fraud_caught}" in note

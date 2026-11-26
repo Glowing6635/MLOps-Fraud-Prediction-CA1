@@ -51,6 +51,30 @@ class CustomerHistoryTests(unittest.TestCase):
                 out.n_prior_fraud_30d.iloc[i], history.is_fraud[matured].sum()
             )
 
+    def test_matches_brute_force_with_same_day_orders_and_cutoff(self):
+        days = ["2023-01-01", "2023-01-01", "2023-01-01", "2023-01-15", "2023-01-31"]
+        days += ["2023-01-31", "2023-02-01", "2023-02-14", "2023-03-02", "2023-03-02"]
+        history = _rows(*[(d, "PK", "a", i % 2) for i, d in enumerate(days)])
+        history = pd.concat([history, _rows(("2023-01-01", "PK", "b", 1))])
+        orders = _rows(
+            *[(d, "PK", "a", 0) for d in [*days, "2023-03-03", "2023-04-01"]]
+        )
+        out = customer_history_features(orders, history)
+        mine = history[history.customer_id == "a"]
+        for i, day in enumerate(orders.order_date):
+            before = mine.order_date < day
+            cutoff = pd.Timestamp(day) - pd.Timedelta(days=30) > pd.to_datetime(
+                mine.order_date
+            )
+            self.assertEqual(out.n_prior_orders.iloc[i], before.sum(), day)
+            self.assertEqual(out.n_prior_labelled_30d.iloc[i], cutoff.sum(), day)
+            self.assertEqual(
+                out.n_prior_fraud_30d.iloc[i], mine.is_fraud[cutoff].sum(), day
+            )
+            # The delay rule agrees with leakage.historical_order_mask.
+            mask = historical_order_mask(mine.order_date, day, label_delay_days=30)
+            self.assertEqual(out.n_prior_labelled_30d.iloc[i], mask.sum(), day)
+
     def test_customers_are_separate_by_country_and_missing_ids_get_zeros(self):
         history = _rows(
             ("2022-01-01", "PK", "a", 1),

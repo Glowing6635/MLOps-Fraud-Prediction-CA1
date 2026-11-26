@@ -463,7 +463,9 @@ def compare_history(
                 k=k,
                 seed=seed,
                 history=history,
-                tags={**tags, "mlflow.runName": label},
+                # Neither run is exploratory, so both are champion candidates, as the
+                # non-exploratory run of compare_customer_columns is.
+                tags={**tags, "mlflow.runName": label, "champion_eligible": "True"},
             )
             for history, label in ((False, "v1 order columns"), (True, "v2 history"))
         )
