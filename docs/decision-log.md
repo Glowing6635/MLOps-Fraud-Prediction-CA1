@@ -22,26 +22,26 @@ The topics #30 asks the log to cover, and the entries that record them.
 | Topic | Entries |
 | --- | --- |
 | Review capacity K and how it is grouped | D5-01 |
-| Rule threshold X | D18-04 |
+| Rule threshold X | D18-04, which arrives with #171 |
 | Feature timing | D4-01, D4-02, D4-03 |
 | Label delay | D4-04 |
 | The supplied label definition, apart from review completeness | D4-05 |
-| Model-review meeting slot | Not recorded yet |
+| Model-review meeting slot | Pending |
 | Leakage | D4-01 to D4-04, D6-01 |
 | Split | D6-01 |
 | Metric | D5-01 |
-| Loyal definition | D18-01 |
+| Loyal definition | D18-01, which arrives with #171 |
 | Database schema | D10-01 |
-| AWS design | D8-01 |
+| AWS design | D8-01 for the MLflow server; the RDS instance's settings are in the [runbook](runbook.md), "RDS database" |
 
 ## Handover check
 
-Each engineer closes the log and explains, for every entry, its reason and where its setting or code lives. An entry they can't explain is retested, and the retest is recorded here. Due 29 Nov 2026.
+Each engineer explains every entry without looking at the log: its reason, and where its setting or code lives. An entry they can't explain is retested, and the retest is recorded here. Due 29 Nov 2026.
 
 | Engineer | Checked on | Entries not explained | Retest |
 | --- | --- | --- | --- |
-| Glowing6635 | Not yet | | |
-| SpiralSky | Not yet | | |
+| Glowing6635 | Pending | | |
+| SpiralSky | Pending | | |
 
 ## D4-01 — Scoring boundary and order inputs
 
@@ -283,11 +283,10 @@ on 2026-11-20 in `feature/spiralsky/pbi-27-stage-budget`, which c6a8bc9 carried 
 this budget reached `dev` on 25 November. So #27's condition that the budget is committed before #25 starts is
 not met.
 
-## D10-01: The database keeps one row per source row, keyed as the data needs
+## D10-01: The database's keys follow the data
 
-- Settled: 2026-11-17, when the schema was first committed (6646d4f), before #20's loading began. Owner: Glowing6635. Affected PBIs: #10, #19, #20, #21, #25, #33.
-- Decision: four tables, `batches`, `customers`, `orders` and `labels`, each with a `batch_id`. Orders and labels are keyed by `country_code` and `order_id` together, and customers by `customer_id` and `batch_id`. Money is `DECIMAL(30, 12)`. Each value cleaning can change keeps its original text in a `raw_` column beside it. Each engineer reads through their own read-only login.
-- Reason: three order IDs each appear in two countries, so an order ID alone isn't unique. Customer IDs are unique across countries, and keying customers by batch keeps each batch's copy of a customer. The `raw_` columns let anyone check a cleaned value against what arrived, and the decimal type keeps money exact.
-- Source: the kickoff data analysis (#3), section 4.4 "Linkage findings and handling" in `notebooks/data_analysis.py`.
+- Settled: 2026-11-17, when the schema was first committed (6646d4f, on #10's branch), before #20's loading began. It reached `user/totally_glowing` with #146 (e9d0237) on 25 November. Owner: Glowing6635. Affected PBIs: #10, #19, #20, #21, #25, #33.
+- Decision: four tables, `batches`, `customers`, `orders` and `labels`, each with a `batch_id`. Orders and labels are keyed by `country_code` and `order_id`, and customers by `customer_id` and `batch_id`. Money is `DECIMAL(30, 12)`, and each value cleaning can change keeps its original text in a `raw_` column. Each engineer reads through their own read-only login.
+- Reason and source: the [data dictionary](data-dictionary.md), "Keys" and "Cleaned and original values", from the kickoff data analysis's (#3) linkage findings.
 - Later changes: #33 added the `review_queue` table on 26 November (056d6e5) and changed no existing table.
-- Details: [data dictionary](data-dictionary.md), "Keys"; `src/mlops_fraud_prediction_ca1/schema.sql`.
+- Code: `src/mlops_fraud_prediction_ca1/schema.sql`.
