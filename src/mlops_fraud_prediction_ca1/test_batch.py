@@ -2,6 +2,7 @@ import functools
 import http.server
 import re
 import threading
+from pathlib import Path
 
 import mlflow
 import pytest
@@ -37,6 +38,7 @@ def test_missing_configuration(monkeypatch, capsys):
 @pytest.fixture
 def mlflow_settings(tmp_path, monkeypatch):
     """Settings for a made-up database and a throwaway MLflow store in `tmp_path`."""
+    monkeypatch.chdir(tmp_path)  # MLflow stores artifacts under the working folder.
     tracking_uri = f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}"
     monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
     monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "pipeline-test")
@@ -71,7 +73,10 @@ def file_server(tmp_path):
 
 
 def _practice_batch(write_batch):
-    """60 labelled orders: 40 in the training window and 20 in validation."""
+    """60 orders: 40 in the training window and 20 in validation.
+
+    Order o1's label is 2, which cleaning stores as missing, so 39 train the model.
+    """
     customers = [
         f"MY,c{i},true,1.0,0.0,0.0,10.0,0.0,2022-10-01 10:00:00" for i in range(10)
     ]
@@ -81,7 +86,7 @@ def _practice_batch(write_batch):
         fraud = int(i % 4 == 0)
         value = 100.0 if fraud else 10.0
         orders.append(f"MY,o{i},Delivery,Credit Card,{value},1.0,0.0,{day}")
-        labels.append(f"MY,o{i},c{i % 10},{fraud}")
+        labels.append(f"MY,o{i},c{i % 10},{2 if i == 1 else fraud}")
     return write_batch("b1", customers, orders, labels)
 
 
@@ -94,7 +99,7 @@ def test_a_batch_runs_every_stage_within_its_budget_and_reports(
 ):
     monkeypatch.setattr(batch, "create_db_engine", lambda settings: database)
     files = _practice_batch(write_batch)
-    urls = [f"{file_server}/{path.rsplit('/', 1)[-1]}" for path in files]
+    urls = [f"{file_server}/{Path(path).name}" for path in files]
 
     assert batch.main(urls) == 0
 
@@ -102,6 +107,7 @@ def test_a_batch_runs_every_stage_within_its_budget_and_reports(
     [run] = mlflow.search_runs([experiment], output_format="list")
     etl_run_id = run.data.tags["etl_run_id"]
     assert run.data.tags["batch_id"] == "b1"
+    assert run.data.metrics["train_orders"] == 39
     assert _without_times(capsys.readouterr().out) == [
         "Database host: db.example",
         "Database name: practice",

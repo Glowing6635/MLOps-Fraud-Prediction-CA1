@@ -27,21 +27,7 @@ Pass them in that order and quote each URL to preserve its query string.
 uv run run-batch "$CUSTOMERS_URL" "$ORDERS_URL" "$LABELS_URL"
 ```
 
-The command first prints the target database host, database name and MLflow experiment, and the run's `etl_run_id`, which tags every MLflow run it logs. It then runs five stages and prints each one's time against its budget (D27-01 in `docs/decision-log.md`), with `OVER BUDGET` after any that overran:
-
-1. Fetch and validate: downloads and checks the three files, then prints the batch ID and the rows in each file, which is the batch size for timing.
-2. Clean and load: cleans the batch and loads it as `uv run load-batch` does (`docs/runbook.md`, "Loading a batch").
-3. Read training data: reads the labelled training and validation windows from the database.
-4. Train and log: trains the baseline model on them and logs the run to MLflow. Per-batch retraining of every candidate (#25) replaces this once it is merged.
-5. Report: prints each table's rows before and after, the number of MLflow runs logged with this `etl_run_id`, and a link that lists them on the MLflow server.
-
-It ends with the total time against the 180-second limit. A failed stage prints `failed after` with its time, and the command exits with status 1. A failure before the load ends leaves the database as it was. Running the command again for a loaded batch adds no rows and logs new runs.
-
-To time a run as the three-minute check (#27) asks, rebuild the rehearsal database (#24), point `.env` at it, and time the whole command, start-up included, in PowerShell:
-
-```powershell
-Measure-Command { uv run run-batch $env:CUSTOMERS_URL $env:ORDERS_URL $env:LABELS_URL | Out-Default }
-```
+`docs/runbook.md`, "Running a batch", says what the command prints and how to time it.
 
 ### Checks
 CI (`.github/workflows/ci.yml`) runs on every pull request: `ruff check`, `ruff format --check`, `pytest`, a licence and vulnerability check of the dependencies, a gitleaks scan of the full history, and a check that the pull request's source and target branches follow `docs/contributors/README.md`. Run the first three locally with `uv run`.

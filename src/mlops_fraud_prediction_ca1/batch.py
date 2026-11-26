@@ -55,7 +55,7 @@ _BUDGETS = {
 # start-up and shutdown.
 _COMMAND_LIMIT = 180
 # A dead link fails after about 4 x 10 s plus 17 s of retry waits, not the
-# downloader's default of about 150 s, so the run stops well within its limit.
+# downloader's default of about 4 x 30 s plus 17 s, so the run stops well within its limit.
 _DOWNLOAD_TIMEOUT = 10
 _TABLES = ("batches", "customers", "orders", "labels")
 
@@ -136,6 +136,7 @@ def _run(
     with _stage("Train and log"):
         # TODO(#25): run the per-batch retraining of every candidate instead, once it
         # reaches this branch; until then the baseline stands in for the candidates.
+        # Keep the etl_run_id tag on every run: the report counts and links runs by it.
         train(
             baseline_model(),
             k=K,
