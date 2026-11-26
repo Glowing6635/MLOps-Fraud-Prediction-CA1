@@ -62,7 +62,7 @@ Both are done at least 24 hours before the release, that is by 29 Nov 2026, 09:0
 | Check | Done on | From | By | Result |
 | --- | --- | --- | --- | --- |
 | Every login above works from a laptop outside the team | Pending | A laptop outside the team | Glowing6635 | |
-| The #8 research transcript link opens in a browser that isn't signed in | 27 Nov 2026, 01:55 SGT | The in-app browser on a team laptop, not signed in to claude.ai | Glowing6635 | Passed: the shared conversation opened, starting with the question about MLflow on AWS |
+| The #8 research transcript link opens in a browser that isn't signed in | 27 Nov 2026, 01:55 SGT | A browser on a team laptop, not signed in to claude.ai | Glowing6635 | Passed: the shared conversation opened, starting with the question about MLflow on AWS |
 
 ## Individual packs
 
