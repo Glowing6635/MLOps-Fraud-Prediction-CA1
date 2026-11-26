@@ -433,14 +433,24 @@ def test_refuses_when_test_features_and_rule_orders_differ(run):
         run(load_inputs=bad)
 
 
-def test_logs_to_mlflow_when_asked(run, tmp_path, monkeypatch):
+@pytest.fixture
+def restore_mlflow():
+    """`log_to_mlflow` sets MLflow's global tracking URI and experiment; undo that."""
     import mlflow
+    from mlflow.tracking import fluent
 
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path}/mlflow.db")
+    uri, experiment = mlflow.get_tracking_uri(), fluent._active_experiment_id
+    yield mlflow
+    mlflow.set_tracking_uri(uri)
+    fluent._active_experiment_id = experiment
+
+
+def test_logs_to_mlflow_when_asked(run, tmp_path, monkeypatch, restore_mlflow):
+    uri = f"sqlite:///{tmp_path}/mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
     monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "final-test-synthetic")
     run(log_mlflow=final_test.log_to_mlflow)
-    mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
-    runs = mlflow.search_runs(experiment_names=["final-test-synthetic"])
+    runs = restore_mlflow.search_runs(experiment_names=["final-test-synthetic"])
     assert len(runs) == 1
     row = runs.iloc[0]
     assert row["metrics.champion_fraud_caught_at_k"] == 2
