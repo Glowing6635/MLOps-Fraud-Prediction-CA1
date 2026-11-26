@@ -22,7 +22,7 @@ flowchart LR
 
 ## Quickstart
 
-For an engineer deploying for the first time. Each step links to the section with the detail. Stop at the first step that fails and use [Troubleshooting](#troubleshooting).
+For an engineer deploying for the first time. Each step links to the section with the detail. Stop at the first step that fails and use [Troubleshooting](#troubleshooting), unless step 5 explains the failure as an expected first-deploy state.
 
 1. Install Docker, the AWS CLI, curl and EB CLI 3.27.5, and paste the fresh Learner Lab credentials into `~/.aws/credentials`.
 2. Set up RDS and S3 ([Set up RDS and S3, once](#set-up-rds-and-s3-once)): the `fraud-mysql84` parameter group, the `mlflow` and `mlflow_auth` databases and `mlflow` user, and a private S3 bucket in `us-east-1`. Skip the port 3306 rule for now: the Beanstalk security group does not exist until step 5 creates the environment.
@@ -36,8 +36,10 @@ For an engineer deploying for the first time. Each step links to the section wit
    MLFLOW_ARTIFACTS_DESTINATION="s3://$BUCKET/artifacts" ./deploy.sh "$PREFIX"
    ```
 
-   On a first deployment the script's last command, the `/health` request, is expected to fail (`curl` exits non-zero and the script stops with it), and `eb status` shows a red or degraded environment. The container cannot reach RDS until step 6 adds the ingress rule. That failure is not an error in the deployment itself: go on to step 6 rather than into Troubleshooting. Fail earlier than that (before `eb status` prints) and use Troubleshooting.
-6. On a first deployment, the environment now exists, so open port 3306 on the RDS security group to the Beanstalk instance's security group (step 3 of [Set up RDS and S3](#set-up-rds-and-s3-once)). Then redeploy with `./deploy.sh "$PREFIX"`, or restart the app server from the Beanstalk console, so the container reconnects. On this run the `/health` request should succeed.
+   On a first deployment the script's last command, the `/health` request, is expected to fail (`curl` exits non-zero and the script stops with it), and `eb status` shows a red or degraded environment. The container cannot reach RDS until step 6 adds the ingress rule. That failure is not an error in the deployment itself: go on to step 6 rather than into Troubleshooting.
+
+   The same applies when the script exits during `eb create` before it prints the final `eb status` line: for example a creation wait that times out or reports launch issues. Beanstalk may already have created the environment, so do not treat that as a pre-creation failure. Run `eb list` or `eb status` for the environment name (`mlflow` unless `EB_ENV_NAME` overrides it). If the environment exists, go on to step 6: add the RDS port 3306 ingress rule, then redeploy with `./deploy.sh "$PREFIX"`. Use Troubleshooting only when the script failed before `eb create` ran (credentials, `Dockerrun.aws.json` or a setting) or when no environment exists.
+6. On a first deployment, the environment exists (created in step 5, even when that run exited early), so open port 3306 on the RDS security group to the Beanstalk instance's security group (step 3 of [Set up RDS and S3](#set-up-rds-and-s3-once)). Then redeploy with `./deploy.sh "$PREFIX"`, or restart the app server from the Beanstalk console, so the container reconnects. On this run the `/health` request should succeed.
 7. Confirm `Health: Green` and that `curl "http://$PREFIX.us-east-1.elasticbeanstalk.com/health"` returns OK.
 8. Create each engineer's login and run `uv run log-test-run` ([Check from each laptop](README.md#check-from-each-laptop)).
 
