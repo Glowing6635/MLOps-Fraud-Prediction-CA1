@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from mlops_fraud_prediction_ca1.temporal import parse_dates
+from mlops_fraud_prediction_ca1.temporal import parse_date_rows
 
 
 @dataclass(frozen=True)
@@ -77,10 +77,15 @@ def load_policy(config_path: str | Path | None = None) -> SplitPolicy:
     )
 
 
-def _calendar_dates(values: pd.Series) -> pd.Series:
+def calendar_dates(values: pd.Series) -> pd.Series:
+    """Parse order days by position, accepting explicit text and naive native dates.
+
+    Returns a RangeIndex with NaT for missing, invalid, out-of-range or
+    timezone-aware inputs. Native times are reduced to their calendar day.
+    """
     # Reset before parsing: duplicate caller indices must never align rows.
     source = values.reset_index(drop=True)
-    parsed = parse_dates(source).date
+    parsed = parse_date_rows(source).date
     native = source.map(
         lambda value: (
             isinstance(value, (date, datetime, pd.Timestamp)) and not pd.isna(value)
@@ -91,7 +96,11 @@ def _calendar_dates(values: pd.Series) -> pd.Series:
         # No implicit timezone conversion: SQL DATE and naive datetimes only.
         if isinstance(value, datetime) and value.tzinfo is not None:
             continue
-        parsed.iloc[position] = pd.Timestamp(value).normalize()
+        try:
+            day = pd.Timestamp(value.year, value.month, value.day).as_unit("ns")
+        except pd.errors.OutOfBoundsDatetime:
+            continue
+        parsed.iloc[position] = day
     return parsed
 
 
@@ -134,7 +143,7 @@ def split_orders(
     """
     policy = load_policy(config_path)
     intervals = _intervals(policy, purpose)
-    dates = _calendar_dates(orders["order_date"])
+    dates = calendar_dates(orders["order_date"])
     allowed = pd.Series(False, index=dates.index)
     for start, end in intervals:
         allowed |= dates.ge(pd.Timestamp(start)) & (
