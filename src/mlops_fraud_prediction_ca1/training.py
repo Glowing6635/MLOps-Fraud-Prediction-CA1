@@ -28,7 +28,7 @@ import sys
 import tempfile
 import time
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -163,12 +163,15 @@ def _labelled_inputs(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return rows[_KEYS].astype({"is_fraud": int}), order_features(rows)
 
 
-def order_features(rows: pd.DataFrame) -> pd.DataFrame:
+def order_features(
+    rows: pd.DataFrame, columns: Sequence[str] = ORDER_FEATURE_COLUMNS
+) -> pd.DataFrame:
     """The model inputs of order rows read from the team database, as models train on them.
 
-    Used for training here and for scoring with the champion (issue #33).
+    Used for training here, and for scoring with the champion (issue #33) on the
+    `columns` it was trained on.
     """
-    features = rows[list(ORDER_FEATURE_COLUMNS)].copy()
+    features = rows[list(columns)].copy()
     # The database driver returns DECIMAL columns as Decimal objects, which the models
     # would one-hot encode as text.
     for name, column in features.items():

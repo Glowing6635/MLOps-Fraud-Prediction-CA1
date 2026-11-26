@@ -10,9 +10,10 @@ MLflow as a CSV with the number of orders ranked. Then, as a separate step, it j
 stored labels to the queue and logs precision at K to the same run.
 
 Scoring never reads `is_fraud`: from `labels` it reads only `customer_id`, which goes
-into the CSV for the analysts, and whether the order has a label. The champion uses
-order columns only (D4-02 in docs/decision-log.md), so an order without a label is
-scored like any other, and the command counts them.
+into the CSV for the analysts, and whether the order has a label. The champion is
+scored on the `orders` columns it was trained on, as its `feature_names_in_` lists them.
+Champions use order columns only (D4-02 in docs/decision-log.md), so an order without
+a label is scored like any other, and the command counts them.
 
 The queue for a batch and model version is written once. A rerun writes nothing, so
 the table keeps the first queue, and logs that stored queue in a new MLflow run.
@@ -34,7 +35,6 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from .config import SettingError, create_db_engine, load_settings
-from .leakage import ORDER_FEATURE_COLUMNS
 from .splitting import sql_date_predicate
 from .top_k import K, select_top_k
 from .training import order_features
@@ -48,7 +48,7 @@ CHAMPION_ALIAS = "champion"
 # `order_date` alone is the holdout predicate's column, and only `orders` has one.
 _ORDERS = """
 SELECT o.order_date, o.country_code, o.order_id, l.customer_id,
-    l.order_id IS NOT NULL AS has_label, {features}
+    l.order_id IS NOT NULL AS has_label{features}
 FROM orders o
 LEFT JOIN labels l ON l.country_code = o.country_code AND l.order_id = o.order_id
 WHERE o.batch_id = %s AND {predicate}
@@ -62,6 +62,7 @@ WHERE q.batch_id = %s AND q.model_version = %s
 ORDER BY q.order_date, q.country_code, q.order_id
 """
 _QUEUE_COLUMNS = ["order_date", "country_code", "order_id", "customer_id", "score"]
+_ORDER_KEYS = {"order_date", "country_code", "order_id"}
 
 
 @dataclass(frozen=True)
@@ -99,17 +100,25 @@ def write_queue(
 ) -> Queue:
     """Score the batch's orders with `model` and store each day's top `k` once.
 
-    `model` is a fitted classifier with `predict_proba` over the order feature columns.
-    The rows are stored in one transaction. If the table already holds a queue for this
-    batch and model version, nothing is written, `written` is False and `rows` is the
-    stored queue.
+    `model` is a fitted classifier with `predict_proba`, and `feature_names_in_` naming
+    the `orders` columns it was trained on, as scikit-learn records them for a model
+    fitted on a DataFrame. The rows are stored in one transaction. If the table already
+    holds a queue for this batch and model version, nothing is written, `written` is
+    False and `rows` is the stored queue.
 
-    Raises `ValueError` when the database holds no orders for the batch, or the holdout
-    setting withholds all of them: those in the locked test window, before the training
-    data starts, or without a date.
+    Raises `ValueError` when the model does not name its input columns as plain column
+    names, when the database holds no orders for the batch, or when the holdout setting
+    withholds all of them: those in the locked test window, before the training data
+    starts, or without a date.
     """
+    inputs = [str(name) for name in getattr(model, "feature_names_in_", ())]
+    if not inputs or not all(name.isidentifier() for name in inputs):
+        raise ValueError(
+            f"Model version {model_version} doesn't name its input columns as plain"
+            " column names, so the orders columns to score it on are unknown."
+        )
     predicate, parameters = sql_date_predicate(purpose="analysis")
-    features = ", ".join(f"o.{column}" for column in ORDER_FEATURE_COLUMNS)
+    features = "".join(f", o.`{name}`" for name in inputs if name not in _ORDER_KEYS)
     query = _ORDERS.format(features=features, predicate=predicate)
     with engine.begin() as connection:
         in_batch = connection.exec_driver_sql(
@@ -128,7 +137,7 @@ def write_queue(
                 " holdout setting withholds orders in the locked test window, before"
                 " the training data starts, or without a date."
             )
-        rows["score"] = model.predict_proba(order_features(rows))[:, 1]
+        rows["score"] = model.predict_proba(order_features(rows, inputs))[:, 1]
         queue = rows[select_top_k(rows, rows["score"].to_numpy(), k)]
         stored = connection.exec_driver_sql(
             "SELECT 1 FROM review_queue WHERE batch_id = %s AND model_version = %s"

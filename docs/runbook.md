@@ -104,7 +104,7 @@ The first time, `uv run rds-schema tables` with the admin settings must add the 
 
 The command prints the champion's version, then:
 
-1. The orders ranked, the orders the holdout setting withholds, and the orders without a label. The holdout setting in `config/time_split.toml` withholds orders in the locked test window, orders dated before the training data starts, and orders without a date. The champion uses order columns only, so an order without a label is scored like the rest.
+1. The orders ranked, the orders the holdout setting withholds, and the orders without a label. The holdout setting in `config/time_split.toml` withholds orders in the locked test window, orders dated before the training data starts, and orders without a date. The champion is scored on the `orders` columns it was trained on, which scikit-learn records with the model, so an order without a label is scored like the rest. A model that doesn't record its input columns as plain column names stops the command with status 1.
 2. The queue: each day's top K orders (K = 250, D5-01 in `docs/decision-log.md`), or all of them on a day with fewer, stored in `review_queue` with the model version. A rerun for the same batch and model version writes nothing and logs the stored queue.
 3. Precision at K: the share of fraud among queued orders with a valid label. The labels are joined only after the queue is stored. Queued orders without a valid label are counted but left out of the share.
 

@@ -30,12 +30,19 @@ LABELS = ["MY,o1,c1,0", "MY,o2,c1,1", "MY,o4,c1,2", "MY,o5,c1,1"]
 
 
 class ByValue:
-    """A stand-in model whose fraud score is the order value in thousands."""
+    """A stand-in model trained on the country and the order value, like a champion that
+    takes `country_code` as an input. Its fraud score is the order value in thousands.
+    """
+
+    feature_names_in_ = np.array(["country_code", "order_value"], dtype=object)
 
     def __init__(self, sign=1):
         self.sign = sign
 
     def predict_proba(self, features):
+        # The command must pass exactly the columns the model was trained on.
+        assert features.columns.tolist() == ["country_code", "order_value"]
+        assert features["country_code"].eq("MY").all()
         score = self.sign * features["order_value"].to_numpy(dtype=float) / 1000
         return np.column_stack([1 - score, score])
 
