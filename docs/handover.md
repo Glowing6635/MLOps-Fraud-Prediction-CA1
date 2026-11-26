@@ -34,10 +34,10 @@ The archive is one zip file holding:
 | `code/docs/runbook.md` | The runbook |
 | `mlflow-server-bundle/<version label>.zip` | The exact Elastic Beanstalk bundle the MLflow server runs |
 
-The release tag follows the contributor guide's `v<MAJOR>.<MINOR>.<RELEASE>` format and is made when the release merges into `main`. To build the archive, in Git Bash from an empty folder next to the repository, with the sandbox started:
+The release tag follows the contributor guide's `v<MAJOR>.<MINOR>.<RELEASE>` format and is made when the release merges into `main`. To build the archive, in Git Bash from an empty folder, with the sandbox started:
 
 ```bash
-git -C ../MLOps-Fraud-Prediction-CA1 archive --format=tar --prefix=code/ v1.0.0 | tar -x
+git -C <repository folder> archive --format=tar --prefix=code/ v1.0.0 | tar -x
 aws elasticbeanstalk describe-environments --application-name mlflow-server --environment-names mlflow --region us-east-1 --query 'Environments[0].VersionLabel' --output text
 aws elasticbeanstalk describe-application-versions --application-name mlflow-server --version-labels <version label> --region us-east-1 --query 'ApplicationVersions[0].SourceBundle.[S3Bucket,S3Key]' --output text
 aws s3 cp s3://<S3Bucket>/<S3Key> mlflow-server-bundle/<version label>.zip
