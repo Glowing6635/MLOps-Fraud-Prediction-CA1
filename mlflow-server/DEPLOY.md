@@ -20,6 +20,33 @@ flowchart LR
   EC2 -- reads SecureString parameters --> S[Parameter Store]
 ```
 
+## Quickstart
+
+For an engineer deploying for the first time. Each step links to the section with the detail. Stop at the first step that fails and use [Troubleshooting](#troubleshooting).
+
+1. Install Docker, the AWS CLI, curl and EB CLI 3.27.5, and paste the fresh Learner Lab credentials into `~/.aws/credentials`.
+2. Set up RDS and S3 ([Set up RDS and S3, once](#set-up-rds-and-s3-once)): the `fraud-mysql84` parameter group, the `mlflow` and `mlflow_auth` databases and `mlflow` user, port 3306 open to the Beanstalk security group, and a private S3 bucket in `us-east-1`.
+3. Publish the image and put its tag in `Dockerrun.aws.json` ([Build and push the image](#build-and-push-the-image)).
+4. Create the four `SecureString` parameters ([Deploy](#deploy), [Settings](README.md#settings)).
+5. Run `MLFLOW_ARTIFACTS_DESTINATION=s3://<bucket>/artifacts ./deploy.sh <cname-prefix>` from `mlflow-server/`.
+6. Confirm `Health: Green` and that `curl http://<prefix>.us-east-1.elasticbeanstalk.com/health` returns OK.
+7. Create each engineer's login and run `uv run log-test-run` ([Check from each laptop](README.md#check-from-each-laptop)).
+
+## Services and configuration values
+
+| Service | What it does here | Value or name to set |
+| --- | --- | --- |
+| Elastic Beanstalk | Runs the container: application `mlflow-server`, environment `mlflow`, single instance | CNAME prefix `<prefix>`; `EB_ENV_NAME` to rename |
+| EC2 and EBS | One `t3.small` instance with an 8 GB gp3 root volume, created by Beanstalk | none |
+| nginx (on the instance) | Port 80 to the container's port 5000, 200 MB upload limit | `.platform/nginx/conf.d/upload_size.conf` |
+| ECR | Holds the image | repository `mlflow-server`, immutable tags `<MLflow version>-r<n>` |
+| RDS MySQL 8.4 | Runs and models (`mlflow`) and logins (`mlflow_auth`) | parameter group `fraud-mysql84`: `log_bin_trust_function_creators=1`, `require_secure_transport=1` |
+| S3 | Artifacts, private | `s3://<bucket>/artifacts` |
+| Systems Manager Parameter Store | Holds the four secrets | `/mlflow/backend-store-uri`, `/mlflow/auth-database-uri`, `/mlflow/auth-admin-password`, `/mlflow/flask-secret-key` |
+| IAM (sandbox, not created) | Provided by the Learner Lab | service role `LabRole`, instance profile `LabInstanceProfile` |
+
+The seven environment variables, with their values, are in [Settings](README.md#settings). Region is `us-east-1` throughout.
+
 ## Set up RDS and S3, once
 
 1. MLflow's database setup creates triggers, which RDS refuses while binary logging is on. Attach a parameter group, `fraud-mysql84`, with `log_bin_trust_function_creators` and `require_secure_transport` both set to `1`. The second makes RDS refuse unencrypted connections. Attach the group when you create the instance, as the RDS steps in `docs/runbook.md` (added by #10) do, and no reboot is needed. Reboot the instance only when you attach the group to one that already exists.
@@ -141,3 +168,14 @@ Sources: [AWS regional t3.small pricing](https://aws.amazon.com/disaster-recover
 [AWS stopped-instance billing](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html#lifecycle-stopped).
 
 Read-only commands used: `aws ec2 describe-instances --filters Name=tag:elasticbeanstalk:environment-name,Values=mlflow --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,BlockDeviceMappings[0].Ebs.VolumeId]'` and `aws ec2 describe-volumes --volume-ids <id> --query 'Volumes[].[Size,VolumeType]'`.
+
+## Evidence status for #26
+
+Written and checked offline: the script (`bash -n`), the architecture diagram, the services table, the quickstart, the environment type and the stopped-instance cost table (read-only AWS observations of 2026-11-24).
+
+Still needs a person with the sandbox, none of which this document can supply:
+
+- AC1: one clean-checkout run of `./deploy.sh` that creates a new environment, with `aws iam list-*` or CloudTrail showing no IAM resource created. Needs the owner's Learner Lab session. Request `agile-mlops-20261124-10`.
+- AC2: confirm in the AWS billing view what a stopped sandbox costs. The table above uses list prices, not a bill.
+- AC3: a teammate who did not write the script deploys using only this file, and records where they needed help.
+- AC4: the same teammate runs the [Quickstart](#quickstart) and reports success; record their name, date and the commit they used.
