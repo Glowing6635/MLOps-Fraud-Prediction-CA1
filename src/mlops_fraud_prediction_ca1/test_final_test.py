@@ -434,14 +434,18 @@ def test_refuses_when_test_features_and_rule_orders_differ(run):
 
 
 @pytest.fixture
-def restore_mlflow():
-    """`log_to_mlflow` sets MLflow's global tracking URI and experiment; undo that."""
+def restore_mlflow(monkeypatch):
+    """`log_to_mlflow` sets MLflow's global tracking URI, experiment and experiment ID
+    variable. Put each back exactly as it was (unset stays unset), so later tests still
+    follow their own `MLFLOW_TRACKING_URI`."""
     import mlflow
     from mlflow.tracking import fluent
+    from mlflow.tracking._tracking_service import utils
 
-    uri, experiment = mlflow.get_tracking_uri(), fluent._active_experiment_id
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_ID", raising=False)  # restored on exit
+    uri, experiment = utils._tracking_uri, fluent._active_experiment_id
     yield mlflow
-    mlflow.set_tracking_uri(uri)
+    utils._tracking_uri = uri
     fluent._active_experiment_id = experiment
 
 
