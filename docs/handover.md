@@ -61,8 +61,8 @@ Both are done at least 24 hours before the release, that is by 29 Nov 2026, 09:0
 
 | Check | Done on | From | By | Result |
 | --- | --- | --- | --- | --- |
-| Every login above works from a laptop outside the team | Pending | | | |
-| The #8 research transcript link opens in a browser that isn't signed in | Pending | | | |
+| Every login above works from a laptop outside the team | Pending | A laptop outside the team | Glowing6635 | |
+| The #8 research transcript link opens in a browser that isn't signed in | 27 Nov 2026, 01:55 SGT | The in-app browser on a team laptop, not signed in to claude.ai | Glowing6635 | Passed: the shared conversation opened, starting with the question about MLflow on AWS |
 
 ## Individual packs
 
@@ -70,7 +70,7 @@ Each engineer owns their own pack, kept in their private repository, apart from 
 
 | Engineer | Holds | Reviewer can open the private repository |
 | --- | --- | --- |
-| Glowing6635 | Fraud-pattern analyses (#21), the local analysis flow (#28), Prefect on AWS (#32) and the cloud analysis flow (#36) | Pending |
+| Glowing6635 | Fraud-pattern analyses (#21), the local analysis flow (#28), Prefect on AWS (#32) and the cloud analysis flow (#36) | Pending: Glowing6635 gives reviewers read access |
 | SpiralSky | SpiralSky's own work on the same four issues | Pending |
 
 ## Team check
