@@ -2,7 +2,7 @@
 
 How to create the team's cloud services in the AWS sandbox account, bring them back after the sandbox stops, and the checks to repeat before the demo. The MLflow server's set-up steps are in `mlflow-server/DEPLOY.md`.
 
-Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy.
+Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy. Every command is for Bash: on Windows, run them in Git Bash, not PowerShell.
 
 ## Who runs the services
 
