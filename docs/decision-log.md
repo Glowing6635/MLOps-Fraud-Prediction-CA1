@@ -15,6 +15,34 @@ checks. None supplies field timing or
 measured label maturity; the issue criteria permit explicit assumptions
 and the unconfirmed/#14 fallback.
 
+## Where each required decision is
+
+The topics #30 asks the log to cover, and the entries that record them.
+
+| Topic | Entries |
+| --- | --- |
+| Review capacity K and how it is grouped | D5-01 |
+| Rule threshold X | D18-04, which arrives with #171 |
+| Feature timing | D4-01, D4-02, D4-03 |
+| Label delay | D4-04 |
+| The supplied label definition, apart from review completeness | D4-05 |
+| Model-review meeting slot | D30-01 |
+| Leakage | D4-01 to D4-04, D6-01 |
+| Split | D6-01 |
+| Metric | D5-01 |
+| Loyal definition | D18-01, which arrives with #171 |
+| Database schema | D10-01 |
+| AWS design | D8-01 for the MLflow server; the RDS instance's settings are in the [runbook](runbook.md), "RDS database" |
+
+## Handover check
+
+Each engineer explains every entry without looking at the log: its reason, and where its setting or code lives. An entry they can't explain is retested, and the retest is recorded here. Due 29 Nov 2026.
+
+| Engineer | Checked on | Entries not explained | Retest |
+| --- | --- | --- | --- |
+| Glowing6635 | Pending | | |
+| SpiralSky | Pending | | |
+
 ## D4-01 — Scoring boundary and order inputs
 
 - Settled: 2026-11-15. Owner: SpiralSky. Affected PBIs: #4, #6, #12, #14, #30.
@@ -254,3 +282,17 @@ on 2026-11-20 in `feature/spiralsky/pbi-27-stage-budget`, which c6a8bc9 carried 
 15 November, and its retraining pull request, #162, opened on 24 November, before
 this budget reached `dev` on 25 November. So #27's condition that the budget is committed before #25 starts is
 not met.
+
+## D10-01: The database's keys follow the data
+
+- Settled: 2026-11-17, when the schema was first committed (6646d4f, on #10's branch), before #20's loading began. It reached `user/totally_glowing` with #146 (e9d0237) on 25 November. Owner: Glowing6635. Affected PBIs: #10, #19, #20, #21, #25, #33.
+- Decision: four tables, `batches`, `customers`, `orders` and `labels`, each with a `batch_id`. Orders and labels are keyed by `country_code` and `order_id`, and customers by `customer_id` and `batch_id`. Money is `DECIMAL(30, 12)`, and each value cleaning can change keeps its original text in a `raw_` column. Each engineer reads through their own read-only login.
+- Reason and source: the [data dictionary](data-dictionary.md), "Keys" and "Cleaned and original values", from the kickoff data analysis's (#3) linkage findings.
+- Later changes: #33 added the `review_queue` table on 26 November (056d6e5) and changed no existing table.
+- Code: `src/mlops_fraud_prediction_ca1/schema.sql`.
+
+## D30-01: Model reviews meet on Friday afternoons
+
+- Settled: 2026-11-27, set by the product owner (Glowing6635). Owner: the Scrum Master, not named yet. Affected PBIs: #15, #22, #30.
+- Decision: the model-review meeting is held on Friday afternoons.
+- Reason: not recorded yet. The Scrum Master adds it once named.
