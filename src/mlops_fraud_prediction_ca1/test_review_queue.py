@@ -96,11 +96,14 @@ def test_the_queue_keeps_each_days_top_k_once_without_reading_is_fraud(
         ("b1", 7, "MY", "o3", date(2023, 1, 5), pytest.approx(0.02)),
         ("b1", 7, "MY", "o4", date(2023, 1, 6), pytest.approx(0.05)),
     ]
-    # The rerun ranks the other way round, but the stored queue stays as it was.
+    # The rerun ranks the other way round, but the stored queue stays as it was, and
+    # the rerun returns it.
     assert not rerun.written
-    assert rerun.rows.order_id.tolist() == ["o1", "o3", "o4"]
+    assert rerun.rows.order_id.tolist() == ["o2", "o3", "o4"]
+    assert rerun.rows.score[0] == pytest.approx(0.03)
+    assert rerun.rows.customer_id.tolist()[0] == "c1"
     assert len(_queue_table(database)) == 3
-    # o2 is fraud; o3 has no label and o4's label is missing.
+    # o2 is fraud; o3 has no label and o4's label is invalid.
     assert evaluate_queue(database, "b1", 7) == QueueEvaluation(3, 1, 1)
     assert evaluate_queue(database, "b1", 7).precision == 1.0
 
@@ -160,7 +163,7 @@ def test_the_command_scores_with_the_champion_and_logs_the_queue(
         "Database name: practice",
         "MLflow experiment: queue-test",
         "Champion: fraud-candidate version 1",
-        "Batch b1: 4 orders ranked, 1 withheld as test data, 1 without a label",
+        "Batch b1: 4 orders ranked, 1 withheld by the holdout setting, 1 without a label",
         "Queue: 4 orders written, the top 250 per day",
         "Precision at K: 0.500 (1 fraud in 2 labelled of 4 queued orders)",
     ]

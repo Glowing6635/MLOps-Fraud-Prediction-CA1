@@ -15,7 +15,7 @@ order columns only (D4-02 in docs/decision-log.md), so an order without a label 
 scored like any other, and the command counts them.
 
 The queue for a batch and model version is written once. A rerun writes nothing, so
-the table keeps the first queue, and logs a new MLflow run.
+the table keeps the first queue, and logs that stored queue in a new MLflow run.
 """
 
 import argparse
@@ -39,8 +39,9 @@ from .splitting import sql_date_predicate
 from .top_k import K, select_top_k
 from .training import order_features
 
-# TODO(#15): import these from champion.py once the champion pull request (#171)
-# reaches this branch.
+# TODO(#15): import the alias from champion.py (its CHAMPION) once the champion pull
+# request (#171) reaches this branch. The model name stays here: champion.py takes it
+# as the --register argument.
 CHAMPION_MODEL = "fraud-candidate"
 CHAMPION_ALIAS = "champion"
 
@@ -53,7 +54,14 @@ LEFT JOIN labels l ON l.country_code = o.country_code AND l.order_id = o.order_i
 WHERE o.batch_id = %s AND {predicate}
 ORDER BY o.order_date, o.country_code, o.order_id
 """
-_QUEUE_COLUMNS = ("order_date", "country_code", "order_id", "customer_id", "score")
+_STORED = """
+SELECT q.order_date, q.country_code, q.order_id, l.customer_id, q.score
+FROM review_queue q
+LEFT JOIN labels l ON l.country_code = q.country_code AND l.order_id = q.order_id
+WHERE q.batch_id = %s AND q.model_version = %s
+ORDER BY q.order_date, q.country_code, q.order_id
+"""
+_QUEUE_COLUMNS = ["order_date", "country_code", "order_id", "customer_id", "score"]
 
 
 @dataclass(frozen=True)
@@ -93,10 +101,12 @@ def write_queue(
 
     `model` is a fitted classifier with `predict_proba` over the order feature columns.
     The rows are stored in one transaction. If the table already holds a queue for this
-    batch and model version, nothing is written and `written` is False.
+    batch and model version, nothing is written, `written` is False and `rows` is the
+    stored queue.
 
     Raises `ValueError` when the database holds no orders for the batch, or the holdout
-    setting withholds all of them.
+    setting withholds all of them: those in the locked test window, before the training
+    data starts, or without a date.
     """
     predicate, parameters = sql_date_predicate(purpose="analysis")
     features = ", ".join(f"o.{column}" for column in ORDER_FEATURE_COLUMNS)
@@ -114,8 +124,9 @@ def write_queue(
         rows = pd.DataFrame(result.fetchall(), columns=list(result.keys()))
         if rows.empty:
             raise ValueError(
-                f"All {in_batch} orders of batch {batch_id} are in the locked test"
-                " window, so none can be ranked."
+                f"None of the {in_batch} orders of batch {batch_id} can be ranked. The"
+                " holdout setting withholds orders in the locked test window, before"
+                " the training data starts, or without a date."
             )
         rows["score"] = model.predict_proba(order_features(rows))[:, 1]
         queue = rows[select_top_k(rows, rows["score"].to_numpy(), k)]
@@ -124,7 +135,10 @@ def write_queue(
             " LIMIT 1",
             (batch_id, model_version),
         ).first()
-        if stored is None:
+        if stored is not None:
+            result = connection.exec_driver_sql(_STORED, (batch_id, model_version))
+            queue = pd.DataFrame(result.fetchall(), columns=list(result.keys()))
+        else:
             connection.exec_driver_sql(
                 "INSERT INTO review_queue (batch_id, model_version, country_code,"
                 " order_id, order_date, score) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -138,7 +152,7 @@ def write_queue(
         orders_in_batch=in_batch,
         orders_ranked=len(rows),
         orders_without_label=int((rows["has_label"] == 0).sum()),
-        rows=queue[list(_QUEUE_COLUMNS)].reset_index(drop=True),
+        rows=queue[_QUEUE_COLUMNS].reset_index(drop=True),
         written=stored is None,
     )
 
@@ -201,7 +215,7 @@ def _run(engine: Engine, experiment: str, batch_id: str) -> None:
     queue = write_queue(engine, batch_id, model, version, k=K)
     sys.stdout.write(
         f"Batch {batch_id}: {queue.orders_ranked} orders ranked,"
-        f" {queue.orders_withheld} withheld as test data,"
+        f" {queue.orders_withheld} withheld by the holdout setting,"
         f" {queue.orders_without_label} without a label\n"
         + (
             f"Queue: {len(queue.rows)} orders written, the top {K} per day\n"
