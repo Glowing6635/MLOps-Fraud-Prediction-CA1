@@ -5,6 +5,8 @@ the daily review capacity K for PBI #5 (D5-01), where the MLflow server keeps it
 and the champion registry workflow for PBI #15 (D15-01).
 No Operations confirmation has been received, so every timing status in D4-01 to D4-05 remains
 unconfirmed. K is a product owner assumption, set on 23 November 2026. Feature-timing decisions were
+
+unconfirmed. The product owner confirmed K on 23 November 2026. Feature-timing decisions were
 recorded on 15 November 2026, temporal windows on 16 November and the MLflow server's storage
 on 18 November. Owner identifies the accountable engineer.
 
@@ -170,6 +172,11 @@ Other #30 decisions and its engineer handover remain pending.
 - Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each #14 candidate run records where K comes from in its `k_status` tag.
 - Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and about 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and a single K applied to every country wouldn't work, since Thailand has only about 19 fraud a day, so any K above 19 could never be filled with fraud there.
 - Set before any model result was seen, from the training and validation windows' daily order and fraud counts only. The team MLflow server's run list for the experiment `fraud-prediction` (checked on 25 November 2026) shows that before 23 November it holds only the 17 November server tests. The first model runs are the #14 boosted-trees runs, all tagged `git_commit` 83d2fea: the parent run, "HistGradientBoostingClassifier: customer columns compared" (`7d57012eafcc4f278070bd4368eba4a4`), started on 23 November 2026 at 15:06 (UTC+8), and its two child runs at 15:09 and 15:15. Commit fa0a687 (22 November, 20:51) already used K = 250 provisionally, but no model run reached the server that day.
+
+- Settled: 2026-11-23, when the product owner confirmed it. Owner: Glowing6635. Affected PBIs: #5, #13, #14, #15, #30.
+- Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each #14 candidate run records where K comes from in its `k_status` tag.
+- Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and about 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and a single K applied to every country wouldn't work, since Thailand has only about 19 fraud a day, so any K above 19 could never be filled with fraud there.
+- Set before any model result was seen, from the training and validation windows' daily order and fraud counts only.
 - If Trust & Safety gives a capacity that differs, the candidates are re-run at the new K and the change is logged here, as #5 says.
 
 ## D6-01 — Frozen retrospective windows and protected exposure
@@ -464,3 +471,175 @@ its logged fraud caught at K and average precision.
 - Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #24 (criterion 2).
 - Decision: `rehearsal-reset` runs only when the database name and MLflow experiment name (#2 settings) both start with `rehearsal` and differ from `TEAM_DB_NAME` / `TEAM_MLFLOW_EXPERIMENT_NAME` when those are set.
 - Reason: a required prefix fails safe if the team variable is forgotten, and the team-name check catches a rehearsal-named copy of team resources.
+
+## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
+
+- Recorded: 2026-11-23. Accountable engineer: SpiralSky. Affected PBIs: #18
+  (criteria 1–3), with inputs to #5, #15 and #125. No value was fitted, no
+  order value was examined and no model or rule was scored for this entry.
+- Settled: (a) the rule is `order_value > X` strictly and account age under one
+  day (age 0), unusable inputs never flag and are counted by status; (b) account
+  age is calendar days between `order_date` and the date part of
+  `first_order_datetime`, an exception to D4-02 because today's rule already
+  uses that field; (c) a loyal order has at least 2 distinct orders of the
+  same (country, customer) on strictly earlier calendar dates, with `unknown`
+  kept separate from `not_loyal` and loyalty used for reporting only; (d) X is
+  chosen by the predeclared procedure in
+  [the threshold protocol](baseline-rule.md#threshold-x-candidate-grid-and-selection-protocol):
+  grid 50, 100, 200, 500, 1000, 2000 SGD, fitted on the frozen D6-01 validation
+  window only, objective and tie-breaks as written there.
+- Source of X: `spec.txt:135` gives only the symbol X. D18-04 records why
+  the deployed value is unavailable and the reported X is a validation-tuned
+  proxy.
+- Provenance: the age-only use of `first_order_datetime` (excluded from loyalty)
+  is anchored at the definition freeze 466f080, before any result.
+- Rationale: fixing the grid, the objective and the loyal count before results
+  prevents tuning the baseline or the loyal group after seeing outcomes. The
+  age and loyalty definitions follow the data limits in D4-02 to D4-04.
+- Alternatives not taken: age in elapsed hours (clock times are unconfirmed);
+  `num_orders_last_50days` or `first_order_datetime` as loyalty evidence
+  (both withheld, D4-02); a loyal count of 1 (a single earlier order could be a
+  failed first attempt); a grid or X chosen after seeing results.
+- Impact: the rule is a labelled proxy baseline; loyalty left-censoring from the
+  2022-11-12 history start is a stated limit; the loyal count of 2 is a project
+  assumption Operations may replace by a new dated entry before results.
+- Capacity and grouping: D5-01 fixes K = 250 orders per day as a Product
+  Owner assumption. The #148 evaluator also supports day/country groups for
+  per-country capacities.
+- Outcome: the earlier predeclared coarse grid selected X = 50 SGD, with a
+  5–5 tie at 7 matched flags. D18-03 records the run. D18-04 adopts the later
+  training-quantile result as the #18 baseline. There was no final-test
+  evaluation for this decision. Champion selection remains under #15.
+- Code and checks: `rules.py`, `loyalty.py`, `test_rules.py`, `test_loyalty.py`;
+  rule and loyalty reference in [baseline-rule.md](baseline-rule.md).
+
+
+## D18-02 — Matching rule and model flags per group
+
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky. Affected PBIs: #18
+  (criteria 4 to 6). No real data was scored for this entry.
+- Settled: per #5 selection group the rule's flags are ranked by `order_value`
+  (ties by `country_code`, `order_id`) and cut at K; the model is cut to the
+  rule's resulting count and also shown at K. "Beats the rule" means strictly more
+  fraud caught at the matched count. X is fitted on the D6-01 validation window with the
+  D18-01 grid and objective; K is 250 a day (D5-01), so if K changes the comparison
+  is rerun. A group with no rule flags gets no matched model flags.
+- Code and checks: `rule_comparison.py`, `test_rule_comparison.py`.
+
+## D18-03 — Post-hoc replacement grid for the proxy threshold X
+
+- Recorded: 2026-11-24, **after** the first real comparison and before any rerun.
+  Accountable engineer: SpiralSky; approved by the owner (option B), who is also
+  asking Trust & Safety for the real X. Affected PBI: #18 criterion 1.
+- Why: the D18-01 grid (50 to 2000 SGD) was fixed before any order value was
+  examined. The first real run (validation window, K = 250, #152 boosted-trees
+  scores, `a410f31`) showed it sits almost entirely above the order values: the
+  rule flagged 7 orders at X = 50 and none at X = 100 or more, and the matched
+  comparison was a 5-5 tie at 7 flags. That result is kept and reported as the
+  original.
+- Settled: the second grid is the training window's `order_value` quantiles
+  0.90, 0.95, 0.99, 0.995, 0.999 and 0.9999, computed on the training window
+  `[2022-11-12, 2023-03-27)` only (all its cleaned orders, no labels, no
+  validation rows), rounded to 2 decimals and de-duplicated. Selection is
+  unchanged (D18-01 objective and tie-breaks, fitted on the validation window,
+  K = 250 from D5-01). The grid rule was written here before the values were
+  computed, so the quantile list is not tuned to results.
+- Outcome: the **post-hoc, validation-tuned proxy** selected X = 13.36 SGD.
+  At 132 matched flags, the rule caught 73 fraud orders and the #152
+  boosted-trees candidate caught 102. D18-04 adopts the proxy. The earlier
+  D18-01 coarse-grid result remains in the record.
+- Limit: the grid is still chosen after seeing that the first grid failed, and
+  it is fitted on the same validation window that scores the comparison, so it
+  favours the rule and a model win would be conservative.
+
+## D18-04 — The proxy rule is final: no deployed threshold or capacity source exists
+
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky; owner correction relayed
+  by the coordinator. Affected PBIs: #18 (criterion 1), #5/D5-01 (K).
+- Settled: Trust & Safety is a persona in the course brief, not a team that can be
+  asked, so the deployed X and the real review capacity cannot be obtained. The
+  active #18 rule uses the D18-03 validation-tuned proxy X = 13.36 SGD. At
+  132 matched flags, the rule caught 73 fraud orders and the #152 boosted-trees
+  candidate caught 102.
+  K = 250 orders a day (D5-01) stays a Product Owner assumption.
+- Replaces: the earlier expectation of a confirmed deployed threshold or review
+  capacity. D18-01 retains the earlier predeclared coarse-grid result at
+  X = 50 SGD, with a 5–5 tie at 7 matched flags.
+
+## D18-05 — Report input handling and champion evidence
+
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky. Affected PBI: #18.
+- Settled: the report parses customer first-order timestamps with the existing
+  row-safe parser. It retains the original text for link disambiguation and
+  age diagnostics. Score CSV keys are opaque text and matched scores are
+  validated separately as finite numbers. An empty labelled validation cohort
+  stops before any threshold fit or verdict, even when X is supplied.
+- Rationale and alternatives: inferring nulls in score keys drops literal IDs
+  such as `NA`. Dropping customers with dates outside the parser range would
+  also discard link and loyalty evidence. Changing the shared cleaner would
+  affect other PBIs. Reporting a comparison on zero labelled rows would
+  manufacture a threshold or verdict without observations.
+- Impact: affected dates produce unusable ages in #18 and the orders remain
+  evaluable for model scoring. The protected D6-01 windows, D18-01 age and
+  loyalty rules, D5-01 Product Owner K and both frozen grids stay in force.
+  The standalone report identifies the predeclared D18-01 grid and the
+  post-hoc D18-03 grid adopted in D18-04.
+- Open: SpiralSky owns tracing validation scores to the registered #15
+  champion, `fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`,
+  before reporting the criterion 4–6 outcome. The recorded #152 candidate
+  results document the proxy comparison and cannot establish the champion
+  outcome. The #5 owner owns the public selector change. The coordinator
+  owns #157 delivery routing after #165, with `user/spiralsky` reserved for
+  #99 until that delivery clears.
+
+## D18-06 — Champion validation scores are an offline re-score
+
+- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBI: #18
+  (criteria 4–6).
+- Settled: no row-level score artifact from run `9c3a59771cf8499d92972f5c7873e280`
+  exists in the local MLflow store (`mlruns` holds only two test models), and the
+  team server is not reachable offline. `uv run champion-scores` therefore refits
+  the champion's `boosted_trees_model` recipe (seed 0, K = 250, frozen windows) on
+  the local base CSVs and scores the validation window. It is a **re-score, not
+  the original artifact**: each row carries `artifact_kind = re-score`, the
+  champion run ID, `fraud-candidate` v1, the three dataset hashes, and the code
+  commit. It reproduces the champion record exactly: 2893 fraud caught at K, AP
+  0.3716, over 101190 validation orders. A second run is byte-identical.
+- Evidence: artifact `output/champion-validation-scores.csv` (untracked,
+  data-derived), sha256
+  `caa580e6638b1ed76fd8a06aed1e54d7f70feebd3ca4510761494a4c33d2c095`, generated at
+  code commit `e24e8b9`, data hashes customers `501c0699…`, orders `934d9143…`,
+  labels `cde4cc62…`. `rule-report --scores` consumes it unchanged with
+  `--k 250 --grid training-quantiles`: the rule (X = 13.36 SGD) caught 73 of 132
+  flags; the model at the matched 132 flags caught 102; the model at K caught
+  2893.
+- Alternatives: keep AC4–6 pending until the registered model or its original
+  scores are pulled from the team server; reproduction of the aggregate was
+  judged sufficient to trace the scores, with the limit stated here.
+- Open: the exact registered artifact has not been compared row by row. The
+  #15 owner or coordinator can confirm by scoring the registered `champion`
+  alias with the same data, which needs team-server access. Frozen settings
+  (X = 13.36, K = 250) are unchanged.
+
+## D18-07 — #18 outcome, criteria status and score-file key check
+
+- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBI: #18.
+- Settled: the #18 comparison on the champion re-score (D18-06) is reported in
+  [baseline-rule.md](baseline-rule.md#result-rule-versus-the-15-champion-re-score-validation-window):
+  matched 132 flags, model 102 fraud caught against the rule's 73, so the target
+  of criterion 6 is met; the report also states the rule identified more fraud
+  exposure (1,646.24 against 625.36 SGD) and the model flagged 6 loyal customers
+  against 0. The per-criterion evidence map is in `docs/pr-drafts/pbi-18.md`.
+  `rule-report` now stops with a clear message when the scores file repeats a
+  `(country_code, order_id)` key, instead of a pandas merge error.
+- Rationale: reporting exposure and loyal flags next to the win keeps the
+  "model is better" claim honest; failing early on duplicate keys avoids an
+  ambiguous score being picked silently.
+- Alternatives not taken: dropping duplicate keys (hides an input defect);
+  claiming the exposure result as a model win.
+- Open: (1) the re-score is not compared row by row with the registered
+  artifact (deciding owner: #15 owner or coordinator, needs team-server access;
+  D18-06). (2) The PR closes #18 only if the reviewer accepts the proxy X and
+  the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
+  Owner). The deployed X and capacity are unobtainable (D18-04).
+

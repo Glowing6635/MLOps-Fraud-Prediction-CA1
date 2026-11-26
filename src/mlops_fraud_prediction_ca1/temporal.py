@@ -76,6 +76,42 @@ def parse_dates(values: pd.Series, *, kind: str = "order") -> pd.DataFrame:
     return result
 
 
+def calendar_day_numbers(values: pd.Series) -> pd.Series:
+    """Calendar day number (Int64, NA for NaT) of datetimes, without normalising.
+
+    Floors epoch seconds to whole days, so no midnight value is built and times
+    of day on the earliest or latest representable day cannot overflow.
+    """
+    seconds = values.dt.as_unit("s")
+    days = seconds.astype("int64") // 86_400
+    return days.astype("Int64").mask(values.isna())
+
+
+def parse_date_rows(values: pd.Series, *, kind: str = "order") -> pd.DataFrame:
+    """``parse_dates`` that survives text beyond the datetime64[ns] range.
+
+    A well-formed value such as 9999-12-31 cannot be held by the shared parser's
+    nanosecond dtype and makes it raise for the whole batch. Bisect so only those
+    rows become an impossible date (status ``invalid``, NaT) and every other row
+    is parsed exactly as before.
+    """
+    try:
+        return parse_dates(values, kind=kind)
+    except pd.errors.OutOfBoundsDatetime:
+        if len(values) == 1:
+            result = parse_dates(values.iloc[:0], kind=kind).reindex(values.index)
+            result["status"] = "invalid"
+            result["original"] = values
+            return result
+    mid = len(values) // 2
+    return pd.concat(
+        [
+            parse_date_rows(values.iloc[:mid], kind=kind),
+            parse_date_rows(values.iloc[mid:], kind=kind),
+        ]
+    )
+
+
 def date_profile(values: pd.Series, *, kind: str = "order") -> dict:
     """Report format/status counts and the valid date range, retaining denominators."""
     parsed = parse_dates(values, kind=kind)

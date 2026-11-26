@@ -40,40 +40,10 @@ MLflow artifact uploads. The command reports the stage's elapsed wall time.
 The real input factory, live #24 rehearsal and demo-machine timing remain
 partial. Release mode depends on #23's final evaluation.
 
-## Shared training harness integration
+## Shared training harness
 
-PR #162's #154 base supplies the protected RDS reader. The shared `training.py`
-from #151 is on a separate branch lineage. Before running with real inputs,
-apply this change in the shared harness when both branches are available.
-
-1. Add keyword-only `labelled_windows=None` to `fit_and_score()` and
-   `train()`, and allow `data_dir=None`. Require exactly one source. Keep
-   the CSV path and its hashes for existing callers. For labelled windows,
-   accept a `(train_rows, validation_rows)` tuple of already-cleaned, joined
-   DataFrames with the harness's `_KEYS` and order features. Use
-   `select_feature_inputs(rows, source="orders")` and `_model_inputs()`
-   through one shared labelled-row helper. Normalize RDS Decimal numeric
-   features to numbers before `_model_inputs()`, and cast labels to integers.
-   Reject exploratory mode with labelled windows. Log
-   `data_source=rds_labelled_windows` instead of the CSV hashes for this mode.
-   Leave configured seed handling intact for CSV calls and skip overriding
-   stored estimator random states when the caller explicitly supplies
-   `seed=None`.
-2. Extract `score_labelled_rows(estimator, rows, *, k)` in `training.py` for
-   champion scoring. Use the same row helper and validation scoring function
-   as `fit_and_score()`, passing the keys and positive-class probabilities
-   to the existing `evaluate_top_k()`.
-3. Add keyword-only `run_name=None`, `extra_params=None`,
-   `extra_metrics=None` and `max_model_size_bytes=None` to `train()`.
-   Pass the name to `mlflow.start_run()`, merge the supplied parameters into
-   the run parameters and merge `extra_metrics(result)` into the metrics
-   before logging. Keep the `(run_id, FitResult)` return.
-4. Reuse the harness's `mlflow.sklearn.save_model()` size measurement with the
-   same serialization options as `mlflow.sklearn.log_model()`. Reject a
-   missing/empty model or a model over `max_model_size_bytes` before upload.
-   Keep the shared sklearn model name `model` so #161's
-   `register_top_two()` can consume `runs:/<run_id>/model`. Verify the URI
-   resolves from a retraining run in local MLflow before running the rehearsal.
-
-The CLI calls this interface directly once the harness is available. Tests
-on the #154 base exercise the CLI with a stand-in for the shared harness.
+The command passes the two labelled windows directly to the harness, without
+reading base CSV files. The harness records `data_source=rds_labelled_windows`
+and converts decimal order values to numbers. An omitted seed preserves the
+estimator's random-state settings. Models that exceed the batch model-size limit
+are reported as candidate failures before artifact upload.

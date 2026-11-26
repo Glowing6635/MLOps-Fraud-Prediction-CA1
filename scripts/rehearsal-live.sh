@@ -10,12 +10,12 @@
 # `run` removes the security-group rule it added when it ends, and deletes what it
 # created only if it fails. On success the bucket, its objects and the schema stay, so the
 # printed links keep working until they expire (the expiry is printed); delete them
-# afterwards with `cleanup`. `cleanup` deletes only a bucket tagged by this script
+# afterwards with `cleanup`. `cleanup` keeps the schema (so readers can check it) unless KEEP_SCHEMA=0, and deletes only a bucket tagged by this script
 # (created-by=rehearsal-live), so it can never remove a bucket someone else made.
 set -euo pipefail
 SG_ID=${SG_ID:-sg-075357648cbf564b9}
-BUCKET=${BUCKET:-fraud-rehearsal-516375498949}
-case "$BUCKET" in fraud-rehearsal-*) ;; *) echo "BUCKET must start with fraud-rehearsal-" >&2; exit 1;; esac
+BUCKET=${BUCKET:-rehearsal-516375498949}
+case "$BUCKET" in rehearsal*) ;; *) echo "BUCKET must start with rehearsal" >&2; exit 1;; esac
 TAG='TagSet=[{Key=created-by,Value=rehearsal-live}]'
 export DB_NAME=rehearsal MLFLOW_EXPERIMENT_NAME=rehearsal
 export TEAM_DB_NAME=fraud TEAM_MLFLOW_EXPERIMENT_NAME=${TEAM_MLFLOW_EXPERIMENT_NAME:-fraud}
@@ -70,7 +70,8 @@ if [ "${1:-}" = cleanup ]; then
   OK=1  # nothing to undo beyond the ingress rule
   open_port
   step delete-bucket delete_bucket
-  if [ -z "${KEEP_SCHEMA:-}" ]; then step drop-schema sql "DROP DATABASE IF EXISTS rehearsal"; fi
+  # drop only when KEEP_SCHEMA=0 is explicit
+  if [ "${KEEP_SCHEMA:-1}" = 0 ]; then step drop-schema sql "DROP DATABASE IF EXISTS rehearsal"; fi
   exit 0
 fi
 

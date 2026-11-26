@@ -60,11 +60,11 @@ hides them: their files stay in the artifact bucket until the MLflow server's ga
 adds this machine's `/32` to the RDS security group, creates the `rehearsal` schema, the
 tables, optional reader grants (`READERS="name1 name2"`: `GRANT SELECT` only, the `<name>_reader` users must already exist), runs the reset, creates a private
 bucket (tagged `created-by=rehearsal-live`) and prints presigned links with their expiry.
-It removes only the security-group rule it added itself, names any cleanup step that failed and exits non-zero in that case. `BUCKET` must start with `fraud-rehearsal-`. On success the bucket, objects and schema
+It removes only the security-group rule it added itself, names any cleanup step that failed and exits non-zero in that case. `BUCKET` must start with `rehearsal`. On success the bucket, objects and schema
 stay so the links keep working; on failure it deletes only what that run created. After
 the rehearsal, `scripts/rehearsal-live.sh cleanup` deletes the bucket only if it carries
-the tag (never a bucket someone else made) and drops the `rehearsal` schema
-(`KEEP_SCHEMA=1` keeps it; `cleanup` also opens and closes its own `/32` rule). It refuses to start if the bucket already exists.
+the tag (never a bucket someone else made) and drops the `rehearsal` schema only when
+`KEEP_SCHEMA=0` is set (default keeps it so readers can check it; `cleanup` also opens and closes its own `/32` rule). It refuses to start if the bucket already exists.
 `--expires` / `PRESIGN_EXPIRES` sets the link lifetime in seconds (default 3600, enough for
 a 3-minute batch run; use more for a longer demo). Links are valid only while the session
 credentials that signed them are, so generate them in the demo session.

@@ -69,6 +69,7 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 Both commands default to the estimator's unweighted fit. Add
 `--weighting balanced` to opt in, or pass `class_weight="balanced"` to
 `baseline_model()` or `boosted_trees_model()` before calling `train()`.
+For `train compare-feature-groups`, the option applies to both feature groups.
 To compare the two methods without exploratory customer columns, call `train()`
 with each candidate twice, omitting `class_weight` on the first call and setting
 it to `"balanced"` on the second. Use the frozen split, `k=250`, and `seed=0`
@@ -89,8 +90,8 @@ model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 | Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
 | Model | The fitted model, under the name `model` |
 
-The dataset version is the SHA-256 of each input file. Once incoming batches are loaded,
-it will be their batch IDs instead.
+CSV runs record a SHA-256 for each input file. [Per-batch retraining](retraining.md)
+uses the labelled database snapshot and logs the batch ID and validation digest.
 
 `validation_customer_overlap` is the share of validation orders whose customer also
 has an order in the training window. A high share means the validation score partly
@@ -101,6 +102,8 @@ nothing to divide by is not logged.
 
 A run from a working tree with uncommitted changes is still logged, with `git_dirty`
 set to true and a warning, because the commit alone does not hold its code.
+The harness ignores caller-supplied values for `git_commit`, `git_dirty` and
+`author`.
 
 ## Comparing the customer columns
 

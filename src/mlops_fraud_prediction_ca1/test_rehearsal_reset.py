@@ -197,3 +197,37 @@ def test_live_cleanup_leaves_a_bucket_it_did_not_tag(tmp_path):
     )
     assert "left alone" in result.stdout
     assert "delete-bucket" not in calls.read_text() and "s3 rm" not in calls.read_text()
+
+
+def test_live_script_refuses_a_bucket_not_named_rehearsal(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    env, calls = _stub_path(tmp_path, bucket_exists=False, tagged=False)
+    script = Path(__file__).parents[2] / "scripts" / "rehearsal-live.sh"
+    result = subprocess.run(  # noqa: PLW1510
+        ["bash", str(script), "cleanup"],
+        env={**env, "BUCKET": "team-data"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1 and "must start with rehearsal" in result.stderr
+    assert not calls.exists()
+
+
+def test_live_cleanup_keeps_the_schema_unless_keep_schema_is_zero(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    script = Path(__file__).parents[2] / "scripts" / "rehearsal-live.sh"
+    for keep, dropped in (({}, False), ({"KEEP_SCHEMA": "0"}, True)):
+        sub = tmp_path / ("drop" if dropped else "keep")
+        sub.mkdir()
+        env, calls = _stub_path(sub, bucket_exists=True, tagged=False)
+        subprocess.run(  # noqa: PLW1510
+            ["bash", str(script), "cleanup"],
+            env={**env, **keep},
+            capture_output=True,
+            text=True,
+        )
+        assert ("DROP DATABASE" in calls.read_text()) is dropped

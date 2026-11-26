@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from mlops_fraud_prediction_ca1 import training
 from mlops_fraud_prediction_ca1.models import (
     baseline_model,
     boosted_trees_model,
@@ -285,11 +286,85 @@ def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
     assert run.data.tags["k_status"] == f"D5-01: product owner assumption, K = {K}"
 
 
+def test_candidate_cli_tags_cannot_replace_dirty_git_provenance(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "provenance-test")
+    actual_commit = "a" * 40
+    git_results = {
+        "rev-parse": actual_commit,
+        "status": " M training.py",
+        "config": "Fixture Author",
+    }
+    monkeypatch.setattr(training, "_git", lambda command, *args: git_results[command])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "boosted-trees",
+            "--data-dir",
+            str(data_dir),
+            "--tag",
+            "git_dirty=False",
+            "--tag",
+            "git_commit=overridden",
+            "--tag",
+            "author=overridden",
+            "--tag",
+            "pr=164",
+        ],
+    )
+    with pytest.warns(UserWarning, match="working tree has uncommitted changes"):
+        main()
+
+    runs = mlflow.search_runs(
+        experiment_names=["provenance-test"], output_format="list"
+    )
+    assert len(runs) == 3
+    for run in runs:
+        tags = run.data.tags
+        assert tags["git_dirty"] == "True"
+        assert tags["git_commit"] == actual_commit
+        assert tags["author"] == "Fixture Author"
+        assert tags["pr"] == "164"
+    assert sum(run.data.tags.get("champion_eligible") == "True" for run in runs) == 1
+
+
 def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["train", "boosted-trees", "--k", "100"])
     with pytest.raises(SystemExit):
         main()
     assert "--k-status" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("weighting", [None, "balanced"])
+def test_feature_group_cli_logs_weighting_for_both_runs(
+    weighting, data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "feature-weights-test")
+    argv = ["train", "compare-feature-groups", "--data-dir", str(data_dir)]
+    if weighting is not None:
+        argv.extend(["--weighting", weighting])
+    monkeypatch.setattr(sys, "argv", argv)
+    main()
+
+    runs = mlflow.search_runs(
+        experiment_names=["feature-weights-test"], output_format="list"
+    )
+    assert len(runs) == 2
+    assert {run.data.params["features__group"] for run in runs} == {
+        "order_raw",
+        "order_log",
+    }
+    for run in runs:
+        assert run.data.params["model__logisticregression__class_weight"] == str(
+            weighting
+        )
 
 
 def test_rerun_without_mlflow_settings_says_what_to_set(
