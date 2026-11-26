@@ -1,0 +1,18 @@
+# PBI #25: expected engineers and the stored candidate list retrained for each batch.
+# Provisional: owners are the git accounts that supply models today. The team confirms
+# the roster; each logged #22 second version is added as its own [[models]] entry.
+# `factory` names a function in mlops_fraud_prediction_ca1.models; `params` are the
+# stored estimator overrides (no search at retraining time).
+engineers = ["spiralsky", "glowing6635"]
+
+[[models]]
+name = "baseline"
+owner = "spiralsky"
+factory = "baseline_model"
+params = {}
+
+[[models]]
+name = "boosted-trees"
+owner = "glowing6635"
+factory = "boosted_trees_model"
+params = {}

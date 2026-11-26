@@ -87,3 +87,28 @@ def read_training_snapshot(engine: Engine) -> tuple[pd.DataFrame, dict[str, int]
                 (validation_start, *parameters),
             ).one()
     return rows, {"excluded_date_rows": excluded, "excluded_late_rows": late}
+
+
+def read_release_snapshot(engine: Engine) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Read every labelled order for release training, from one MySQL snapshot.
+
+    Allowed only once the #6 holdout setting is off (`test_locked = false`), so no
+    order date cut-off applies and later batches are included. Orders without a
+    usable date are the only exclusion, and they are counted.
+    """
+    if load_policy().test_locked:
+        raise ValueError("Release mode needs the #6 holdout setting off (test_locked).")
+    predicate, parameters = sql_date_predicate(purpose="analysis")
+    with engine.connect() as conn:
+        conn.execution_options(isolation_level="REPEATABLE READ")
+        with conn.begin():
+            rows = _read(conn, predicate, parameters)
+            (undated,) = conn.exec_driver_sql(
+                """
+                SELECT COUNT(*)
+                FROM orders o
+                JOIN labels l ON l.country_code = o.country_code AND l.order_id = o.order_id
+                WHERE o.order_date IS NULL
+                """
+            ).one()
+    return rows, {"excluded_date_rows": undated, "excluded_late_rows": 0}

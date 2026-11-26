@@ -40,40 +40,40 @@ MLflow artifact uploads. The command reports the stage's elapsed wall time.
 The real input factory, live #24 rehearsal and demo-machine timing remain
 partial. Release mode depends on #23's final evaluation.
 
-## Shared training harness integration
+## Roster and release mode
 
-PR #162's #154 base supplies the protected RDS reader. The shared `training.py`
-from #151 is on a separate branch lineage. Before running with real inputs,
-apply this change in the shared harness when both branches are available.
+`config/retrain_roster.toml` lists the expected engineers and the stored candidate
+list; `retrain_roster.load_roster()` returns them and checks every engineer has a
+model. Factories resolve only to `*_model` functions in `models.py`. The owners
+are provisional until the team confirms the roster; add each logged #22 version as
+its own entry.
 
-1. Add keyword-only `labelled_windows=None` to `fit_and_score()` and
-   `train()`, and allow `data_dir=None`. Require exactly one source. Keep
-   the CSV path and its hashes for existing callers. For labelled windows,
-   accept a `(train_rows, validation_rows)` tuple of already-cleaned, joined
-   DataFrames with the harness's `_KEYS` and order features. Use
-   `select_feature_inputs(rows, source="orders")` and `_model_inputs()`
-   through one shared labelled-row helper. Normalize RDS Decimal numeric
-   features to numbers before `_model_inputs()`, and cast labels to integers.
-   Reject exploratory mode with labelled windows. Log
-   `data_source=rds_labelled_windows` instead of the CSV hashes for this mode.
-   Leave configured seed handling intact for CSV calls and skip overriding
-   stored estimator random states when the caller explicitly supplies
-   `seed=None`.
-2. Extract `score_labelled_rows(estimator, rows, *, k)` in `training.py` for
-   champion scoring. Use the same row helper and validation scoring function
-   as `fit_and_score()`, passing the keys and positive-class probabilities
-   to the existing `evaluate_top_k()`.
-3. Add keyword-only `run_name=None`, `extra_params=None`,
-   `extra_metrics=None` and `max_model_size_bytes=None` to `train()`.
-   Pass the name to `mlflow.start_run()`, merge the supplied parameters into
-   the run parameters and merge `extra_metrics(result)` into the metrics
-   before logging. Keep the `(run_id, FitResult)` return.
-4. Reuse the harness's `mlflow.sklearn.save_model()` size measurement with the
-   same serialization options as `mlflow.sklearn.log_model()`. Reject a
-   missing/empty model or a model over `max_model_size_bytes` before upload.
-   Keep the shared sklearn model name `model` so #161's
-   `register_top_two()` can consume `runs:/<run_id>/model`. Verify the URI
-   resolves from a retraining run in local MLflow before running the rehearsal.
+`uv run retrain-batch BATCH_ID module:factory --mode release` reads every labelled
+order (no date cut-off, later batches included) and is refused while the #6
+holdout setting (`test_locked`) is on. It never touches #23 results or the champion
+artifact; runs are tagged `retrain_mode=release`, `champion_eligible=False`.
+Because release models also fit the frozen validation rows, their harness scores
+are in-sample: they carry `scores_out_of_sample=False`, and no champion comparison
+is logged. The run stops if the invocation's batch has no eligible rows, so a
+cut-off cannot silently drop a whole batch.
 
-The CLI calls this interface directly once the harness is available. Tests
-on the #154 base exercise the CLI with a stand-in for the shared harness.
+## Shared harness contract (#170, merged in dev a14bf94)
+
+The CLI uses `training.train()` and `score_labelled_rows()` as merged. `train()` has
+no `run_name` or `extra_params`, so the run name goes in the `mlflow.runName` tag
+and the model, owner, `etl_run_id`, batch ID, champion run ID, validation digest and
+overrides are tags. Counts and comparisons are metrics through `extra_metrics`.
+
+## Acceptance map (offline, 2026-11-26)
+
+| Criterion | State |
+| --- | --- |
+| Read once, shared | Done: one snapshot per run (`test_cli_delegates...`). |
+| Train only before the validation window; print exclusions | Done in evaluation mode (reader counts, logged). |
+| Every model retrained, stored params, <=50 MB, 85 s budget | Done in code (roster, size cap, 85 s timer). Real fit time on RDS rows and the real #22 entries: gap. |
+| Evaluation vs champion; release mode, results unchanged | Done offline for both; release scores tagged in-sample. Real #23 final evaluation and holdout switch: gap (depends on #23). |
+| Rehearsal with old/new counts | Gap: needs #24 and a live RDS run. |
+| Unique `etl_run_id`, run names | Done (`<model>-<batch>-<etl_run_id>`, tags). |
+| Failed model reported, others continue, exit non-zero | Done (tested). |
+| No auto-promotion, champion comparison logged | Done (`champion_eligible=False`); release mode logs no comparison by design. |
+| Real input factory (frozen validation frame, fitted champion) | Gap: not written; needs #15 and #23 artifacts. |

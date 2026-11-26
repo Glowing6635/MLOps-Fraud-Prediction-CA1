@@ -113,7 +113,7 @@ def test_cli_delegates_training_and_continues_after_failure(inputs, monkeypatch)
     )
     assert len(snapshots) == 1
 
-    assert [kwargs["run_name"] for _, kwargs, _ in calls] == [
+    assert [kwargs["tags"]["mlflow.runName"] for _, kwargs, _ in calls] == [
         "first-new-invocation",
         "last-new-invocation",
     ]
@@ -127,9 +127,9 @@ def test_cli_delegates_training_and_continues_after_failure(inputs, monkeypatch)
         pd.testing.assert_frame_equal(passed_validation, inputs.validation_rows)
         assert kwargs["k"] == 1
         assert kwargs["max_model_size_bytes"] == 52_428_800
-        assert kwargs["tags"] == {"champion_eligible": "False"}
-        assert kwargs["extra_params"]["etl_run_id"] == "invocation"
-        assert kwargs["extra_params"]["champion_run_id"] == "champion-fixture"
+        assert kwargs["tags"]["champion_eligible"] == "False"
+        assert kwargs["tags"]["etl_run_id"] == "invocation"
+        assert kwargs["tags"]["champion_run_id"] == "champion-fixture"
         assert metrics["train_old_rows"] == 1
         assert metrics["train_new_rows"] == 2
         assert metrics["excluded_rows"] == 4

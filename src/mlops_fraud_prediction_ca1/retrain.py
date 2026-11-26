@@ -10,11 +10,12 @@ from importlib import import_module
 
 import pandas as pd
 
-from .rds_reads import read_training_snapshot
+from .rds_reads import read_release_snapshot, read_training_snapshot
 from .splitting import split_orders
 
 TRAIN_AND_LOG_SECONDS = 85
 MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
+MODES = ("evaluation", "release")
 
 
 @dataclass(frozen=True)
@@ -73,11 +74,15 @@ def retrain(
     train_candidate: Callable,
     score_rows: Callable,
     log: Callable[[str], None],
+    mode: str = "evaluation",
 ) -> RetrainReport:
+    if mode not in MODES:
+        raise ValueError(f"Unknown retraining mode: {mode}")
+    release = mode == "release"
     validate_manifest(inputs.models, inputs.engineers)
     validation, split = split_orders(inputs.validation_rows, purpose="validation")
     if (
-        not split["test_locked"]
+        (not release and not split["test_locked"])
         or not inputs.champion_run_id
         or validation.empty
         or split["excluded_rows"]
@@ -92,22 +97,33 @@ def retrain(
         "train_old_rows": len(train_rows) - new_rows,
         "train_new_rows": new_rows,
         "excluded_invalid_label_rows": len(rows) - len(train_rows),
-        "train_orders": len(train_rows),
+        "eligible_train_orders": len(train_rows),
         "excluded_rows": exclusions["excluded_date_rows"] + len(rows) - len(train_rows),
     }
+    if release and not new_rows:
+        raise ValueError(
+            f"Release mode found no eligible labelled rows for batch {batch_id}; "
+            "a date cut-off or missing labels would silently exclude it."
+        )
     report = RetrainReport(etl_run_id, batch_id, counts)
-    log(f"etl_run_id={etl_run_id} batch_id={batch_id} {counts}")
+    log(f"mode={mode} etl_run_id={etl_run_id} batch_id={batch_id} {counts}")
     started = time.perf_counter()
     validation_hash = hashlib.sha256(
         validation.to_csv(index=False).encode()
     ).hexdigest()
-    champion = score_rows(inputs.champion_model, validation, k=inputs.k)
-    champion_caught = champion.at_k.fraud_caught
-    champion_ap = champion.average_precision
-    if champion_ap is None:
-        raise ValueError("Frozen validation must support average precision.")
+    champion_caught = champion_ap = None
+    if not release:
+        champion = score_rows(inputs.champion_model, validation, k=inputs.k)
+        champion_caught = champion.at_k.fraud_caught
+        champion_ap = champion.average_precision
+        if champion_ap is None:
+            raise ValueError("Frozen validation must support average precision.")
 
     def comparison(result):
+        if release:
+            # Release models also fit the frozen validation rows, so their scores are
+            # in-sample and are not compared with the champion's out-of-sample ones.
+            return dict(counts)
         caught = result.report.at_k.fraud_caught
         ap = result.report.average_precision
         return {
@@ -131,23 +147,30 @@ def retrain(
                 run_name=name,
                 max_model_size_bytes=MAX_ARTIFACT_BYTES,
                 extra_metrics=comparison,
-                tags={"champion_eligible": "False"},
-                extra_params={
+                tags={
+                    "mlflow.runName": name,
+                    "champion_eligible": "False",
+                    "retrain_mode": mode,
+                    "scores_out_of_sample": str(not release),
                     "model": spec.name,
                     "owner": spec.owner,
                     "etl_run_id": etl_run_id,
                     "batch_id": batch_id,
                     "champion_run_id": inputs.champion_run_id,
                     "validation_sha256": validation_hash,
+                    "model_params": repr(dict(spec.params)),
                 },
             )
             report.results[spec.name] = {
                 **comparison(result),
-                "fraud_caught_at_k": result.report.at_k.fraud_caught,
-                "average_precision": result.report.average_precision,
                 "fit_seconds": result.fit_seconds,
                 "mlflow_run_id": run_id,
             }
+            if not release:
+                report.results[spec.name] |= {
+                    "fraud_caught_at_k": result.report.at_k.fraud_caught,
+                    "average_precision": result.report.average_precision,
+                }
         except Exception as error:  # noqa: BLE001 - isolate each candidate failure
             report.failures[spec.name] = f"{type(error).__name__}: {error}"
             log(f"FAILED {name}: {report.failures[spec.name]}")
@@ -172,6 +195,26 @@ def run_evaluation_mode(
     )
 
 
+def run_release_mode(
+    engine, inputs, *, batch_id, train_candidate, score_rows, etl_run_id=None, log=print
+) -> RetrainReport:
+    """Retrain on all eligible labelled rows, including later batches (after #23).
+
+    Refuses to run while the #6 holdout setting is on. The #23 results and champion
+    artifact are not touched; runs are logged separately under their own names.
+    """
+    return retrain(
+        inputs,
+        batch_id=batch_id,
+        etl_run_id=uuid.uuid4().hex if etl_run_id is None else etl_run_id,
+        read_rows=lambda: read_release_snapshot(engine),
+        train_candidate=train_candidate,
+        score_rows=score_rows,
+        log=log,
+        mode="release",
+    )
+
+
 def main(argv=None) -> int:
     from .config import create_db_engine, load_settings
 
@@ -181,6 +224,12 @@ def main(argv=None) -> int:
         "inputs", help="Trusted module:factory returning EvaluationInputs"
     )
     parser.add_argument("--etl-run-id")
+    parser.add_argument(
+        "--mode",
+        choices=MODES,
+        default="evaluation",
+        help="release trains on all eligible rows once the #6 holdout setting is off",
+    )
     args = parser.parse_args(argv)
     module, separator, factory = args.inputs.partition(":")
     if not separator or not module or not factory:
@@ -196,7 +245,8 @@ def main(argv=None) -> int:
     inputs = getattr(import_module(module), factory)()
     engine = create_db_engine(settings)
     try:
-        report = run_evaluation_mode(
+        run = run_release_mode if args.mode == "release" else run_evaluation_mode
+        report = run(
             engine,
             inputs,
             batch_id=args.batch_id,

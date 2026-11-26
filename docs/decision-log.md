@@ -252,3 +252,18 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D25-01: Release-mode retraining and its in-sample scores
+
+Recorded 2026-11-26 for [per-batch retraining (#25)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/25).
+
+- Decision (proposed, owner SpiralSky, team to confirm): release mode runs only
+  when `test_locked = false`, reads every labelled order with a valid date through
+  the `analysis` purpose, and applies no cut-off. No evaluation window changes.
+- The harness scores on the validation frame, which release training includes, so
+  release runs are tagged `scores_out_of_sample=False` and log no champion comparison.
+  Alternative: add a score-free path to `training.py` (an open question for the #170
+  owner, Glowing6635).
+- Settled: nothing yet. Open: roster owners in `config/retrain_roster.toml`; the
+  trigger for turning the holdout off (#23).
+- Paid AWS actions: none. This work was offline.
