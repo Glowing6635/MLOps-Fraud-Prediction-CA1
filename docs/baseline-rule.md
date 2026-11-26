@@ -292,6 +292,9 @@ verdict, including when an explicit threshold is supplied.
 
 ## Result: rule versus the #15 champion re-score (validation window)
 
+The test-window result, scored once at the frozen X, is logged by
+[the final test-window scoring](final-test.md).
+
 Run on 2026-11-26 with `uv run champion-scores` output
 (`output/champion-validation-scores.csv`, sha256 `caa580e6…33d2c095`, D18-06) and
 `rule-report --scores … --k 250 --grid training-quantiles`. Rule: `order_value >

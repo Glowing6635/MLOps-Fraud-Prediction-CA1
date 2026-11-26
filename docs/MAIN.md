@@ -17,6 +17,8 @@
   counts and MLflow evidence.
 - [Champion selection and rollback](champion.md) — compare validation runs,
   register the top two and manage aliases.
+- [Final test-window scoring](final-test.md): how the final champion and the
+  rule are scored once on the test window, and what the run logs.
 
 
 - [Baseline rule inputs](baseline-rule.md) — account age for the hard-coded

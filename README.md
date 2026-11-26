@@ -29,6 +29,10 @@ uv run run-batch "$CUSTOMERS_URL" "$ORDERS_URL" "$LABELS_URL"
 
 The command prints the target database host, database name, and MLflow experiment. Until the fetch and validate stage (#19) is integrated, it then exits with status 1 before downloading data or connecting to either service.
 
+### Final test-window scoring
+
+`uv run final-test --data-dir data` scores the final champion and the rule once on the test window, with the settings committed in `config/final_test.toml`. It refuses to run a second time. `docs/final-test.md` gives the steps before and after it.
+
 ### Checks
 CI (`.github/workflows/ci.yml`) runs on every pull request: `ruff check`, `ruff format --check`, `pytest`, a licence and vulnerability check of the dependencies, a gitleaks scan of the full history, and a check that the pull request's source and target branches follow `docs/contributors/README.md`. Run the first three locally with `uv run`.
 

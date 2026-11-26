@@ -72,6 +72,10 @@ It then prints the rows added, already stored and rejected per table. Loading th
 
 `docs/data-dictionary.md` explains every table and column. The schema is frozen before data loading (issue #20) starts: after that, any change to `schema.sql` needs the team's agreement first.
 
+## Final test-window scoring
+
+The final champion and the rule are scored once, by the team, with `uv run final-test`. Before it, commit `config/final_test.toml` and `final_evaluation_enabled = true`; afterwards, commit `final_evaluation_enabled = false`. Run it only with `.env` pointing at the team's MLflow server, since a run anywhere else would not count as the one scoring. The steps are in `docs/final-test.md` under "Run it".
+
 ## Champion alias move and rollback
 
 To move the `champion` alias to another registered version, or to roll it back, use `champion.move_champion(client, "fraud-candidate", "<version>", "reason")`. Every move records `previous_champion_version` and the reason on the new champion and gives the old champion the `challenger` alias. To roll back, read the `previous_champion_version` tag on the current champion and pass that version to the same call. Run one registry operation at a time, then read both aliases and the tag to confirm. The full steps, including a failed write, are in `docs/champion.md` under "Move the alias and roll back".

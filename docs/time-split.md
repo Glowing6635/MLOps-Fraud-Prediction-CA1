@@ -85,7 +85,8 @@ final evaluation. Enable it only after model, threshold and preprocessing freeze
 Both in-memory selection and SQL-predicate access log the resolved test interval
 and ordinary lock state at WARNING level. Loader audits also include the setting.
 The caller must retain logs and satisfy the freeze prerequisites. No scoring is
-performed by this module. This is a workflow guard, not filesystem access control.
+performed by this module; [the final test-window scoring](final-test.md) is the
+one caller. This is a workflow guard, not filesystem access control.
 Private ingestion helpers are not consumer APIs.
 
 ## SQL integration contract
