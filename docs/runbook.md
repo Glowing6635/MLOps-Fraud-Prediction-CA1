@@ -71,3 +71,23 @@ Load `base` first, then each batch in the order it arrived, because the database
 It then prints the rows added, already stored and rejected per table. Loading the same batch again is safe and adds nothing. Run one load at a time: while a long load runs, a second load stops with MySQL's "Lock wait timeout exceeded" error, or with a duplicate-key error if both add the same row, and changes nothing, so run it again after the first finishes. For the base files, the counts should match the kickoff data analysis (issue #3): 901,312 customers, 949,889 orders and 949,872 labels added, with 444 labels rejected for "no matching order" and 2 for "no matching customer". On a laptop the first load took about 11 minutes, and a rerun about 2. "Loading rules" in `docs/data-dictionary.md` lists what is rejected and why.
 
 `docs/data-dictionary.md` explains every table and column. The schema is frozen before data loading (issue #20) starts: after that, any change to `schema.sql` needs the team's agreement first.
+
+## Running a batch
+
+`uv run run-batch` loads a batch from three URLs, retrains and reports, as the README's "Batch command" says.
+
+The command first prints the target database host, database name and MLflow experiment, and the run's `etl_run_id`, which tags every MLflow run it logs. It then runs five stages and prints each one's time against its budget (D27-01 in `docs/decision-log.md`), with `OVER BUDGET` after any that overran:
+
+1. Fetch and validate: downloads and checks the three files, then prints the batch ID and the rows in each file, which is the batch size for timing.
+2. Clean and load: cleans the batch and loads it as `uv run load-batch` does ("Loading a batch" above).
+3. Read training data: reads the labelled training and validation windows from the database.
+4. Train and log: trains the baseline model on them and logs the run to MLflow. Per-batch retraining of every candidate (#25) replaces this once it reaches `dev`.
+5. Report: prints each table's rows before and after, the number of MLflow runs logged with this `etl_run_id`, and a link that lists them on the MLflow server.
+
+It ends with the total time against the 180-second limit. That total starts after the settings are read, so it leaves out start-up. A failed stage prints `failed after` with its time against its budget, the total follows, and the command exits with status 1. A failure before the load ends leaves the database as it was. Running the command again for a loaded batch adds no rows and logs new runs.
+
+To time a run as the three-minute check (#27) asks, rebuild the rehearsal database with #24's reset command (pull request #160 until it merges), point `.env` at it, and time the whole command in PowerShell. The exit status it prints last must be 0:
+
+```powershell
+Measure-Command { uv run run-batch $env:CUSTOMERS_URL $env:ORDERS_URL $env:LABELS_URL | Out-Default }; $LASTEXITCODE
+```

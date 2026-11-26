@@ -27,7 +27,7 @@ Pass them in that order and quote each URL to preserve its query string.
 uv run run-batch "$CUSTOMERS_URL" "$ORDERS_URL" "$LABELS_URL"
 ```
 
-The command prints the target database host, database name, and MLflow experiment. Until the fetch and validate stage (#19) is integrated, it then exits with status 1 before downloading data or connecting to either service.
+`docs/runbook.md`, "Running a batch", says what the command prints and how to time it.
 
 ### Checks
 CI (`.github/workflows/ci.yml`) runs on every pull request: `ruff check`, `ruff format --check`, `pytest`, a licence and vulnerability check of the dependencies, a gitleaks scan of the full history, and a check that the pull request's source and target branches follow `docs/contributors/README.md`. Run the first three locally with `uv run`.
