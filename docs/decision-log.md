@@ -481,3 +481,11 @@ its logged fraud caught at K and average precision.
   team server; (3) the delay is unconfirmed with Operations (D4-05); (4) scoring-time history from
   the batch and RDS readers (#20, #25) and the packaged model (#16) are not built; (5) the fit
   time against the 85 s #25 budget is unmeasured.
+
+### D22-01 follow-up: package run
+
+`train boosted-trees-v2` now fits v1 and v2 under one parent run and reproduces the
+offline result through the package: 2893 to 3042 fraud caught at K = 250, average
+precision 0.3716 to 0.4239 ([model-v2-run.md](model-v2-run.md)). Settled: the wiring and the
+local result. Still open as listed above: the team-server log, the #15 review and the
+#25 roster entry. The fit took about 1.6 s, which narrows open item (5) to the timed run.
