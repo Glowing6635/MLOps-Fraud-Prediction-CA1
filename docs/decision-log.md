@@ -643,3 +643,20 @@ its logged fraud caught at K and average precision.
   the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
   Owner). The deployed X and capacity are unobtainable (D18-04).
 
+
+## D24-02 — Live evidence run for #24: presign path done, database path blocked (2026-11-26)
+
+- Decision: ran only the part of the rehearsal that needs no database, with a temporary
+  `rehearsal-516375498949` bucket (created, used about 6 minutes, deleted). Left the
+  stopped RDS instance `fraud-db` stopped. Receipts are in `docs/evidence/24-live-evidence.md`.
+- Paid actions and estimated cost: one S3 bucket with nine objects of about 28 KB for six
+  minutes, and a few requests, well under $0.01. No RDS start, no NAT, no EC2 or SageMaker. Starting
+  `fraud-db` (db.t3.micro, about $0.02 per hour) was blocked by the permission classifier
+  and not done.
+- Rationale: the presign path only needs S3, so it could be verified live at nearly no cost;
+  the reset, grants and reader check need the instance running.
+- Alternatives not taken: working around the block with another call path (not done);
+  keeping the bucket so links last longer (the agreed behaviour of this step is that links
+  live only while the run does).
+- Open: start `fraud-db` and run the grants and reader checks (deciding owner: the project
+  owner, who must permit starting the instance and supply each engineer's reader login).
