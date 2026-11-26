@@ -36,7 +36,8 @@ For an engineer deploying for the first time. Each step links to the section wit
    MLFLOW_ARTIFACTS_DESTINATION="s3://$BUCKET/artifacts" ./deploy.sh "$PREFIX"
    ```
 
-6. On a first deployment, the environment now exists, so open port 3306 on the RDS security group to the Beanstalk instance's security group (step 3 of [Set up RDS and S3](#set-up-rds-and-s3-once)). The container cannot reach the database before this, so health stays red until the rule is in. Then redeploy with `./deploy.sh "$PREFIX"`, or restart the app server from the Beanstalk console.
+   On a first deployment the script's last command, the `/health` request, is expected to fail (`curl` exits non-zero and the script stops with it), and `eb status` shows a red or degraded environment. The container cannot reach RDS until step 6 adds the ingress rule. That failure is not an error in the deployment itself: go on to step 6 rather than into Troubleshooting. Fail earlier than that (before `eb status` prints) and use Troubleshooting.
+6. On a first deployment, the environment now exists, so open port 3306 on the RDS security group to the Beanstalk instance's security group (step 3 of [Set up RDS and S3](#set-up-rds-and-s3-once)). Then redeploy with `./deploy.sh "$PREFIX"`, or restart the app server from the Beanstalk console, so the container reconnects. On this run the `/health` request should succeed.
 7. Confirm `Health: Green` and that `curl "http://$PREFIX.us-east-1.elasticbeanstalk.com/health"` returns OK.
 8. Create each engineer's login and run `uv run log-test-run` ([Check from each laptop](README.md#check-from-each-laptop)).
 
@@ -68,11 +69,14 @@ Laptops check the RDS certificate against `src/mlops_fraud_prediction_ca1/rds-gl
 
 You need Docker, and the sandbox credentials in `~/.aws/credentials`, pasted fresh each session. Tags in the `mlflow-server` ECR repository can't be overwritten, so each new image gets the next tag: `<MLflow version>-r<n>`. Then put that tag in `Dockerrun.aws.json`. From this folder:
 
-```
+```bash
+ACCOUNT="YOUR_ACCOUNT_ID"   # 12-digit sandbox account ID
+TAG="YOUR_TAG"              # next unused tag, for example 3.1.0-r1
+REGISTRY="$ACCOUNT.dkr.ecr.us-east-1.amazonaws.com"
 aws ecr create-repository --repository-name mlflow-server --image-tag-mutability IMMUTABLE --image-scanning-configuration scanOnPush=true
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
-docker buildx build --platform linux/amd64 --load -t <account>.dkr.ecr.us-east-1.amazonaws.com/mlflow-server:<tag> .
-docker push <account>.dkr.ecr.us-east-1.amazonaws.com/mlflow-server:<tag>
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "$REGISTRY"
+docker buildx build --platform linux/amd64 --load -t "$REGISTRY/mlflow-server:$TAG" .
+docker push "$REGISTRY/mlflow-server:$TAG"
 ```
 
 The first command is needed only once. `--platform linux/amd64` matches the t3 instance, even when the laptop has an ARM processor. After changing `requirements.in`, relock with `uv pip compile requirements.in --python-version 3.12 --python-platform x86_64-manylinux_2_28 --generate-hashes --no-header -o requirements.txt`.
@@ -87,8 +91,8 @@ account and region as the published image. The script requires #147's
 
 Create the four `SecureString` parameters named in [Settings](README.md#settings)
 in the same account and region before creating an environment. Use
-`aws ssm put-parameter --name <parameter> --type SecureString --value <value>`
-with the values described there. The script passes only parameter ARNs to the
+`aws ssm put-parameter --name "/mlflow/YOUR_PARAMETER" --type SecureString --value "YOUR_VALUE"`
+with the names and values described there. The script passes only parameter ARNs to the
 `aws:elasticbeanstalk:application:environmentsecrets` namespace.
 
 From a clean checkout with the published tag selected in `Dockerrun.aws.json`:
@@ -116,7 +120,7 @@ template name and removes the local saved configuration on exit. Beanstalk
 pulls the image from ECR and resolves the four parameter references for the
 container.
 
-To redeploy, run `./deploy.sh <existing-cname-prefix>`. Before running
+To redeploy, run `./deploy.sh "YOUR_EXISTING_CNAME_PREFIX"`. Before running
 `eb deploy`, the script checks the CNAME and uses the AWS CLI to verify the
 seven settings in the deployed Beanstalk configuration. Both creation and
 redeploy require an artifact destination of `s3://<bucket>/artifacts` or
