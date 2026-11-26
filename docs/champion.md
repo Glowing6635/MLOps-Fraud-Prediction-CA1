@@ -136,7 +136,28 @@ is merged, and the live read-only `uv run champion-pick --k 250` rerun against
 Under [D15-03](decision-log.md#d15-03--register-the-best-two-ranked-models-within-50-mb),
 the two elected candidates (`champion` rank 1 and `challenger` rank 3) are both
 strictly under 50,000,000 bytes; by raw validation rank, the top two do not both
-satisfy `< 50 MB`. Until an analyst-approved `--register` operation promotes
-rank 3 (`ExtraTreesClassifier`) or a lighter `< 50 MB` random forest is trained
-in `laneA-live`, the historical registry pair stands and version 2 (`187,236,750`
-bytes) does not qualify.
+satisfy `< 50 MB`.
+
+**Registration is a separate, analyst-approved step.** Neither candidate choice
+changes the live aliases by itself. Training a lighter `< 50 MB` random forest in
+`laneA-live`, or training any run, only adds a run to the experiment; it does not
+create a `fraud-candidate` version or move the `champion`/`challenger` aliases.
+The read-only `uv run champion-pick --k 250` rerun above printed the comparison
+and its Comparison ID but wrote nothing to the registry. The historical pair
+therefore stands — `champion` v1 (`9c3a5977…`) and `challenger` v2
+(`9a40f8f5…`, `187,236,750` bytes) — until an analyst approves and runs the
+registration:
+
+```bash
+uv run champion-pick --k 250 --register fraud-candidate \
+  --approve-comparison <Comparison ID from the approved preview>
+```
+
+That command creates or reuses the `fraud-candidate` versions for the elected
+pair and sets both aliases; with D15-03's current ranking it promotes rank 3
+(`ExtraTreesClassifier`, `8af9db9f…`) to `challenger`. If instead a lighter
+random forest is trained and measured under 50,000,000 bytes, it re-enters by
+rank, so the preview (and therefore the Comparison ID) must be taken again
+before registering. Either path ends in the same approved `--register`
+operation; without it, version 2 (`187,236,750` bytes) remains the registered
+`challenger` and does not qualify.
