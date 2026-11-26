@@ -39,6 +39,10 @@ from dotenv import load_dotenv
 from sklearn.base import clone
 
 from mlops_fraud_prediction_ca1.cleaning import CLEANING_POLICY_VERSION, clean_frame
+from mlops_fraud_prediction_ca1.customer_history import (
+    HISTORY_COLUMNS,
+    customer_history_features,
+)
 from mlops_fraud_prediction_ca1.data import load_base_data
 from mlops_fraud_prediction_ca1.feature_pipeline import FEATURE_GROUPS, build_pipeline
 from mlops_fraud_prediction_ca1.leakage import (
@@ -179,6 +183,26 @@ def _labelled_window(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return rows[_KEYS].astype({"is_fraud": int}), _model_inputs(features)
 
 
+def _add_history(
+    train_keys: pd.DataFrame,
+    train_x: pd.DataFrame,
+    validation_keys: pd.DataFrame,
+    validation_x: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Add the v2 customer-history counts (decision D22-01) to both windows.
+
+    Training orders read the training labels and validation orders read the training
+    and validation labels; either way only earlier orders count, with the label delay.
+    """
+    seen = pd.concat([train_keys, validation_keys], ignore_index=True)
+    return (
+        pd.concat([train_x, customer_history_features(train_keys, train_keys)], axis=1),
+        pd.concat(
+            [validation_x, customer_history_features(validation_keys, seen)], axis=1
+        ),
+    )
+
+
 def _score_window(estimator, keys, features, k: int) -> TopKReport:
     return evaluate_top_k(keys, estimator.predict_proba(features)[:, 1], k)
 
@@ -197,6 +221,7 @@ def fit_and_score(
     seed: int | None,
     exploratory: bool = False,
     labelled_windows: tuple[pd.DataFrame, pd.DataFrame] | None = None,
+    history: bool = False,
 ) -> FitResult:
     """Fit `estimator` on the training window and evaluate it on the validation window.
 
@@ -204,6 +229,7 @@ def fit_and_score(
     Labelled frames support order-only features. The classifier receives a DataFrame
     and must implement `predict_proba`. A seed overrides every `random_state`
     parameter when supplied. Set daily review capacity `k` before seeing any result.
+    `history` adds the three v2 customer-history counts (decision D22-01).
     """
     if (data_dir is None) == (labelled_windows is None):
         raise ValueError("Supply exactly one of data_dir and labelled_windows.")
@@ -217,6 +243,10 @@ def fit_and_score(
             raise ValueError("Labelled windows support order-only training.")
         (train_keys, train_x), (validation_keys, validation_x) = map(
             _labelled_window, labelled_windows
+        )
+    if history:
+        train_x, validation_x = _add_history(
+            train_keys, train_x, validation_keys, validation_x
         )
     if seed is not None:
         estimator.set_params(
@@ -259,6 +289,7 @@ def train(
     extra_params: dict[str, object] | None = None,
     extra_metrics: Callable[[FitResult], dict[str, float]] | None = None,
     max_model_size_bytes: int | None = None,
+    history: bool = False,
 ) -> tuple[str, FitResult]:
     """Run `fit_and_score` and log the run to MLflow; return the run ID and the result.
 
@@ -291,6 +322,7 @@ def train(
         seed=seed,
         exploratory=exploratory,
         labelled_windows=labelled_windows,
+        history=history,
     )
     policy = load_policy()
     model_params = {
@@ -322,6 +354,7 @@ def train(
                 "k": k,
                 "seed": seed,
                 "exploratory": exploratory,
+                "history_features": history,
                 "label_delay_days": ASSUMED_LABEL_DELAY_DAYS,
                 "cleaning_policy_version": CLEANING_POLICY_VERSION,
                 **{name: getattr(policy, name).isoformat() for name in _CUTOFFS},
@@ -407,6 +440,55 @@ def compare_customer_columns(
     return parent.info.run_id, without, with_columns
 
 
+def compare_history(
+    estimator, data_dir: str | Path, *, k: int, seed: int, tags: dict[str, str]
+) -> tuple[str, tuple[str, FitResult], tuple[str, FitResult]]:
+    """Train `estimator` on the order columns (v1), then with the v2 history counts (#22).
+
+    Both runs are children of one parent run, whose description (`mlflow.note.content`)
+    states the weakness, the change and the validation change in the primary measure
+    (D22-01, docs/model-v2-diagnosis.md). The parent logs the differences too. Returns
+    the parent run ID and `train`'s (run ID, result) for v1, then v2.
+    """
+    _use_experiment()
+    model = estimator[-1] if hasattr(estimator, "steps") else estimator
+    with mlflow.start_run(
+        run_name=f"{type(model).__name__}: v2 customer history compared",
+        tags={**tags, **_provenance_tags()},
+    ) as parent:
+        v1, v2 = (
+            train(
+                clone(estimator),
+                data_dir,
+                k=k,
+                seed=seed,
+                history=history,
+                tags={**tags, "mlflow.runName": label},
+            )
+            for history, label in ((False, "v1 order columns"), (True, "v2 history"))
+        )
+        before, after = v1[1].report, v2[1].report
+        caught = after.at_k.fraud_caught - before.at_k.fraud_caught
+        precision = after.average_precision - before.average_precision
+        mlflow.log_metrics(
+            {
+                "fraud_caught_at_k_difference": caught,
+                "average_precision_difference": precision,
+            }
+        )
+        mlflow.set_tag(
+            "mlflow.note.content",
+            "Weakness: v1 ranks by country and payment prior and cannot see a"
+            " customer's own earlier fraud. Change: add "
+            f"{', '.join(HISTORY_COLUMNS)} (labels used only when more than"
+            f" {ASSUMED_LABEL_DELAY_DAYS} days old, D22-01). Validation, K = {k}:"
+            f" fraud caught {before.at_k.fraud_caught} -> {after.at_k.fraud_caught}"
+            f" ({caught:+d}); average precision {before.average_precision:.4f} ->"
+            f" {after.average_precision:.4f} ({precision:+.4f}).",
+        )
+    return parent.info.run_id, v1, v2
+
+
 def rerun(run_id: str, data_dir: str | Path) -> dict:
     """Re-run a logged run and check it reproduces.
 
@@ -435,6 +517,7 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
         k=int(params["k"]),
         seed=int(params["seed"]),
         exploratory=params["exploratory"] == "True",
+        history=params.get("history_features") == "True",
     )
     caught, logged_caught = (
         result.report.at_k.fraud_caught,
@@ -529,6 +612,10 @@ def main() -> None:
     baseline = commands.add_parser(
         "baseline", help="Train the baseline model and log the run to MLflow."
     )
+    history_parser = commands.add_parser(
+        "boosted-trees-v2",
+        help="Log boosted trees on the order columns (v1) and with the v2 history counts.",
+    )
     comparison = commands.add_parser(
         "compare-feature-groups",
         help="Train and compare the baseline on each order feature group.",
@@ -562,7 +649,7 @@ def main() -> None:
             "git_commit, git_dirty, and author are set by the harness.",
         )
         candidate_parsers.append(parser)
-    for command in (baseline, comparison, *candidate_parsers):
+    for command in (baseline, comparison, history_parser, *candidate_parsers):
         command.add_argument(
             "--weighting",
             choices=("balanced",),
@@ -578,7 +665,7 @@ def main() -> None:
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
     again.add_argument("run_id")
-    for command in (baseline, comparison, *candidate_parsers, again):
+    for command in (baseline, comparison, history_parser, *candidate_parsers, again):
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
@@ -612,6 +699,20 @@ def main() -> None:
         )
         for label, (run_id, result) in zip(("Without", "With"), children, strict=True):
             print(f"{label} the customer columns:\n{format_report(result.report)}")
+            print(f"Logged run {run_id}.")
+        print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
+    elif args.command == "boosted-trees-v2":
+        parent_id, *children = compare_history(
+            boosted_trees_model(class_weight=args.weighting),
+            args.data_dir,
+            k=args.k,
+            seed=args.seed,
+            tags={"k_status": f"D5-01: product owner assumption, K = {K}"}
+            if args.k == K
+            else {},
+        )
+        for label, (run_id, result) in zip(("v1", "v2"), children, strict=True):
+            print(f"{label}:\n{format_report(result.report)}")
             print(f"Logged run {run_id}.")
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
     elif args.command == "compare-feature-groups":

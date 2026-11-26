@@ -391,3 +391,57 @@ def test_forest_candidates_log_both_runs_and_rerun(
     assert mlflow.get_run(without_id).data.tags["champion_eligible"] == "True"
     assert mlflow.get_run(with_id).data.tags["champion_eligible"] == "False"
     assert rerun(without_id, data_dir)["reproduced"]
+
+
+def test_history_features_reach_both_windows_without_leaking(data_dir):
+    plain, history = _Recorder(), _Recorder()
+    fit_and_score(plain, data_dir, k=5, seed=0)
+    fit_and_score(history, data_dir, k=5, seed=0, history=True)
+    counts = ["n_prior_orders", "n_prior_labelled_30d", "n_prior_fraud_30d"]
+    fitted, scored = history.seen_
+    for features in (fitted, scored):
+        assert list(features.columns) == [*plain.seen_[0].columns, *counts]
+        check_feature_columns(features)
+    # Training orders see only earlier training orders (14 day spread, 30 day delay),
+    # so their delayed counts are zero; validation orders see the training labels.
+    assert fitted.n_prior_labelled_30d.eq(0).all()
+    assert scored.n_prior_labelled_30d.gt(0).any()
+    assert scored.n_prior_fraud_30d.le(scored.n_prior_labelled_30d).all()
+    assert scored.n_prior_labelled_30d.le(scored.n_prior_orders).all()
+
+
+def test_history_comparison_logs_description_and_reruns(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    parent_id, (v1_id, v1), (v2_id, v2) = training.compare_history(
+        boosted_trees_model(), data_dir, k=5, seed=0, tags={}
+    )
+    parent = mlflow.get_run(parent_id)
+    assert mlflow.get_run(v1_id).data.params["history_features"] == "False"
+    assert mlflow.get_run(v2_id).data.params["history_features"] == "True"
+    note = parent.data.tags["mlflow.note.content"]
+    assert "Weakness:" in note and "n_prior_fraud_30d" in note
+    assert f"{v1.report.at_k.fraud_caught} -> {v2.report.at_k.fraud_caught}" in note
+    assert parent.data.metrics["fraud_caught_at_k_difference"] == (
+        v2.report.at_k.fraud_caught - v1.report.at_k.fraud_caught
+    )
+    assert rerun(v2_id, data_dir)["reproduced"]
+
+
+def test_boosted_trees_v2_command_logs_two_runs(
+    data_dir, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["train", "boosted-trees-v2", "--data-dir", str(data_dir), "--k", "5"],
+    )
+    main()
+    out = capsys.readouterr().out
+    assert out.count("Logged run") == 2 and "Logged parent run" in out
