@@ -139,7 +139,7 @@ def _final_runs():
     )
 
 
-def test_the_model_and_rule_are_scored_once(store):
+def test_the_model_and_rule_are_scored_once_per_store(store, monkeypatch):
     run_id, _ = _score(store)
 
     [run] = _final_runs()
@@ -158,9 +158,19 @@ def test_the_model_and_rule_are_scored_once(store):
         "rule_precision_at_k": 0.5,
         "rule_recall_at_k": 0.5,
     }
+    # The earlier run blocks a new attempt from another experiment in the store too.
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "another")
     with pytest.raises(RuntimeError, match=f"already scored, in run {run_id}"):
         _score(store)
     assert len(_final_runs()) == 1
+
+
+def test_the_command_reports_a_refusal_without_a_traceback(files, monkeypatch):
+    monkeypatch.setattr(
+        final_test, "_git", lambda *args: " M x.py" if args[0] == "status" else "a"
+    )
+    with pytest.raises(SystemExit, match="uncommitted changes"):
+        final_test.main(["--data-dir", str(files[0])])
 
 
 def test_a_refit_uses_only_training_and_validation_rows(store):

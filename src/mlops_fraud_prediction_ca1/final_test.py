@@ -7,7 +7,8 @@ whether it is scored as trained or refit first, and the frozen K, loyal count an
 threshold X. Scoring needs a clean git tree, so the settings and the code are exactly a
 commit, and `final_evaluation_enabled = true` in `config/time_split.toml`.
 
-The test window is scored once per MLflow store. Every check that reads no test row runs
+The test window is scored once per MLflow store: a run tagged `final_test = true` in
+any experiment, deleted ones included, stops a new attempt. Every check that reads no test row runs
 first, and a refit is fitted before the test window is read. The run tagged
 `final_test = true` is created just before the first test row is read: a failure before
 that leaves no run and can be retried, and from then on the attempt is used up, even if
@@ -15,7 +16,6 @@ it fails. A second attempt stops before reading anything.
 """
 
 import argparse
-import os
 import sys
 import tomllib
 from pathlib import Path
@@ -25,13 +25,17 @@ import mlflow.sklearn
 import pandas as pd
 import skops.io
 from mlflow.entities import ViewType
+from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 from sklearn.base import clone
 
 from mlops_fraud_prediction_ca1.loyalty import LOYAL_MIN_PRIOR_ORDERS
-from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.rule_comparison import compare, format_comparison
-from mlops_fraud_prediction_ca1.rule_report import clean_window, window_inputs
+from mlops_fraud_prediction_ca1.rule_report import (
+    clean_window,
+    labelled_orders,
+    window_inputs,
+)
 from mlops_fraud_prediction_ca1.splitting import load_policy
 from mlops_fraud_prediction_ca1.top_k import K, evaluate_top_k, format_report
 from mlops_fraud_prediction_ca1.training import (
@@ -59,9 +63,9 @@ def score_final_test(
     *,
     freeze_path: str | Path = FREEZE_PATH,
     config_path: str | Path | None = None,
-) -> tuple[str, dict]:
+) -> tuple[str, str]:
     """Score the frozen model and rule on the test window; return the run ID and the
-    `rule_comparison.compare` result.
+    report logged as `final_test.txt`.
 
     `config_path` is the time-split configuration, as in `data.load_base_data`. Raises,
     with no run created, when a check fails, the model version can't be loaded, or the
@@ -76,17 +80,23 @@ def score_final_test(
         )
     _use_experiment()
     client = MlflowClient()
-    experiment = mlflow.get_experiment_by_name(os.environ["MLFLOW_EXPERIMENT_NAME"])
+    experiments = [
+        experiment.experiment_id
+        for experiment in client.search_experiments(view_type=ViewType.ALL)
+    ]
     earlier = client.search_runs(
-        [experiment.experiment_id],
+        experiments,
         "tags.final_test = 'true'",
         run_view_type=ViewType.ALL,
         max_results=1,
     )
     if earlier:
+        run_id = earlier[0].info.run_id
         raise RuntimeError(
-            f"The test window was already scored, in run {earlier[0].info.run_id}."
-            " A second scoring needs a new decision-log entry."
+            f"The test window was already scored, in run {run_id}. A second scoring"
+            " needs a new decision-log entry saying why, and then the old run's tag"
+            f' changed by hand: MlflowClient().set_tag("{run_id}", "final_test",'
+            ' "superseded").'
         )
     version = client.get_model_version(
         settings["model_name"], settings["model_version"]
@@ -100,18 +110,12 @@ def score_final_test(
         for purpose in ("train", "validation")
     ]
     # Stops on a missing or forbidden model column before any test row is read.
-    _features(_labelled_rows(history[1]), columns)
+    _features(labelled_orders(history[1]), columns)
     refit_orders = None
     if settings["mode"] == "refit":
-        seed = int(client.get_run(version.run_id).data.params["seed"])
-        model = clone(model).set_params(
-            **{
-                name: seed
-                for name in model.get_params()
-                if name.endswith("random_state")
-            }
-        )
-        rows = pd.concat(map(_labelled_rows, history), ignore_index=True)
+        # clone keeps every hyperparameter, random_state (the training seed) included.
+        model = clone(model)
+        rows = pd.concat(map(labelled_orders, history), ignore_index=True)
         model.fit(_features(rows, columns), rows["is_fraud"])
         refit_orders = len(rows)
 
@@ -160,10 +164,12 @@ def score_final_test(
                 if value is not None
             }
         )
-        mlflow.log_text(
-            f"{format_report(report)}\n\n{format_comparison(result)}\n",
-            "final_test.txt",
+        text = (
+            f"Model {settings['model_name']} version {settings['model_version']},"
+            f" scored {settings['mode']}.\n\n{format_report(report)}\n\n"
+            f"{format_comparison(result)}\n"
         )
+        mlflow.log_text(text, "final_test.txt")
         if refit_orders is not None:
             # The model was fitted in this process, so every type in it is trusted.
             mlflow.sklearn.log_model(
@@ -173,7 +179,7 @@ def score_final_test(
                     data=skops.io.dumps(model)
                 ),
             )
-    return run.info.run_id, result
+    return run.info.run_id, text
 
 
 def _frozen_settings(path: Path) -> dict:
@@ -204,15 +210,6 @@ def _frozen_settings(path: Path) -> dict:
     if not _git("log", "-1", "--format=%H", "--", str(path)):
         raise RuntimeError(f"{path} is not committed.")
     return settings
-
-
-def _labelled_rows(window: dict) -> pd.DataFrame:
-    """A `clean_window` result's orders that have a valid label."""
-    joined, _ = link_orders_customers(
-        window["orders"], window["labels"], window["customers"]
-    )
-    joined = joined.loc[joined.label_link.eq("both") & joined.is_fraud.notna()]
-    return joined.astype({"is_fraud": int}).reset_index(drop=True)
 
 
 def _features(orders: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -258,9 +255,11 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     # MLflow prints an emoji when a run ends, which Windows cannot encode when piped.
     sys.stdout.reconfigure(errors="replace")
-    run_id, result = score_final_test(args.data_dir)
-    print(format_comparison(result))  # noqa: T201
-    print(f"Logged run {run_id}.")  # noqa: T201
+    try:
+        run_id, text = score_final_test(args.data_dir)
+    except (ValueError, RuntimeError, MlflowException) as error:
+        sys.exit(str(error))
+    print(f"{text}Logged run {run_id}.")  # noqa: T201
 
 
 if __name__ == "__main__":

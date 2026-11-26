@@ -12,15 +12,18 @@ the [decision log](decision-log.md) records the design.
      version number, because the `champion` alias can move.
    - `mode`: `as_trained` scores the model as it was trained, on rows before
      the validation window. `refit` first fits a fresh copy, with the same
-     hyperparameters and the seed from its training run, on the training and
-     validation rows. The test window is read only after the refit.
+     hyperparameters, including the seed its training run set as
+     `random_state`, on the training and validation rows. The test window is
+     read only after the refit.
    - `k` and `loyal_min_prior_orders`: must equal the code's K (D5-01) and loyal
      count (D18-01), or the command stops.
    - `threshold_x`: the rule's threshold X in SGD (D18-04).
 2. Set `final_evaluation_enabled = true` in `config/time_split.toml`. Leave
    `test_locked = true`, so ordinary reads still leave the test window out.
 3. Commit both files. This commit freezes K, X, the loyal count and the mode.
-4. With `.env` pointing at the team's MLflow server, and nowhere else, run:
+4. One named person, agreed beforehand, so that two people can't start it at
+   once, runs this with `.env` pointing at the team's MLflow server, and nowhere
+   else:
 
        uv run final-test --data-dir data
 
@@ -39,12 +42,20 @@ The command stops before it creates a run or reads a test row when:
 - `final_evaluation_enabled` is false;
 - the model version can't be loaded, or the base files lack a column the model
   was trained on (its `feature_names_in_`);
-- a run tagged `final_test = true` already exists in the experiment, in any
-  state, including failed and deleted runs.
+- a run tagged `final_test = true` already exists in any experiment of the
+  MLflow store, deleted experiments included, in any state, including failed
+  and deleted runs.
 
 A failure before the tagged run exists can be fixed and run again. The tagged run
 is created just before the first test row is read, so from then on the attempt is
-used up, even if it fails. A second scoring needs a new decision-log entry.
+used up, even if it fails, and the command has no option to run again.
+
+A second scoring needs two steps: a new decision-log entry saying why, and then
+changing the old run's tag by hand, as
+`MlflowClient().set_tag("<run ID>", "final_test", "superseded")`. The refusal
+message names the run ID. Purging deleted runs with `mlflow gc` also removes
+them from the check, so a purged final-test run no longer blocks a second
+scoring.
 
 "Once" holds within one MLflow store: a run against another tracking server
 would not see the first. So the real run goes to the team's server only.

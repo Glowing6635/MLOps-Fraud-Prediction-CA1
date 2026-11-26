@@ -67,12 +67,9 @@ def validation_inputs(data_dir) -> dict:
     return window_inputs([train, validation], validation)
 
 
-def window_inputs(history: list[dict], window: dict) -> dict:
-    """Labelled orders of `window` with account age and loyalty, ready to compare.
-
-    `window` and each item of `history` are `clean_window` results. Loyalty counts the
-    earlier orders in `history`, which includes `window` itself.
-    """
+def labelled_orders(window: dict) -> pd.DataFrame:
+    """A `clean_window` result's orders that have a valid label, joined to their label
+    and customer, with `is_fraud` as 0 or 1."""
     joined, _ = link_orders_customers(
         window["orders"], window["labels"], window["customers"]
     )
@@ -80,6 +77,16 @@ def window_inputs(history: list[dict], window: dict) -> dict:
         joined.label_link.eq("both") & joined.is_fraud.notna()
     ].reset_index(drop=True)
     joined["is_fraud"] = joined["is_fraud"].astype(int)
+    return joined
+
+
+def window_inputs(history: list[dict], window: dict) -> dict:
+    """Labelled orders of `window` with account age and loyalty, ready to compare.
+
+    `window` and each item of `history` are `clean_window` results. Loyalty counts the
+    earlier orders in `history`, which includes `window` itself.
+    """
+    joined = labelled_orders(window)
     age = account_age_days(
         joined["order_date"],
         joined["first_order_datetime"],

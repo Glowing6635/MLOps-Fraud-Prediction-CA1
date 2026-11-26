@@ -650,7 +650,8 @@ its logged fraud caught at K and average precision.
   from the base CSV files through the `final_evaluation` route. Every check that
   reads no test row runs first; the run tagged `final_test = true` is created
   just before the first test row is read, and any earlier such run in the
-  experiment, failed or deleted included, stops a second attempt.
+  MLflow store, in any experiment and failed or deleted included, stops a
+  second attempt.
 - Reason: a commit records the frozen values and the as-trained or refit choice
   before any test result exists. Counting a failed attempt keeps a crash after
   the test rows were seen from turning into a quiet second try, and creating the
@@ -659,6 +660,7 @@ its logged fraud caught at K and average precision.
   first-order dates and loyalty history.
 - Alternatives not taken: reading test rows from RDS (needs the live server and
   adds a second source); the moving `champion` alias (the file names a version);
-  an override flag for a second run (a rerun needs a new entry here).
+  an override flag for a second run (a rerun needs a new entry here saying
+  why, and then the old run's `final_test` tag changed by hand).
 - Limit: "once" holds within one MLflow store, so the real run goes to the
   team's server only ([final-test.md](final-test.md)).
