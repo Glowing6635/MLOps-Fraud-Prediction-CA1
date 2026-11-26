@@ -458,3 +458,26 @@ its logged fraud caught at K and average precision.
 | Logistic regression | `balanced` | 2,479 | 3,933 | 0.322586 |
 | Boosted trees | `None` | 2,893 | 4,370 | 0.371637 |
 | Boosted trees | `balanced` | 2,856 | 4,395 | 0.371064 |
+
+## D22-01 — Customer-history counts for the v2 candidate
+
+- Recorded: 2026-11-26. Owner: SpiralSky (Glowing6635 to review). Affected PBIs: #22, #15, #25, #16.
+- Decision: The SpiralSky v2 candidate adds three counts to the boosted-trees model, built by
+  `customer_history.customer_history_features` for the customer `country_code` + `customer_id`:
+  `n_prior_orders` (labelled orders dated strictly before the order), `n_prior_labelled_30d` (those
+  dated more than 30 days before) and `n_prior_fraud_30d` (how many of those are fraud). The 30-day
+  delay is `leakage.ASSUMED_LABEL_DELAY_DAYS`, the explicit-delay experiment D4-04 allows. The
+  customer ID stays out of the model (D4-02); only the derived counts enter, so D4-01's four order
+  columns are extended by these three. Orders without a customer ID get zeros.
+- Reason: v1 ranks fraud mainly by country and payment prior, and order-only variants did not
+  help. Offline on the validation window (refit, not logged) the two delayed counts raised fraud
+  caught at K from 2893 to 3042 and average precision from 0.3716 to 0.4186. See
+  [model-v2-diagnosis.md](model-v2-diagnosis.md).
+- Alternatives: Class weighting (D17-01) is a separate change. Per-country calibration cannot add
+  within-country signal. History without the delay would read labels not yet known at scoring.
+- Settled: the feature definitions, the strict-date rule, the 30-day assumed delay and the code.
+- Open: (1) whether the team accepts v2 as a challenger (owner: SpiralSky with Glowing6635);
+  (2) logging the v2 run to MLflow, repeating the #15 review and the #25 roster entry need the
+  team server; (3) the delay is unconfirmed with Operations (D4-05); (4) scoring-time history from
+  the batch and RDS readers (#20, #25) and the packaged model (#16) are not built; (5) the fit
+  time against the 85 s #25 budget is unmeasured.
