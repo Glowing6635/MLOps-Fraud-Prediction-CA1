@@ -313,9 +313,20 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   the state teammate review rejected. (3) Reduce and remeasure the forest:
   possible later, and it would re-enter by rank once measured.
 - Effect on the team registry: the recorded `fraud-candidate` v2 (random
-  forest, 187 MB) is not within the limit. Under this rule the pair is the
-  boosted-trees run and the next-ranked within-limit run. Registering it needs
-  a live registry operation, which this change does not perform.
+  forest, `187,236,750` bytes in the harness) is not within the limit. Under
+  this rule the pair is the boosted-trees run (`9c3a59771cf8499d92972f5c7873e280`,
+  `1,032,894` bytes) and the next-ranked within-limit run (`ExtraTreesClassifier`,
+  `8af9db9f95e543cfbfebdef82545322c`, `23,109,193` bytes), confirmed by the
+  `2026-11-26` live `uv run champion-pick --k 250` rerun (`laneA-live`,
+  experiment ID `2`, Comparison ID
+  `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`; see
+  [15-champion-pick-k250.md](evidence/15-champion-pick-k250.md)). Both elected
+  candidates are strictly `< 50,000,000` bytes, while the raw top two by
+  validation rank are not. Registering the elected pair needs a live registry
+  operation with analyst approval, which this read-only rerun did not perform.
+  Open question: whether PR #171 reviewer (`Glowing6635`) and the Product Owner
+  accept D15-03's pass-over election (rank 1 + rank 3) or require a `< 50 MB`
+  rank-2 random-forest rerun in `laneA-live`.
 
 ## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
 
@@ -666,17 +677,31 @@ its logged fraud caught at K and average precision.
   that needs a registry operator (G15-b); #25 criteria 3-5 remain PARTIAL.
 
 
-## D19-02 — Champion rerun deferred until MLflow read access, not faked
+## D19-02 — Champion rerun executed read-only against `laneA-live`; D15-03 elected pair `< 50 MB`, raw top-2 by rank exceeds `50 MB`
 
-- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBIs: #15, #171.
-- Decision: the reviewer's request to rerun the champion pick so the top two runs
-  are under 50,000,000 bytes (`champion.SIZE_NOTE_BYTES`) is deferred. `docs/champion.md`
-  now says PR #165 is merged and the rerun is pending read access to the team MLflow
-  tracking URI (`uv run champion-pick --k 250`). Registry version 2 (187 MB RF) is still
-  stated as not qualifying.
-- Rationale: the #13 harness runs and MLflow credentials are not available offline
-  (s214 checked), so no size or score for a new pair can be obtained honestly.
-- Alternatives not taken: writing estimated or fabricated sizes; retraining offline
-  on data the harness runs did not provide, which would not reproduce the frozen runs.
-- Impact: the reviewer item stays open. Deciding owner: the owner/operator who can
-  provide MLflow read access; the rerun then takes one command.
+- Recorded: 2026-11-26 (updated after live rerun). Accountable engineer: SpiralSky. Affected PBIs: #15, #171.
+- Decision: executed `uv run champion-pick --k 250` read-only against team
+  MLflow (`laneA-live`, experiment ID `2`; AWS/MLflow spend: `$0`). Recorded full
+  output in [15-champion-pick-k250.md](evidence/15-champion-pick-k250.md)
+  (Comparison ID `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`):
+  - Rank 1 (`HistGradientBoostingClassifier`, `9c3a59771cf8499d92972f5c7873e280`):
+    `1,032,734` bytes (harness) / `1,032,894` bytes (artifact) — `< 50,000,000` bytes.
+  - Rank 2 (`RandomForestClassifier`, `9a40f8f5e35a48ddb39a97f9f052dcad`):
+    `187,236,750` bytes (harness, `> 50 MB`) — passed over under D15-03.
+  - Rank 3 (`ExtraTreesClassifier`, `8af9db9f95e543cfbfebdef82545322c`):
+    `23,109,033` bytes (harness) / `23,109,193` bytes (artifact) — `< 50,000,000` bytes (elected `challenger`).
+- Rationale: live MLflow read access confirmed exact artifact and harness sizes
+  without fabricating values or mutating the registry.
+- Alternatives not taken: mutating the live registry without analyst approval
+  for the new Comparison ID; fabricating or training an unapproved offline
+  substitute.
+- Impact & open question: under D15-03, the elected pair (`champion` rank 1 +
+  `challenger` rank 3) are both strictly `< 50,000,000` bytes; by raw validation
+  rank, the top two do not both satisfy `< 50 MB` because rank 2 RF is
+  `187,236,750` bytes. Alternatives going forward: (1) confirm D15-03 pass-over
+  and run `--register` with analyst approval of Comparison ID
+  `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`, or (2) train
+  and log a `< 50 MB` RandomForest candidate in `laneA-live` and rerun
+  `champion-pick`. Deciding owners: Product Owner / Glowing6635 (PR #171
+  acceptance of D15-03 pass-over vs. RF rerun) and registry operator + acting
+  analyst (`--register` execution).
