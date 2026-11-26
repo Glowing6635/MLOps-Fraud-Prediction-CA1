@@ -115,8 +115,10 @@ customer identified by `country_code` and `customer_id`:
 Rows with no customer ID get zeros, and history stays inside the labelled orders
 the harness already loads. The history is computed per order from earlier rows
 only, so the training window sees history from its own past and validation
-orders see history from training and from earlier validation days. Use
-`historical_order_mask` to enforce the date rule.
+orders see history from training and from earlier validation days. The code
+applies the date rule with a per-customer cumulative count and `pd.merge_asof`
+(strictly earlier dates), not `historical_order_mask`; a test compares it with a
+brute-force reference and with `historical_order_mask`.
 
 Offline evidence (same refit, same seed, same windows, validation only):
 
@@ -140,20 +142,22 @@ same K, windows, cleaning policy and row counts, as [champion.md](champion.md)
 describes. Order-only variants moved the count by up to ±50 around v1 (2846 to
 2893), so read a change of under about 50 as noise, treat +100 or more as a clear
 win, and put the run description's number next to v1's 2893 and 0.3716.
-The per-country, per-payment and per-band tables above are re-run for v2 and
+The per-country, per-payment and per-band tables above are for v1 only; they
+are not re-run for v2 (see [model-v2-run.md](model-v2-run.md)). Re-running them
 should show the gain where it was predicted, among PK/BD low-value and
 payment-on-delivery orders, and no loss in TH, MY or the `[30,∞)` band.
 
 ## Open questions and risks
 
-These need a decision before the v2 run is logged.
+These need a decision before the v2 run is logged on the team server.
 
-- **Decision-log entry needed (owner: SpiralSky, with Glowing6635 review).**
+- **Decision recorded; acceptance open (owner: SpiralSky, with Glowing6635 review).**
   D4-02 keeps `customer_id` out as a direct feature, and D4-01 limits the
   model to four order columns. History counts are derived features of a customer
   link, which D4-04 allows only as a disclosed, explicit-delay experiment.
-  Record the new input rule and the 30-day assumption (still unconfirmed with
-  Operations) as a new decision before logging, and tag the run accordingly.
+  D22-01 in [decision-log.md](decision-log.md) records the new input rule and the
+  30-day assumption (still unconfirmed with Operations); the team has yet to
+  accept v2 as a challenger.
 - **Scoring-time availability.** The batch and RDS readers (#20, #25) must supply
   the same history as of the scoring date. The offline history uses only the
   labelled orders in the CSVs, so the production query must reproduce it, and the

@@ -16,7 +16,9 @@ uv run train boosted-trees-v2 --data-dir data
 command logs there.) It fits boosted trees (`models.boosted_trees_model`, frozen seed 0,
 K = 250 from D5-01) twice on the #6 training window and scores the validation window:
 v1 on the four order columns, then v2 with `n_prior_orders`, `n_prior_labelled_30d` and
-`n_prior_fraud_30d` (`training.compare_history`, `customer_history`). Both runs are
+`n_prior_fraud_30d` (`training.compare_history`, `customer_history`). Both children are tagged
+`champion_eligible=True`, so the champion selector can rank them (champion.py); the
+selector still needs a clean tree and the same K. Both runs are
 children of one parent run whose description (`mlflow.note.content`) states the weakness,
 the change and the validation change. `train rerun RUN_ID` replays a child run, v2
 included (`history_features` is a logged parameter).
@@ -30,10 +32,9 @@ included (`history_features` is a logged parameter).
 | Change | +149 | +626 | +0.0522 |
 
 v1 reproduces the registered result exactly (2,893 and 0.3716). v2 matches the diagnosis
-table's "all three" row (3,042 and 0.4239). The brief's 3,060 and 0.4248 did not come
-out of the package: the packaged v2 uses the strict-date, 30-day-delay rule and
-reads training plus earlier validation labels for validation orders, so treat 3,042 and
-0.4239 as the number of record. Fit time was about 1.6 s for each model and the saved
+table's "all three" row (3,042 and 0.4239). The packaged v2 uses the strict-date, 30-day-delay rule and
+reads training plus earlier validation labels for validation orders; 3,042 and
+0.4239 are the number of record. Fit time was about 1.6 s for each model and the saved
 model about 1.0 MB, so the fit alone is far inside the 85 s #25 budget (a timed #27 run
 and scoring-time history are still unmeasured).
 

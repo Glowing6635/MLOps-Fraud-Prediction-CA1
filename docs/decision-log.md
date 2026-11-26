@@ -470,8 +470,9 @@ its logged fraud caught at K and average precision.
   customer ID stays out of the model (D4-02); only the derived counts enter, so D4-01's four order
   columns are extended by these three. Orders without a customer ID get zeros.
 - Reason: v1 ranks fraud mainly by country and payment prior, and order-only variants did not
-  help. Offline on the validation window (refit, not logged) the two delayed counts raised fraud
-  caught at K from 2893 to 3042 and average precision from 0.3716 to 0.4186. See
+  help. Offline on the validation window (refit, not logged) the three counts raised fraud
+  caught at K from 2893 to 3042 and average precision from 0.3716 to 0.4239 (the two delayed
+  counts alone reached 3042 and 0.4186). See
   [model-v2-diagnosis.md](model-v2-diagnosis.md).
 - Alternatives: Class weighting (D17-01) is a separate change. Per-country calibration cannot add
   within-country signal. History without the delay would read labels not yet known at scoring.
