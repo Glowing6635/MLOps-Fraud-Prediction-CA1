@@ -26,7 +26,7 @@ The topics #30 asks the log to cover, and the entries that record them.
 | Feature timing | D4-01, D4-02, D4-03 |
 | Label delay | D4-04 |
 | The supplied label definition, apart from review completeness | D4-05 |
-| Model-review meeting slot | Pending |
+| Model-review meeting slot | D30-01 |
 | Leakage | D4-01 to D4-04, D6-01 |
 | Split | D6-01 |
 | Metric | D5-01 |
@@ -290,3 +290,9 @@ not met.
 - Reason and source: the [data dictionary](data-dictionary.md), "Keys" and "Cleaned and original values", from the kickoff data analysis's (#3) linkage findings.
 - Later changes: #33 added the `review_queue` table on 26 November (056d6e5) and changed no existing table.
 - Code: `src/mlops_fraud_prediction_ca1/schema.sql`.
+
+## D30-01: Model reviews meet on Friday afternoons
+
+- Settled: 2026-11-27, set by the product owner (Glowing6635). Owner: the Scrum Master, not named yet. Affected PBIs: #15, #30.
+- Decision: the model-review meeting is held on Friday afternoons.
+- Reason: not recorded yet. The Scrum Master adds it once named.
