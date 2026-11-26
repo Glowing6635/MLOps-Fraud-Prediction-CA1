@@ -77,5 +77,5 @@ overrides are tags. Counts and comparisons are metrics through `extra_metrics`.
 | Rehearsal with old/new counts | Gap: needs #24 and a live RDS run. |
 | Unique `etl_run_id`, run names | Done (`<model>-<batch>-<etl_run_id>`, tags). |
 | Failed model reported, others continue, exit non-zero | Done (tested). |
-| No auto-promotion, champion comparison logged | Partly done: `champion_eligible=False` and comparison metrics in evaluation mode. Not done: release mode emits no champion comparison, but live criterion 8 requires one on each run. |
+| No auto-promotion, champion comparison logged | Done in both modes: `champion_eligible=False` and champion comparison metrics logged, in-sample in release mode and never promoting. Real #23 champion artifact and holdout switch: gap. |
 | Real input factory (frozen validation frame, fitted champion) | Gap: not written; needs #15 and #23 artifacts. |

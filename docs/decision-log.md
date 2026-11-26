@@ -259,11 +259,19 @@ Recorded 2026-11-26 for [per-batch retraining (#25)](https://github.com/Glowing6
 
 - Decision (proposed, owner SpiralSky, team to confirm): release mode runs only
   when `test_locked = false`, reads every labelled order with a valid date through
-  the `analysis` purpose, and applies no cut-off. No evaluation window changes.
+  the `analysis` purpose, and applies the lower `train_start` bound from
+  `config/time_split.toml` with no upper cut-off, so later batches are included.
+  Rows without a usable date or before that start are the only exclusions and are
+  counted. No evaluation window changes.
 - The harness scores on the validation frame, which release training includes, so
-  release runs are tagged `scores_out_of_sample=False` and log no champion comparison.
-  Alternative: add a score-free path to `training.py` (an open question for the #170
-  owner, Glowing6635).
-- Settled: nothing yet. Open: roster owners in `config/retrain_roster.toml`; the
-  trigger for turning the holdout off (#23).
+  release runs are tagged `scores_out_of_sample=False` and `champion_eligible=False`.
+  Each run still scores the registered champion on the same frozen validation rows
+  and logs the in-sample comparison (`champion_average_precision`,
+  `champion_fraud_caught_at_k`, their deltas and `beats_champion`) for the record; it
+  never promotes and never touches the #23 results or champion artifact.
+  Alternative: add a score-free path to `training.py` so release runs can skip the
+  comparison entirely (an open question for the #170 owner, Glowing6635).
+- Settled: release mode applies a lower bound only and logs the in-sample champion
+  comparison without promotion. Open: roster owners in `config/retrain_roster.toml`;
+  the trigger for turning the holdout off (#23).
 - Paid AWS actions: none. This work was offline.
