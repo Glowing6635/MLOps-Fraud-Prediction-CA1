@@ -36,11 +36,12 @@ def test_preflight_order_and_output(monkeypatch, capfd):
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a: pytest.fail("DNS lookup"))
     monkeypatch.setattr(socket.socket, "connect", lambda *a: pytest.fail("connection"))
     monkeypatch.setattr(batch.sys, "stderr", batch.sys.stdout)
-    assert batch.main(URLS) == 1
+    assert batch.main(URLS, new_etl_run_id=lambda: "run1") == 1
     assert capfd.readouterr().out.splitlines() == [
         "Database host: db.example",
         "Database name: practice",
         "MLflow experiment: rehearsal",
+        "etl_run_id: run1",
         "Batch stopped: fetch and validate stage (#19) is unavailable.",
     ]
 
