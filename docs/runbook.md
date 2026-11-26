@@ -109,3 +109,22 @@ The command prints the champion's version, then:
 3. Precision at K: the share of fraud among queued orders with a valid label. The labels are joined only after the queue is stored. Queued orders without a valid label are counted but left out of the share.
 
 It logs one MLflow run, `review-queue-<batch>-v<version>`, holding the queue as a CSV (date, country, order ID, the customer ID from the labels file, and score), the counts and precision at K. If the batch is not loaded, or the holdout setting withholds all its orders, it stops with status 1 and writes nothing. If two runs for one batch and model version overlap, the second may stop with status 1 on a duplicate key, and the first one's queue stands either way. If MLflow fails after the queue is stored, run the command again: it writes nothing and finishes the logging. Precision from a rehearsal only shows the command works; never quote it as a result.
+
+## Pre-demo checklist
+
+Run this once during a rehearsal, and again 30 minutes before the stakeholder demo. Each step says what a pass looks like. Stop at the first step that fails and fix it before going on. The commands are for PowerShell, from the repository root.
+
+1. **The sandbox is started.** Start it on the sandbox's start page, paste its fresh credentials into `~/.aws/credentials`, then run `aws sts get-caller-identity`. It passes when it prints the sandbox's account.
+2. **RDS is running.** `aws rds describe-db-instances --db-instance-identifier fraud-db --region us-east-1 --query 'DBInstances[0].DBInstanceStatus'` prints `"available"`. If it prints `"stopped"`, run `aws rds start-db-instance --db-instance-identifier fraud-db --region us-east-1`, then `aws rds wait db-instance-available --db-instance-identifier fraud-db --region us-east-1`.
+3. **Elastic Beanstalk is healthy.** `aws elasticbeanstalk describe-environments --environment-names mlflow --region us-east-1 --query 'Environments[0].[Status,Health]'` prints `"Ready"` and `"Green"`.
+4. **Each laptop points at the expected database and experiment.** On every engineer's laptop, this prints the database host and name, the MLflow server and the experiment, and no password:
+
+   ```powershell
+   uv run python -c "from mlops_fraud_prediction_ca1.config import load_settings; s = load_settings(); print(s.db_host, s.db_name, s.mlflow_tracking_uri, s.mlflow_experiment_name)"
+   ```
+
+   In a rehearsal, the database is `rehearsal` and the experiment's name starts with `rehearsal`, as #24's reset command requires. At the demo, they are `fraud` and `fraud-prediction`. The host is `fraud-db`'s endpoint on both.
+5. **RDS answers each laptop.** On every engineer's laptop, `uv run rds-schema check` prints `Connected to` the database from step 4, then its tables. A time-out means that laptop's address is missing from the security group: add it as step 4 of "RDS database" above says.
+6. **MLflow answers each laptop.** On every engineer's laptop, `curl.exe -s "<MLFLOW_TRACKING_URI>/health"` prints `OK`.
+
+Never open, download or test the first real batch's URLs before the demo, in this checklist or anywhere else. The first thing to read them is `uv run run-batch` at the demo.
