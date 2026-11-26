@@ -660,6 +660,11 @@ its logged fraud caught at K and average precision.
   users are server-wide and it would reset reader passwords on `fraud`); keeping the S3 bucket after
   the presign test (links are intended to live only while the run does).
 - Open: (1) each engineer runs `uv run rds-schema check` as `<name>_reader` with their own password
-  (deciding owner: each engineer / project owner); (2) in the next active Learner Lab session, verify
-  `fraud-db` is stopped, remove `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present,
-  and run `clear_experiment("rehearsal")` / `rehearsal-reset` while MLflow EB is up (deciding owner: project owner).
+  (deciding owner: each engineer / project owner); (2) in the next active Learner Lab session, retry
+  `aws rds stop-db-instance --db-instance-identifier fraud-db` and verify it is `stopping`/`stopped`
+  with `describe-db-instances` (the 12:21 attempt was denied by `voc-cancel-cred`; if it is still
+  running on renewal, a `start`/`stop` retry is enough — do not leave it running), remove
+  `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present, and run
+  `clear_experiment("rehearsal")` / `rehearsal-reset` while MLflow EB is up (deciding owner: project owner);
+  (3) AC4 needs one live run that generates the presigned links in the same sandbox session as the
+  rehearsal, since receipts 1 and 2 are separate sessions (deciding owner: project owner).

@@ -4,7 +4,7 @@ No credential, token or password appears here. The AWS session used the Learner 
 profile read from the operator's `~/.config/ca1-aws/` files (role `voclabs`, account
 516375498949, us-east-1); that path is the only reference kept.
 
-## Run receipt 1: presigned practice-batch links (AC3 files, AC4) , DONE
+## Run receipt 1: presigned practice-batch links (AC3 files; AC4 partial) , DONE
 
 Command (run from this branch; the presign path never opens the database, so the DB and
 MLflow variables were placeholders and `DB_NAME`/`MLFLOW_EXPERIMENT_NAME` were `rehearsal`):
@@ -47,7 +47,7 @@ auth from AWS SSM (`/mlflow/auth-admin-password`, `admin`).
 
 Remaining items from receipt 2:
 - **Per-engineer `rds-schema check`:** `richard_reader` and `spiralsky_reader` passwords are held by each engineer (not in `~/.config/ca1-aws/`), and `rds-schema reader` was not re-run because MySQL users are server-wide and it would reset their passwords on `fraud`.
-- **MLflow `clear_experiment` + cleanup verification:** In the next active Learner Lab session, verify `fraud-db` is stopped, remove `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present, and re-run `rehearsal-reset` (or `clear_experiment`) while the MLflow EB environment is up.
+- **MLflow `clear_experiment` + cleanup verification:** In the next active Learner Lab session, in this order: (a) retry `aws rds stop-db-instance --db-instance-identifier fraud-db` (denied by `voc-cancel-cred` at 12:21) and verify with `aws rds describe-db-instances --db-instance-identifier fraud-db` that `DBInstanceStatus` is `stopping` or `stopped` while it is still running — do not rely on the previous run's intent; (b) remove `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present; (c) re-run `rehearsal-reset` (or `clear_experiment("rehearsal")`) while the MLflow EB environment is up.
 
 ## Acceptance criteria map for #24
 
@@ -56,6 +56,6 @@ Remaining items from receipt 2:
 | 1 | Rehearsal DB and MLflow experiment selected via #2 config; each engineer's read-only user can read the database | Selection and refusal: `docs/rehearsal-batches.md`, unit tests. Live: `rehearsal-grant richard spiralsky --apply` succeeded, `SHOW GRANTS` confirmed `SELECT` on `rehearsal.*` for both readers, `rds-schema check` succeeded as `fraud_admin` | **Partial**: grants applied & verified; per-engineer `rds-schema check` as `<name>_reader` still needs each engineer's password |
 | 2 | One command rebuilds the rehearsal DB from the three base CSVs and refuses the team DB/experiment | Code and unit tests (`rehearsal_reset`, D24-01). Live: `DB_NAME=fraud` refused immediately; `rehearsal` schema dropped, recreated, and loaded (`901,312` customers, `949,889` orders, `949,872` labels, `1` batch `'base'`) | **Partial**: DB rebuild and team-DB refusal verified live; MLflow `clear_experiment` timed out when Learner Lab session ended |
 | 3 | Practice batches in the base format: two synthetic batches plus one small edge batch | Receipt 1: three batches, nine files uploaded with the sizes above; base-format and rejection checks are in the unit tests | Done for generation and serving; loader rejection counts on live DB are **gap** |
-| 4 | Presigned links from the same sandbox session, not a public bucket or the repo; credential source recorded | Receipt 1: 200 signed, 403 unsigned, 403 after expiry, no public grants, bucket deleted; credential source stated above | **Done** |
+| 4 | Presigned links from the same sandbox session, not a public bucket or the repo; credential source recorded | Receipt 1: 200 signed, 403 unsigned, 403 after expiry, no public grants, bucket deleted; credential source stated above. But receipt 1 and receipt 2 are separate sessions, so links were not generated in the session that rehearsed the batches | **Partial / pending**: needs one live rehearsal run where the presigned links are generated in the same sandbox session as the rehearsal |
 
 #24 should stay open until each engineer runs `rds-schema check` as `<name>_reader` and the MLflow `clear_experiment` step of `rehearsal-reset` completes against a live MLflow server.

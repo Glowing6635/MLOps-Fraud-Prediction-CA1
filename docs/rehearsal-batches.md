@@ -63,7 +63,13 @@ refuses a database that does not start with `rehearsal` or equals `TEAM_DB_NAME`
 `<name>_reader` users must already exist.
 
 **Request for the owner (needs the admin and each reader's credentials, so it is not
-done in the repository).** Nothing here has been run against AWS.
+done in the repository).** The admin grant step (1) has run live: on 2026-11-26
+`rehearsal-grant richard spiralsky --apply` exited 0 and `SHOW GRANTS` confirmed
+`SELECT` on `rehearsal.*` for both readers (receipt 2 in
+`docs/evidence/24-live-evidence.md`). Steps (2)–(4), the per-engineer checks, still
+need each engineer's password and have not run. Receipt 2's session ended before
+cleanup, so revoking `sgr-01037dd68af1c3798`, stopping `fraud-db` and
+`clear_experiment("rehearsal")` remain pending until the Learner Lab is renewed.
 
 1. As admin, with `DB_NAME=rehearsal` in `.env` and the schema created:
    `uv run rehearsal-grant richard spiralsky <other engineers> --apply`
