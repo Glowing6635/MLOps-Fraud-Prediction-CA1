@@ -125,10 +125,15 @@ def _date_text(dates: pd.Series) -> pd.Series:
 
 
 def _load_window(
-    data_dir: str | Path, purpose: str, exploratory: bool
+    data_dir: str | Path,
+    purpose: str,
+    exploratory: bool,
+    config_path: str | Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The labelled orders of one window: their keys and label, and their features."""
-    frames = load_base_data(data_dir, purpose=purpose, raw_strings=True)
+    frames = load_base_data(
+        data_dir, purpose=purpose, config_path=config_path, raw_strings=True
+    )
     raw = dict(zip(TABLES, frames, strict=True))
     # clean_frame adds raw_<column> copies; the harness keeps only the cleaned columns.
     customers, orders, labels = (
