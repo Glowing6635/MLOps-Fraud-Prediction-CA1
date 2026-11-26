@@ -644,19 +644,22 @@ its logged fraud caught at K and average precision.
   Owner). The deployed X and capacity are unobtainable (D18-04).
 
 
-## D24-02 — Live evidence run for #24: presign path done, database path blocked (2026-11-26)
+## D24-02 — Live evidence run for #24: presign and RDS rehearsal DB done, MLflow clear & per-engineer check open (2026-11-26)
 
-- Decision: ran only the part of the rehearsal that needs no database, with a temporary
-  `rehearsal-516375498949` bucket (created, used about 6 minutes, deleted). Left the
-  stopped RDS instance `fraud-db` stopped. Receipts are in `docs/evidence/24-live-evidence.md`.
-- Paid actions and estimated cost: one S3 bucket with nine objects of about 28 KB for six
-  minutes, and a few requests, well under $0.01. No RDS start, no NAT, no EC2 or SageMaker. Starting
-  `fraud-db` (db.t3.micro, about $0.02 per hour) was blocked by the permission classifier
-  and not done.
-- Rationale: the presign path only needs S3, so it could be verified live at nearly no cost;
-  the reset, grants and reader check need the instance running.
-- Alternatives not taken: working around the block with another call path (not done);
-  keeping the bucket so links last longer (the agreed behaviour of this step is that links
-  live only while the run does).
-- Open: start `fraud-db` and run the grants and reader checks (deciding owner: the project
-  owner, who must permit starting the instance and supply each engineer's reader login).
+- Decision: ran the S3 presign check (temporary `rehearsal-516375498949` bucket, deleted after ~6m)
+  and, in a second authorized run on `fraud-db` (`available`), executed `rehearsal-grant richard spiralsky --apply`,
+  `rds-schema check` (as `fraud_admin` on `rehearsal`), `rehearsal-reset` refusal on `DB_NAME=fraud`,
+  and `rehearsal-reset --data-dir` on `rehearsal`. Receipts are in `docs/evidence/24-live-evidence.md`.
+- Paid actions and estimated cost: one S3 bucket with nine objects (~28 KB) for 6 minutes (<$0.01),
+  plus `fraud-db` (`db.t3.micro`, ~$0.02/hr) for ~1 hour during base CSV loading.
+- Rationale: `rehearsal-grant --apply` and the `rehearsal-reset` DB phase (`901,312` customers,
+  `949,889` orders, `949,872` labels, `1` batch `'base'`) completed and committed before the Learner Lab
+  session ended (`voc-cancel-cred`), which terminated `sp-buy-mlflow` and blocked `clear_experiment`,
+  `revoke-security-group-ingress` (`sgr-01037dd68af1c3798`), and `stop-db-instance`.
+- Alternatives not taken: re-running `rds-schema reader` to test `<name>_reader` (rejected because MySQL
+  users are server-wide and it would reset reader passwords on `fraud`); keeping the S3 bucket after
+  the presign test (links are intended to live only while the run does).
+- Open: (1) each engineer runs `uv run rds-schema check` as `<name>_reader` with their own password
+  (deciding owner: each engineer / project owner); (2) in the next active Learner Lab session, verify
+  `fraud-db` is stopped, remove `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present,
+  and run `clear_experiment("rehearsal")` / `rehearsal-reset` while MLflow EB is up (deciding owner: project owner).

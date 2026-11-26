@@ -27,23 +27,35 @@ Link lifetime (request 20261126-2 default): links are valid only while the run i
 and for at most `--expires` seconds; this receipt used a temporary bucket deleted
 afterwards, so the links stop working at deletion as well as at expiry.
 
-## Run receipt 2: live reset, reader grants, reader check , NOT DONE
+## Run receipt 2: live grants, schema check, DB reset, and session end , PARTIAL
 
-`scripts/rehearsal-live.sh run` was not run. The RDS instance `fraud-db` (db.t3.micro,
-20 GB) is in state `stopped`; starting it (about $0.02 per hour) was blocked by the session's
-permission classifier, so it was left stopped and nothing was started or changed.
-Because the instance is stopped the run also could not (a) create the `rehearsal` schema
-and load the base CSVs, (b) `GRANT SELECT ON rehearsal.*`, or (c) run `rds-schema check` as
-any `<name>_reader`. The engineers' reader passwords are held by each engineer, so (c) needs
-them in any case. The security group `sg-075357648cbf564b9` was not changed.
+Run on 2026-11-26 (11:22–12:21 UTC) against `fraud-db.chzc6n97cwib.us-east-1.rds.amazonaws.com`
+(`db.t3.micro`, MySQL 8.4), which was `available` at session start. No credential, token or
+password appears here; DB admin settings came from `~/.config/ca1-aws/db.env` and MLflow
+auth from AWS SSM (`/mlflow/auth-admin-password`, `admin`).
+
+| Time (UTC) | Command / Check | Observation |
+|---|---|---|
+| 11:22 | `aws ec2 authorize-security-group-ingress` on `sg-075357648cbf564b9` | Added `/32` rule `sgr-01037dd68af1c3798` on tcp/3306 for the runner IP. |
+| 11:23 | `MlflowClient().search_experiments()` | Confirmed experiment `('3', 'rehearsal', 'active')` on `sp-buy-mlflow.us-east-1.elasticbeanstalk.com`. |
+| 11:23 | `uv run rehearsal-grant richard spiralsky --apply` | Exit 0: `Granted SELECT on rehearsal to 2 user(s).` |
+| 11:23 | `SHOW GRANTS` for `richard_reader`, `spiralsky_reader` | Both show `GRANT SELECT ON \`rehearsal\`.* TO \`<name>_reader\`@\`%\`` (and `fraud`), no write/DDL privileges. |
+| 11:23 | `uv run rds-schema check` (`DB_NAME=rehearsal`, as `fraud_admin`) | Exit 0: `Connected to rehearsal on fraud-db.chzc6n97cwib.us-east-1.rds.amazonaws.com as fraud_admin.` and `Tables: batches, customers, labels, orders`. |
+| 11:24–12:20 | `uv run rehearsal-reset --data-dir .../data` (`DB_NAME=rehearsal`, `MLFLOW_EXPERIMENT_NAME=rehearsal`, `TEAM_DB_NAME=fraud`, `TEAM_MLFLOW_EXPERIMENT_NAME=fraud`) | **DB phase succeeded and committed**: dropped and recreated the 4 tables in `rehearsal`, loaded all 3 base CSVs (`batches`: 1 row `'base'` at `2026-11-26 11:24:36`, `customers`: 901,312, `orders`: 949,889, `labels`: 949,872). **MLflow phase timed out** (`clear_experiment("rehearsal")`, `ConnectTimeoutError` after 55m49s) because the Learner Lab session ended and `sp-buy-mlflow` was terminated (`describe-environments` returned `[]`). |
+| 12:20 | `uv run rehearsal-reset` with `DB_NAME=fraud` | Refused immediately before touching anything: `Refused: The database 'fraud' is the team's (TEAM_DB_NAME).` |
+| 12:21 | `revoke-security-group-ingress` (`sgr-01037dd68af1c3798`) & `aws rds stop-db-instance` | Denied by `arn:aws:iam::516375498949:policy/voc-cancel-cred` (Learner Lab session ended). |
+
+Remaining items from receipt 2:
+- **Per-engineer `rds-schema check`:** `richard_reader` and `spiralsky_reader` passwords are held by each engineer (not in `~/.config/ca1-aws/`), and `rds-schema reader` was not re-run because MySQL users are server-wide and it would reset their passwords on `fraud`.
+- **MLflow `clear_experiment` + cleanup verification:** In the next active Learner Lab session, verify `fraud-db` is stopped, remove `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present, and re-run `rehearsal-reset` (or `clear_experiment`) while the MLflow EB environment is up.
 
 ## Acceptance criteria map for #24
 
 | # | Criterion | Evidence | Status |
 |---|---|---|---|
-| 1 | Rehearsal DB and MLflow experiment selected via #2 config; each engineer's read-only user can read the database | Selection and refusal: `docs/rehearsal-batches.md`, unit tests. Live grant/read check: receipt 2 | **Gap**: needs RDS started, admin `rehearsal-grant --apply`, and each engineer's `rds-schema check` |
-| 2 | One command rebuilds the rehearsal DB from the three base CSVs and refuses the team DB/experiment | Code and unit tests (`rehearsal_reset`, D24-01). Live rebuild: receipt 2 | Code done; **live rebuild gap** (RDS stopped) |
+| 1 | Rehearsal DB and MLflow experiment selected via #2 config; each engineer's read-only user can read the database | Selection and refusal: `docs/rehearsal-batches.md`, unit tests. Live: `rehearsal-grant richard spiralsky --apply` succeeded, `SHOW GRANTS` confirmed `SELECT` on `rehearsal.*` for both readers, `rds-schema check` succeeded as `fraud_admin` | **Partial**: grants applied & verified; per-engineer `rds-schema check` as `<name>_reader` still needs each engineer's password |
+| 2 | One command rebuilds the rehearsal DB from the three base CSVs and refuses the team DB/experiment | Code and unit tests (`rehearsal_reset`, D24-01). Live: `DB_NAME=fraud` refused immediately; `rehearsal` schema dropped, recreated, and loaded (`901,312` customers, `949,889` orders, `949,872` labels, `1` batch `'base'`) | **Partial**: DB rebuild and team-DB refusal verified live; MLflow `clear_experiment` timed out when Learner Lab session ended |
 | 3 | Practice batches in the base format: two synthetic batches plus one small edge batch | Receipt 1: three batches, nine files uploaded with the sizes above; base-format and rejection checks are in the unit tests | Done for generation and serving; loader rejection counts on live DB are **gap** |
 | 4 | Presigned links from the same sandbox session, not a public bucket or the repo; credential source recorded | Receipt 1: 200 signed, 403 unsigned, 403 after expiry, no public grants, bucket deleted; credential source stated above | **Done** |
 
-#24 should stay open until the criterion 1 live reader check (and, ideally, the live rebuild) are captured.
+#24 should stay open until each engineer runs `rds-schema check` as `<name>_reader` and the MLflow `clear_experiment` step of `rehearsal-reset` completes against a live MLflow server.
