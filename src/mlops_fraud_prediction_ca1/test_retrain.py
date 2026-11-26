@@ -1,3 +1,4 @@
+import inspect
 import sys
 from dataclasses import replace
 from types import ModuleType, SimpleNamespace
@@ -13,6 +14,12 @@ from . import config, retrain
 from .loading import load_files
 from .retrain import EvaluationInputs, ModelSpec, validate_manifest
 from .test_rds_reads import customer, order
+from .training import train as real_train
+
+
+def check_train_call(estimator, kwargs):
+    """Fail unless the call binds to the real `training.train` signature."""
+    inspect.signature(real_train).bind(estimator, **kwargs)
 
 
 def _candidate():
@@ -84,6 +91,7 @@ def test_cli_delegates_training_and_continues_after_failure(inputs, monkeypatch)
     calls = []
 
     def train(estimator, **kwargs):
+        check_train_call(estimator, kwargs)
         result = SimpleNamespace(report=_score(1, 1.0), fit_seconds=0.1)
         calls.append((estimator, kwargs, kwargs["extra_metrics"](result)))
         return "candidate-run", result
@@ -152,7 +160,9 @@ def _score_champion(model, rows, *, k):
 def test_candidate_size_failures_and_unique_ids(inputs, monkeypatch):
     monkeypatch.setattr(retrain, "read_training_snapshot", lambda engine: _snapshot())
 
-    def reject_oversize(estimator, *, max_model_size_bytes, **kwargs):
+    def reject_oversize(estimator, **kwargs):
+        check_train_call(estimator, kwargs)
+        max_model_size_bytes = kwargs["max_model_size_bytes"]
         assert max_model_size_bytes == 52_428_800
         raise ValueError("model exceeds size limit")
 

@@ -144,7 +144,6 @@ def retrain(
                 k=inputs.k,
                 seed=inputs.seed,
                 labelled_windows=(train_rows, validation),
-                run_name=name,
                 max_model_size_bytes=MAX_ARTIFACT_BYTES,
                 extra_metrics=comparison,
                 tags={

@@ -94,7 +94,8 @@ def read_release_snapshot(engine: Engine) -> tuple[pd.DataFrame, dict[str, int]]
 
     Allowed only once the #6 holdout setting is off (`test_locked = false`), so no
     order date cut-off applies and later batches are included. Orders without a
-    usable date are the only exclusion, and they are counted.
+    usable date or dated before the training start are the only exclusions, and they
+    are counted.
     """
     if load_policy().test_locked:
         raise ValueError("Release mode needs the #6 holdout setting off (test_locked).")
@@ -103,12 +104,14 @@ def read_release_snapshot(engine: Engine) -> tuple[pd.DataFrame, dict[str, int]]
         conn.execution_options(isolation_level="REPEATABLE READ")
         with conn.begin():
             rows = _read(conn, predicate, parameters)
-            (undated,) = conn.exec_driver_sql(
-                """
+            (excluded,) = conn.exec_driver_sql(
+                f"""
                 SELECT COUNT(*)
                 FROM orders o
+                JOIN batches ob ON ob.batch_id = o.batch_id
                 JOIN labels l ON l.country_code = o.country_code AND l.order_id = o.order_id
-                WHERE o.order_date IS NULL
-                """
+                WHERE NOT ({predicate})
+                """,
+                parameters,
             ).one()
-    return rows, {"excluded_date_rows": undated, "excluded_late_rows": 0}
+    return rows, {"excluded_date_rows": excluded, "excluded_late_rows": 0}

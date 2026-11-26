@@ -1,11 +1,24 @@
 """Roster and release-mode tests for PBI #25."""
 
+from dataclasses import replace
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
+from mlops_fraud_prediction_ca1 import rds_reads, splitting
+from mlops_fraud_prediction_ca1.loading import load_files
+
 from . import retrain, retrain_roster
 from .retrain import EvaluationInputs, ModelSpec
-from .test_retrain import _candidate, _rows, _score, _score_champion
+from .test_rds_reads import customer, order
+from .test_retrain import (
+    _candidate,
+    _rows,
+    _score,
+    _score_champion,
+    check_train_call,
+)
 
 
 def test_default_roster_loads_every_engineer_with_fresh_estimators():
@@ -45,10 +58,9 @@ def _inputs():
     )
 
 
-def _run(mode, rows, calls, log=lambda _: None):
+def _run(mode, read_rows, calls, log=lambda _: None):
     def train(estimator, **kwargs):
-        from types import SimpleNamespace
-
+        check_train_call(estimator, kwargs)
         result = SimpleNamespace(report=_score(1, 1.0), fit_seconds=0.1)
         calls.append((kwargs, kwargs["extra_metrics"](result)))
         return "run", result
@@ -57,7 +69,7 @@ def _run(mode, rows, calls, log=lambda _: None):
         _inputs(),
         batch_id="late",
         etl_run_id="etl1",
-        read_rows=lambda: (rows, {"excluded_date_rows": 0, "excluded_late_rows": 0}),
+        read_rows=read_rows,
         train_candidate=train,
         score_rows=_score_champion,
         log=log,
@@ -65,10 +77,14 @@ def _run(mode, rows, calls, log=lambda _: None):
     )
 
 
+def _static(rows):
+    return lambda: (rows, {"excluded_date_rows": 0, "excluded_late_rows": 0})
+
+
 def _release_rows():
     return pd.DataFrame(
         {
-            "order_id": ["a", "b", "c"],
+            "order_id": ["x", "y", "z"],
             "order_date": ["2023-04-01", "2023-06-01", "2023-06-02"],
             "batch_id": ["base", "late", "late"],
             "is_fraud": [0, 1, 0],
@@ -76,12 +92,51 @@ def _release_rows():
     )
 
 
-def test_release_mode_includes_later_batch_and_labels_scores_in_sample():
+@pytest.fixture
+def open_holdout(monkeypatch):
+    """Turn the #6 holdout setting off for the reader (release mode needs it)."""
+    policy = replace(splitting.load_policy(), test_locked=False)
+    monkeypatch.setattr(rds_reads, "load_policy", lambda *a, **k: policy)
+    monkeypatch.setattr(splitting, "load_policy", lambda *a, **k: policy)
+
+
+def _load(database, write_batch):
+    load_files(
+        database,
+        *write_batch(
+            "base",
+            [customer(1)],
+            [order("old", "2023-01-05"), order("ancient", "2022-10-01")],
+            ["MY,old,c1,0", "MY,ancient,c1,0"],
+        ),
+    )
+    load_files(
+        database,
+        *write_batch(
+            "late",
+            [customer(2)],
+            [order("fresh", "2023-06-01"), order("held", "2023-04-20")],
+            ["MY,fresh,c1,1", "MY,held,c1,0"],
+        ),
+    )
+
+
+def test_release_through_reader_includes_later_batch_and_counts_old_rows(
+    database, write_batch, open_holdout
+):
+    _load(database, write_batch)
     calls, lines = [], []
-    report = _run("release", _release_rows(), calls, lines.append)
+    report = _run(
+        "release",
+        lambda: rds_reads.read_release_snapshot(database),
+        calls,
+        lines.append,
+    )
     kwargs, metrics = calls[0]
+    train_rows = kwargs["labelled_windows"][0]
     assert report.exit_code == 0
-    assert len(kwargs["labelled_windows"][0]) == 3
+    assert sorted(train_rows["order_id"]) == ["fresh", "held", "old"]
+    assert report.counts["excluded_date_rows"] == 1  # "ancient", before train_start
     assert kwargs["tags"]["retrain_mode"] == "release"
     assert kwargs["tags"]["scores_out_of_sample"] == "False"
     assert kwargs["tags"]["mlflow.runName"] == "m-late-etl1"
@@ -91,24 +146,28 @@ def test_release_mode_includes_later_batch_and_labels_scores_in_sample():
     assert "mode=release" in lines[0]
 
 
-def test_release_mode_refuses_a_batch_with_no_eligible_rows():
-    rows = _release_rows().assign(batch_id="base")
-    with pytest.raises(ValueError, match="silently exclude"):
-        _run("release", rows, [])
-
-
-def test_evaluation_mode_keeps_out_of_sample_comparison():
+def test_evaluation_through_reader_is_out_of_sample_and_disjoint(database, write_batch):
+    _load(database, write_batch)
     calls = []
-    _run("evaluation", _release_rows(), calls)
+    _run("evaluation", lambda: retrain.read_training_snapshot(database), calls)
     kwargs, metrics = calls[0]
+    train_rows, validation = kwargs["labelled_windows"]
+    assert not set(train_rows["order_id"]) & set(validation["order_id"])
+    assert not set(train_rows["order_date"]) & set(validation["order_date"])
     assert kwargs["tags"]["scores_out_of_sample"] == "True"
     assert metrics["average_precision_delta"] == 0.5
     assert "train_orders" not in metrics
 
 
+def test_release_mode_refuses_a_batch_with_no_eligible_rows():
+    rows = _release_rows().assign(batch_id="base")
+    with pytest.raises(ValueError, match="silently exclude"):
+        _run("release", _static(rows), [])
+
+
 def test_unknown_mode_is_rejected():
     with pytest.raises(ValueError, match="Unknown retraining mode"):
-        _run("promote", _release_rows(), [])
+        _run("promote", _static(_release_rows()), [])
 
 
 def test_release_read_requires_holdout_off(monkeypatch):
