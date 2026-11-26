@@ -246,3 +246,11 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+Committed 2026-11-26, with the stage timing in `uv run run-batch` that prints each
+stage against these targets. The table is unchanged from its first commit, c6a8bc9
+on 2026-11-23, which dates it 20 November; no earlier commit holds it. Both commits
+come after #25 started: #25 was in Sprint 2 from 15 November, and its retraining
+pull request, #162, opened on 24 November, before this budget reached `dev` on
+25 November. So #27's condition that the budget is committed before #25 starts is
+not met.
