@@ -143,10 +143,11 @@ same K, windows, cleaning policy and row counts, as [champion.md](champion.md)
 describes. Order-only variants moved the count by up to ±50 around v1 (2846 to
 2893), so read a change of under about 50 as noise, treat +100 or more as a clear
 win, and put the run description's number next to v1's 2893 and 0.3716.
-The per-country, per-payment and per-band tables above are for v1 only; they
-are not re-run for v2 (see [model-v2-run.md](model-v2-run.md)). Re-running them
-should show the gain where it was predicted, among PK/BD low-value and
-payment-on-delivery orders, and no loss in TH, MY or the `[30,∞)` band.
+The per-country, per-payment and per-band tables above are for v1 only; v2's slices are in
+[model-v2-run.md](model-v2-run.md). They do not match the prediction that the gain would
+come from PK/BD low-value and payment-on-delivery orders with no loss in TH, MY or the
+`[30,∞)` band: the gain is in MY, PH and BD, and PK, TH and the `[8,13)`, `[13,30)` and
+`[30,∞)` bands lose fraud caught.
 
 ## Open questions and risks
 

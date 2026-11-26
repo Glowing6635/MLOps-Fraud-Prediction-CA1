@@ -55,10 +55,12 @@ path (`diagnostics.build_diagnostics` and `log_diagnostics`), as table artifacts
 
 Order-value bands (currency unit of the data, lower bound included): `[0,3)`, `[3,5)`,
 `[5,8)`, `[8,13)`, `[13,30)`, `[30,∞)`, plus `missing`. The run tag `order_value_bands`
-records them. Reproduce locally with a file store, no server needed:
+records them. Reproduce locally with a SQLite store, no server needed (the experiment name
+must be set, as in `.env.example`, or `train` raises):
 
 ```bash
-MLFLOW_TRACKING_URI=sqlite:///$HOME/mlflow-local.db uv run train boosted-trees-v2 --data-dir data
+MLFLOW_TRACKING_URI=sqlite:///$HOME/mlflow-local.db MLFLOW_EXPERIMENT_NAME=<experiment> \
+  uv run train boosted-trees-v2 --data-dir data
 ```
 
 Before this change neither version logged any of these: v1 on the team server has none, and
@@ -67,13 +69,15 @@ runs logged earlier lack the tables; re-log v1 (the command above does) to get t
 
 ### v2 slices from the local run (K = 250, 101,190 validation orders)
 
-Run with a local SQLite store on `data/` at commit of the logging change: fraud caught 3,042,
+Run with a local SQLite store on `data/` at commit 936bffa (the logging change; the local run ID was not recorded): fraud caught 3,042,
 confusion at K: 3,042 caught, 2,208 false alarms, 10,024 fraud missed, 85,916 not fraud
 not selected. Caught by country, v1 (diagnosis doc) to v2: PK 2,080 to 1,943; BD 514 to 587;
 PH 83 to 131; MY 105 to 296; TH 111 to 85. So the gain is in MY, PH and BD, **not** the
 PK/BD pattern the diagnosis predicted, and PK and TH lose fraud. By value band v2 catches
-785, 684, 598, 420, 362 and 193 in `[0,3)` to `[30,∞)`; the top band's recall is 0.53, and
-the v1 band table has not been logged, so band changes are not compared here.
+785, 684, 598, 420, 362 and 193 in `[0,3)` to `[30,∞)`; the top band's recall is 0.53.
+Against v1's refit counts (561, 522, 528, 502, 534, 246; diagnosis doc), v2 gains in `[0,3)`,
+`[3,5)` and `[5,8)` (+224, +162, +70) but **loses** in `[8,13)` (-82), `[13,30)` (-172) and
+`[30,∞)` (-53). The v1 counts are from a refit, not a logged v1 run.
 
 ## #22 criteria: SpiralSky status (offline)
 
