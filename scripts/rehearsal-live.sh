@@ -25,18 +25,19 @@ sql() { uv run python -c "$SQL" "$1"; }
 owned_bucket() {  # true only if the bucket exists and carries this script's tag
   aws s3api get-bucket-tagging --bucket "$BUCKET" --query "TagSet[?Key=='created-by'].Value" --output text 2>/dev/null | grep -qx rehearsal-live
 }
-delete_bucket() {
-  if owned_bucket; then
-    aws s3 rm "s3://$BUCKET" --recursive --quiet
-    aws s3api delete-bucket --bucket "$BUCKET"
-    echo "deleted bucket $BUCKET"
+delete_bucket() {  # "force": skip the tag check for a bucket this run just created
+  # step() calls this inside ||, where errexit is off, so chain every command
+  if [ "${1:-}" = force ] || owned_bucket; then
+    aws s3 rm "s3://$BUCKET" --recursive --quiet &&
+      aws s3api delete-bucket --bucket "$BUCKET" &&
+      echo "deleted bucket $BUCKET" || return 1
   else
     echo "bucket $BUCKET not created by this script: left alone"
   fi
 }
 
 MYIP=$(curl -s https://checkip.amazonaws.com)/32
-RULE_ADDED=; CREATED_BUCKET=; CREATED_SCHEMA=; OK=
+RULE_ADDED=; CREATED_BUCKET=; TAGGED=; CREATED_SCHEMA=; OK=
 FAILED=
 step() {  # run a cleanup step; remember its name if it fails
   local name=$1; shift
@@ -50,7 +51,10 @@ cleanup_run() {
     [ -z "$FAILED" ] && echo "removed ingress $MYIP"
   fi
   if [ -z "$OK" ]; then  # failure: remove only what this run created
-    [ -n "$CREATED_BUCKET" ] && step delete-bucket delete_bucket
+    if [ -n "$CREATED_BUCKET" ]; then
+      # created by this run (head-bucket proved it did not exist); if tagging never landed, skip the tag check
+      if [ -n "$TAGGED" ]; then step delete-bucket delete_bucket; else step delete-bucket delete_bucket force; fi
+    fi
     [ -n "$CREATED_SCHEMA" ] && step drop-schema sql "DROP DATABASE rehearsal"
   fi
   if [ -n "$FAILED" ]; then
@@ -89,7 +93,7 @@ for name in ${READERS:-}; do  # SELECT only; never touches the user's password
 done
 time uv run rehearsal-reset --data-dir data
 aws s3api create-bucket --bucket "$BUCKET"; CREATED_BUCKET=1
-aws s3api put-bucket-tagging --bucket "$BUCKET" --tagging "$TAG"
+aws s3api put-bucket-tagging --bucket "$BUCKET" --tagging "$TAG"; TAGGED=1
 aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 EXP=${PRESIGN_EXPIRES:-3600}
 uv run rehearsal-reset --presign "$BUCKET" --expires "$EXP"
