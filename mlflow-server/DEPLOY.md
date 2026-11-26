@@ -25,12 +25,20 @@ flowchart LR
 For an engineer deploying for the first time. Each step links to the section with the detail. Stop at the first step that fails and use [Troubleshooting](#troubleshooting).
 
 1. Install Docker, the AWS CLI, curl and EB CLI 3.27.5, and paste the fresh Learner Lab credentials into `~/.aws/credentials`.
-2. Set up RDS and S3 ([Set up RDS and S3, once](#set-up-rds-and-s3-once)): the `fraud-mysql84` parameter group, the `mlflow` and `mlflow_auth` databases and `mlflow` user, port 3306 open to the Beanstalk security group, and a private S3 bucket in `us-east-1`.
+2. Set up RDS and S3 ([Set up RDS and S3, once](#set-up-rds-and-s3-once)): the `fraud-mysql84` parameter group, the `mlflow` and `mlflow_auth` databases and `mlflow` user, and a private S3 bucket in `us-east-1`. Skip the port 3306 rule for now: the Beanstalk security group does not exist until step 5 creates the environment.
 3. Publish the image and put its tag in `Dockerrun.aws.json` ([Build and push the image](#build-and-push-the-image)).
 4. Create the four `SecureString` parameters ([Deploy](#deploy), [Settings](README.md#settings)).
-5. Run `MLFLOW_ARTIFACTS_DESTINATION=s3://<bucket>/artifacts ./deploy.sh <cname-prefix>` from `mlflow-server/`.
-6. Confirm `Health: Green` and that `curl http://<prefix>.us-east-1.elasticbeanstalk.com/health` returns OK.
-7. Create each engineer's login and run `uv run log-test-run` ([Check from each laptop](README.md#check-from-each-laptop)).
+5. Set the two values for this deployment, then run the script from `mlflow-server/`. Quote the variables so Bash does not read `<` or `>` as redirections:
+
+   ```bash
+   BUCKET="your-private-bucket"   # the S3 bucket from step 2
+   PREFIX="your-cname-prefix"     # a free Beanstalk CNAME prefix
+   MLFLOW_ARTIFACTS_DESTINATION="s3://$BUCKET/artifacts" ./deploy.sh "$PREFIX"
+   ```
+
+6. On a first deployment, the environment now exists, so open port 3306 on the RDS security group to the Beanstalk instance's security group (step 3 of [Set up RDS and S3](#set-up-rds-and-s3-once)). The container cannot reach the database before this, so health stays red until the rule is in. Then redeploy with `./deploy.sh "$PREFIX"`, or restart the app server from the Beanstalk console.
+7. Confirm `Health: Green` and that `curl "http://$PREFIX.us-east-1.elasticbeanstalk.com/health"` returns OK.
+8. Create each engineer's login and run `uv run log-test-run` ([Check from each laptop](README.md#check-from-each-laptop)).
 
 ## Services and configuration values
 
@@ -51,7 +59,7 @@ The seven environment variables, with their values, are in [Settings](README.md#
 
 1. MLflow's database setup creates triggers, which RDS refuses while binary logging is on. Attach a parameter group, `fraud-mysql84`, with `log_bin_trust_function_creators` and `require_secure_transport` both set to `1`. The second makes RDS refuse unencrypted connections. Attach the group when you create the instance, as the RDS steps in `docs/runbook.md` (added by #10) do, and no reboot is needed. Reboot the instance only when you attach the group to one that already exists.
 2. As the instance's admin user, run `CREATE DATABASE mlflow; CREATE DATABASE mlflow_auth;`, create a `mlflow` user, and grant it `ALL` on both.
-3. Let the instance's security group accept port 3306 from the Beanstalk instance's security group.
+3. After the first `./deploy.sh` has created the Beanstalk environment (Quickstart step 5), let the RDS instance's security group accept port 3306 from the Beanstalk instance's security group. That group does not exist before the environment is created, so do this step then, not before.
 4. Create an S3 bucket in `us-east-1` with public access blocked. `LabInstanceProfile` gives the server access.
 
 Laptops check the RDS certificate against `src/mlops_fraud_prediction_ca1/rds-global-bundle.pem`, AWS's public certificate bundle for RDS. It was committed to the repository on 18 Nov 2026, from https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem, the same address the `Dockerfile` uses. To check it, compare its SHA-256 with the checksum in the `Dockerfile`'s `ADD` line.
