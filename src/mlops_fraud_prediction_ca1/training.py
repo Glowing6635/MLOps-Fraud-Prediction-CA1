@@ -44,6 +44,11 @@ from mlops_fraud_prediction_ca1.customer_history import (
     customer_history_features,
 )
 from mlops_fraud_prediction_ca1.data import load_base_data
+from mlops_fraud_prediction_ca1.diagnostics import (
+    Diagnostics,
+    build_diagnostics,
+    log_diagnostics,
+)
 from mlops_fraud_prediction_ca1.feature_pipeline import FEATURE_GROUPS, build_pipeline
 from mlops_fraud_prediction_ca1.leakage import (
     ASSUMED_LABEL_DELAY_DAYS,
@@ -84,6 +89,7 @@ class FitResult:
     validation_customer_overlap: float
     train_orders: int
     validation_orders: int
+    diagnostics: Diagnostics | None = None
 
 
 def check_feature_columns(features: pd.DataFrame) -> None:
@@ -260,7 +266,9 @@ def fit_and_score(
     start = time.perf_counter()
     estimator.fit(train_x, train_keys.is_fraud)
     fit_seconds = time.perf_counter() - start
-    report = _score_window(estimator, validation_keys, validation_x, k)
+    scores = estimator.predict_proba(validation_x)[:, 1]
+    report = evaluate_top_k(validation_keys, scores, k)
+    diagnostics = build_diagnostics(validation_keys, validation_x, scores, k)
     customer_keys = ["country_code", "customer_id"]
     seen = pd.MultiIndex.from_frame(train_keys[customer_keys].astype(str))
     overlap = validation_keys.customer_id.notna() & pd.MultiIndex.from_frame(
@@ -273,6 +281,7 @@ def fit_and_score(
         float(overlap.mean()),
         len(train_keys),
         len(validation_keys),
+        diagnostics,
     )
 
 
@@ -380,6 +389,7 @@ def train(
                 if path.is_file()
             )
         mlflow.log_metric("model_size_bytes", size)
+        log_diagnostics(result.diagnostics)
         if max_model_size_bytes is not None and not 0 < size <= max_model_size_bytes:
             raise ValueError(
                 f"Saved model has {size:,} bytes. Expected 1–{max_model_size_bytes:,} bytes."
