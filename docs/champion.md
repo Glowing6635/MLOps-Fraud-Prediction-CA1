@@ -118,6 +118,10 @@ Historical version 2 (random forest, 187 MB) is above 50 MB, so it no longer
 qualifies as challenger. Re-registering needs a live registry operation.
 The exact bytes of historical version 2 remain unverified. Size measurements for
 separate PR #164 fits cannot establish that version's size. The historical
-sign-off applies to the recorded pair. New team registry changes remain on hold
-pending exact artifact and integration evidence. Integration also depends on
-[PR #165](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/165).
+sign-off applies to the recorded pair.
+[PR #165](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/165)
+is merged, so integration no longer blocks the registry work. The pick rerun
+that would put the top two runs under 50,000,000 bytes is pending read access
+to the team MLflow tracking URI. Once access exists, run
+`uv run champion-pick --k 250`. Until then the recorded pair stands, and
+version 2 (187 MB random forest) does not qualify.

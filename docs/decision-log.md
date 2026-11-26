@@ -434,9 +434,19 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   Affected PBIs: #17, #13, #5, #14.
 - Decision: Keep `class_weight=None` as the default and use the final
   estimator's `class_weight="balanced"` for the opt-in comparison. Both
-  candidates in pinned PR #152 (`6c1326c`), logistic regression and histogram
-  gradient boosting, support this parameter. Each computes a weight of
-  n / (2 × class count) from the training labels. The harness scores the
+  candidates in `models.py` (logistic regression, histogram gradient boosting,
+  random forest and extra trees) support this parameter. `balanced` computes a weight
+  of n / (2 × class count) from the training labels. Values in `models.py`:
+
+  | Candidate | `class_weight` default | Opt-in value |
+  | --- | --- | --- |
+  | `baseline_model` (logistic regression) | `None` | `"balanced"` |
+  | `boosted_trees_model` (histogram gradient boosting) | `None` | `"balanced"` |
+  | `random_forest_model` | `None` | `"balanced"` |
+  | `extra_trees_model` | `None` | `"balanced"` |
+
+  The measured comparison below covers the first two rows only; the forest rows are
+  supported by the same parameter but were not run. The harness scores the
   original validation orders at their natural fraud rate.
 - Reason: Both candidates produced identical probabilities on a synthetic
   fixture when native balancing was compared with explicit balanced sample
@@ -623,7 +633,7 @@ its logged fraud caught at K and average precision.
   matched 132 flags, model 102 fraud caught against the rule's 73, so the target
   of criterion 6 is met; the report also states the rule identified more fraud
   exposure (1,646.24 against 625.36 SGD) and the model flagged 6 loyal customers
-  against 0. The per-criterion evidence map is in `docs/pr-drafts/pbi-18.md`.
+  against 0. The per-criterion evidence map is in [baseline-rule.md](baseline-rule.md).
   `rule-report` now stops with a clear message when the scores file repeats a
   `(country_code, order_id)` key, instead of a pandas merge error.
 - Rationale: reporting exposure and loyal flags next to the win keeps the
@@ -637,3 +647,36 @@ its logged fraud caught at K and average precision.
   the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
   Owner). The deployed X and capacity are unobtainable (D18-04).
 
+
+## D19-01 — A local MLflow run satisfies #16 criterion 1 and #17 criterion 3
+
+- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBIs: #16, #17, #15, #25.
+- Settled (owner ruling, 2026-11-26): a PBI is finished when every acceptance
+  criterion has recorded evidence and its dev PR is open. For #16 criterion 1
+  (feature-group comparison logged to MLflow) and #17 criterion 3 (each method compared
+  and logged to MLflow), the local MLflow runs recorded in D16-02 and D17-01 satisfy
+  the criterion; logging to the team server is not required for them.
+- Rationale: the criteria require logging to MLflow, not a particular server, and the
+  runs, parameters and replays are recorded. Gaps G16-a/G17-a stay as optional
+  follow-ups; G16-b and G17-b are dropped.
+- Alternatives not taken: require team-server logging (needs credentials and a
+  reachable host); run a resampling arm (resampling was deliberately not compared in
+  D17-01, and criterion 1 reads "resampling or class weights").
+- Open: none for these two criteria. #15 criterion 1 still has live-registry state
+  that needs a registry operator (G15-b); #25 criteria 3-5 remain PARTIAL.
+
+
+## D19-02 — Champion rerun deferred until MLflow read access, not faked
+
+- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBIs: #15, #171.
+- Decision: the reviewer's request to rerun the champion pick so the top two runs
+  are under 50,000,000 bytes (`champion.SIZE_NOTE_BYTES`) is deferred. `docs/champion.md`
+  now says PR #165 is merged and the rerun is pending read access to the team MLflow
+  tracking URI (`uv run champion-pick --k 250`). Registry version 2 (187 MB RF) is still
+  stated as not qualifying.
+- Rationale: the #13 harness runs and MLflow credentials are not available offline
+  (s214 checked), so no size or score for a new pair can be obtained honestly.
+- Alternatives not taken: writing estimated or fabricated sizes; retraining offline
+  on data the harness runs did not provide, which would not reproduce the frozen runs.
+- Impact: the reviewer item stays open. Deciding owner: the owner/operator who can
+  provide MLflow read access; the rerun then takes one command.

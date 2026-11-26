@@ -84,14 +84,15 @@ model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 
 | Kind | Recorded |
 | --- | --- |
-| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
+| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels`, or `data_source` set to `labelled_windows` for a run on rows passed in |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
-| Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
-| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
+| Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders`, and any metrics from `extra_metrics` |
+| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives (the git tags win if a caller uses the same names); the tag `mlflow.runName` sets the run name |
 | Model | The fitted model, under the name `model` |
 
-CSV runs record a SHA-256 for each input file. [Per-batch retraining](retraining.md)
-uses the labelled database snapshot and logs the batch ID and validation digest.
+The dataset version is the SHA-256 of each input file. A run on rows passed in has no
+files to hash, so its caller tags it with where the rows came from, such as the batch ID.
+[Per-batch retraining](retraining.md) logs the batch ID and validation digest the same way.
 
 `validation_customer_overlap` is the share of validation orders whose customer also
 has an order in the training window. A high share means the validation score partly
@@ -127,11 +128,51 @@ The parent logs the with-columns result minus the without result as
 `average_precision_difference`. The parent holds no model, so re-run a child by its own
 run ID.
 
+## Training on rows passed in
+
+A caller that has already read labelled orders, such as per-batch retraining from the
+team database (issue #25), passes them in instead of a data folder:
+
+```python
+from mlops_fraud_prediction_ca1.training import score_labelled_rows, train
+
+run_id, result = train(
+    my_pipeline,
+    k=K,
+    seed=None,
+    labelled_windows=(train_rows, validation_rows),
+    tags={
+        "mlflow.runName": "<model>-<batch ID>-<ETL run ID>",
+        "batch_id": "<batch ID>",
+    },
+    extra_metrics=lambda result: {"fraud_caught_at_k_delta": ...},
+    max_model_size_bytes=50 * 1024 * 1024,
+)
+report = score_labelled_rows(champion_model, validation_rows, k=K)
+```
+
+Each row is one order with a valid label, with the columns `order_date`,
+`country_code`, `order_id`, `customer_id` and `is_fraud` and the four order feature
+columns, as `rds_reads.read_labelled_orders` returns them. Other columns are ignored.
+That reader also returns orders whose `is_fraud` is None, meaning the source label was
+not 0 or 1, so drop those first. Money that the database returns as `Decimal` is
+converted to numbers. A run on rows passed in can't be exploratory, because the
+customer date checks need the base files.
+
+`seed=None` keeps the model's own `random_state`, such as a stored candidate's.
+`extra_metrics` turns the result into more metrics for the run, such as the difference
+from the champion. `train` raises `ValueError` before anything is logged if one of
+those metrics has a harness metric's name, such as `train_orders`, or if the saved
+model folder is over `max_model_size_bytes`.
+`score_labelled_rows` scores a model fitted elsewhere, such as the champion, on the
+same features, and returns its top-K report.
+
 ## Re-running a run
 
 `uv run train rerun <run ID>` builds an unfitted copy of the logged model, with the same
 parameters, and fits it again with the logged seed, K and column choice. It stops if an
-input file's SHA-256 differs from the logged one. It prints both results and
+input file's SHA-256 differs from the logged one, and can't re-run a run on rows
+passed in. It prints both results and
 `reproduced: True` when fraud caught at K is within 1% of the logged count and average
 precision within 0.005. `same_commit` shows whether the code is at the logged commit.
 
@@ -139,7 +180,9 @@ precision within 0.005. `same_commit` shows whether the code is at the logged co
 
 - Data is read only through the protected reader in `data.load_base_data`, once for
   the training window and once for the validation window, and each table is cleaned
-  with `cleaning.clean_frame`. The test window is never loaded.
+  with `cleaning.clean_frame`. The test window is never loaded. Rows passed in skip
+  this reader, so the caller reads them the same safe way: `rds_reads` applies the same
+  holdout setting in the database.
 - Labels join orders by country and order ID. Orders without a valid label are left
   out of both fitting and scoring.
 - The features are the four order columns that `leakage.select_feature_inputs` allows

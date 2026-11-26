@@ -43,7 +43,7 @@ partial. Release mode depends on #23's final evaluation.
 ## Shared training harness
 
 The command passes the two labelled windows directly to the harness, without
-reading base CSV files. The harness records `data_source=rds_labelled_windows`
-and converts decimal order values to numbers. An omitted seed preserves the
+reading base CSV files. The harness records `data_source=labelled_windows`
+and records the batch details (`batch_id`, `etl_run_id`, `champion_run_id`, `validation_sha256`, `model`, `owner`) as run tags. It converts decimal order values to numbers. An omitted seed preserves the
 estimator's random-state settings. Models that exceed the batch model-size limit
 are reported as candidate failures before artifact upload.

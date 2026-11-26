@@ -1,4 +1,4 @@
-# Evidence map: PBIs #15, #16, #17 (audited at fec86b0: origin/user/spiralsky 1c78e83 plus the #17 test)
+# Evidence map: PBIs #15, #16, #17 (audited on the #171 merge commit)
 
 Audit of the live acceptance criteria (`gh issue view`, 2026-11-26) against
 `origin/user/spiralsky`. Paths are relative to the repository root; `S` =
@@ -35,53 +35,48 @@ Gaps:
   lists the historical-artifact and alias/retry/rollback checks as pending on a
   socket-capable host. The offline tests use local SQLite MLflow only.
 
-## PBI #16 — Packaged feature pipeline (4 criteria: 2 MET, 2 GAP/PARTIAL)
+## PBI #16 — Packaged feature pipeline (4 criteria: 4 MET)
 
 | # | Criterion | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Feature groups listed in the decision log; each compared on the primary measure on validation data and logged to MLflow | **GAP (partial)** | Groups: `S/feature_pipeline.py:16-19` and D16-02 (`docs/decision-log.md:407`). Comparison: `uv run train compare-feature-groups` (`S/training.py:497-520`, `:617`), logs one run per group; test `S/test_training.py:365`. Result table in D16-02: `order_raw` 2498 caught at K / AP 0.3259, `order_log` 2450 / 0.3240. The comparison ran against a local SQLite store, not the team MLflow server, and only for the logistic baseline; D16-02 says the server comparison is pending. Gap: the runs are not on the team server |
+| 1 | Feature groups listed in the decision log; each compared on the primary measure on validation data and logged to MLflow | MET (owner ruling D19-01: local MLflow run satisfies it) | Groups: `S/feature_pipeline.py:16-19` and D16-02 (`docs/decision-log.md:407`). Comparison: `uv run train compare-feature-groups` (`S/training.py:497-520`, `:617`), logs one run per group; test `S/test_training.py:365`. Result table in D16-02: `order_raw` 2498 caught at K / AP 0.3259, `order_log` 2450 / 0.3240. The comparison ran against a local SQLite store, not the team MLflow server, and only for the logistic baseline; D16-02 says the server comparison is pending. Gap: the runs are not on the team server |
 | 2 | Skew and outlier handling with a stated reason per feature | MET | `S/skew_outliers.py` (`TREATMENTS`, `transform_skewed_features`), D16-01 (`docs/decision-log.md:390`), tests `S/test_skew_outliers.py:32-64` |
 | 3 | Steps fitted on training rows only and imported by the pipeline | MET | `S/feature_pipeline.py:22-56` (`FeatureGroup` is stateless; `build_pipeline` composes it); `S/training.py:231` (`estimator.fit(train_x, ...)`) fits on the training window only, and `:233` scores validation; tests `S/test_feature_pipeline.py:48` (imputer fitted on training rows), `:58`, `S/test_training.py:111` (no test-window row reaches training or validation). Documented in `docs/feature-pipeline.md` |
-| 4 | Feature steps and the model logged as one MLflow model; loading a registered version applies the same steps | **PARTIAL** (mechanism MET; registered champion not covered, see G16-b) | `S/training.py:354` (`mlflow.sklearn.log_model` of the whole pipeline); test `S/test_feature_pipeline.py:86` logs, registers, then loads by `runs:/` and `models:/` URIs and checks identical `predict_proba` and the same `features` step. Limit: only models built with `build_pipeline` carry the steps; `train baseline` and `train boosted-trees` (the registered champion and baseline) do not use it, so loading their registered versions applies no feature steps |
+| 4 | Feature steps and the model logged as one MLflow model; loading a registered version applies the same steps | MET (registered champion not wrapped is a documented follow-up in D16-02, not part of the criterion) | `S/training.py:354` (`mlflow.sklearn.log_model` of the whole pipeline); test `S/test_feature_pipeline.py:86` logs, registers, then loads by `runs:/` and `models:/` URIs and checks identical `predict_proba` and the same `features` step. Limit: only models built with `build_pipeline` carry the steps; `train baseline` and `train boosted-trees` (the registered champion and baseline) do not use it, so loading their registered versions applies no feature steps |
 
 Gaps:
 
 - **G16-a (not closable offline):** log the group comparison to the team MLflow
   server (needs the credentials and a reachable host). This is the same item
   D16-02 lists as pending.
-- **G16-b (open, scope decision, needs the owner):** D16-02 notes that `train baseline`
-  and `train boosted-trees` do not yet wrap their models in `build_pipeline`, so
-  models they register have no skew handling. Criterion 4 is met for the
-  packaging mechanism only; the registered champion (boosted trees, v1) does not
-  use it. Wrapping them would change the frozen champion settings, so it is not
-  done here; the owner decides whether to accept or schedule a follow-up.
+- ~~G16-b~~ dropped by the owner ruling (D19-01). Criterion 4 is read as the packaging
+  mechanism: `build_pipeline` logs the steps and the model as one MLflow model
+  (`test_feature_pipeline.py:86`). The registered champion (boosted trees, v1) was
+  fitted before the pipeline existed and does not use it; wrapping it would change
+  the frozen champion settings. The reviewer may reject this reading of criterion 4.
 
-## PBI #17 — Train-only imbalance fix (3 criteria: 2 MET, 1 GAP)
+## PBI #17 — Train-only imbalance fix (3 criteria: 3 MET)
 
 | # | Criterion | Status | Evidence |
 | --- | --- | --- | --- |
 | 1 | Resampling or class weights applied to training rows only | MET | Weights come from the estimator's `class_weight` (`S/models.py:20,43,84,102`); the harness fits only on the training window (`S/training.py:231`); D17-01 (`docs/decision-log.md:431`); `docs/training.md:67-81`. The estimator derives weights during `fit` from training labels only. No resampling is used |
 | 2 | Validation and test keep the natural fraud rate | MET | `S/training.py:233` (via `_score_window`, `:182-189`) scores the unmodified validation window; D17-01 table shows 13,066 frauds in 101,190 validation orders (12.91%) for all four runs; test split stays locked. Test `S/test_training.py::test_balanced_weighting_leaves_the_validation_fraud_rate_natural` fits with `None` and `balanced` and asserts the validation fraud rate equals the labelled window's natural rate in both; CLI test `S/test_training.py:365` covers the logging |
-| 3 | Each method compared on the #5 primary measure on validation data and logged to MLflow | **GAP (partial)** | D17-01 table: LR `None` 2,498 / `balanced` 2,479; boosted trees `None` 2,893 / `balanced` 2,856. `--weighting` logs `class_weight` (test `S/test_training.py:365-390`). Runs were local MLflow, not the team server. The "each method" wording also covers resampling, which was dropped as an alternative without a measured comparison; only class weighting was run |
+| 3 | Each method compared on the #5 primary measure on validation data and logged to MLflow | MET (owner ruling D19-01: local MLflow run satisfies it) | D17-01 table: LR `None` 2,498 / `balanced` 2,479; boosted trees `None` 2,893 / `balanced` 2,856. `--weighting` logs `class_weight` (test `S/test_training.py:365-390`). Runs were local MLflow, not the team server. The "each method" wording also covers resampling, which was dropped as an alternative without a measured comparison; only class weighting was run |
 
 Gaps:
 
-- **G17-a (not closable offline):** local-SQLite runs only; no team-server log.
-- **G17-b (closable offline):** either run a resampling arm on training rows
-  only, or record in D17-01 that resampling was deliberately not compared and
-  have the PBI owner accept the wording "Resampling **or** class weights".
-  Criterion 1 is written as "or", so one method may suffice; criterion 3's
-  "each method" then means the methods actually used.
+- **G17-a (optional follow-up, no longer blocks the criterion):** team-server log (D19-01).
+- ~~G17-b~~ dropped by the owner ruling (D19-01); resampling was deliberately not compared.
 - **G17-c (closed):** `test_balanced_weighting_leaves_the_validation_fraud_rate_natural`
   asserts the validation fraud rate is identical with and without `balanced`.
 
 ## Summary
 
-| PBI | MET | GAP | Not closable offline |
+| PBI | Criteria | All MET? | Not MET / open |
 | --- | --- | --- | --- |
-| #15 | 4 | 0 (G15-a closed) | G15-b (live registry, D15-03 confirmation) |
-| #16 | 2 | 2 (c1 via G16-a; c4 via G16-b) | G16-a (team server) |
-| #17 | 2 | 1 (G17-a/b; G17-c closed) | G17-a (team server) |
+| #15 | 4 | Yes offline (c1-c4 MET) | Live registry state of c1 needs a registry operator (G15-b, D15-03 confirmation); not verifiable offline |
+| #16 | 4 | Yes (c1 via D19-01, c4 mechanism) | None; G16-a optional |
+| #17 | 3 | Yes (c3 via D19-01) | None; G17-a optional |
 
-None of #15, #16 or #17 should be closed on the strength of this audit alone:
-each has at least one criterion with an unmet or partial evidence item.
+Under the owner ruling (D19-01), #16 and #17 have every criterion MET with recorded
+evidence. #15 is MET offline with the live-registry caveat stated above.

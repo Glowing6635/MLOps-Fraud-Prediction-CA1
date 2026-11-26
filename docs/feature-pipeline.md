@@ -13,7 +13,7 @@ from mlops_fraud_prediction_ca1.training import baseline_model
 pipeline = build_pipeline(baseline_model(), group="order_log")
 ```
 
-PR #152 at `6c1326ca` supplies `models.boosted_trees_model()` with the same DataFrame
+The candidates in `models.py` supply `models.boosted_trees_model()` with the same DataFrame
 input contract. It handles missing numeric values in the classifier and encodes text
 in its own preprocessor. Use the harness's input convention (floats for numbers,
 object columns for text, and NaN for missing values) when scoring outside the harness.

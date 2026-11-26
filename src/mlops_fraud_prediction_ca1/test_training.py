@@ -2,6 +2,7 @@
 
 import re
 import sys
+from decimal import Decimal
 
 import mlflow
 import numpy as np
@@ -25,6 +26,7 @@ from mlops_fraud_prediction_ca1.training import (
     fit_and_score,
     main,
     rerun,
+    score_labelled_rows,
     train,
 )
 
@@ -121,6 +123,37 @@ def test_no_test_window_row_reaches_training_or_validation(data_dir, exploratory
     for features in (fitted, scored):
         assert not features.order_value.eq(TEST_WINDOW_VALUE).any()
         check_feature_columns(features)
+
+
+def _database_rows(data_dir):
+    """The fixture's labelled training and validation orders, as the database gives them."""
+    rows = pd.read_csv(data_dir / "orders_base.csv").merge(
+        pd.read_csv(data_dir / "labels_base.csv"), on=["country_code", "order_id"]
+    )
+    rows["order_value"] = rows.order_value.map(lambda value: Decimal(str(value)))
+    rows["order_date"] = pd.to_datetime(rows.order_date).dt.date
+    rows.index += 1000  # A filtered frame keeps its row numbers.
+    return tuple(
+        rows[rows.order_id.str.startswith(window)] for window in ("train", "validation")
+    )
+
+
+def test_labelled_rows_from_the_database_score_like_the_base_files(data_dir):
+    windows = _database_rows(data_dir)
+    from_files = fit_and_score(_Recorder(), data_dir, k=5, seed=0)
+    model = _Recorder()
+    from_rows = fit_and_score(model, k=5, seed=0, labelled_windows=windows)
+    assert from_rows.report == from_files.report
+    assert (from_rows.train_orders, from_rows.validation_orders) == (300, 120)
+    assert model.seen_[0].order_value.dtype == "float64"
+    assert score_labelled_rows(model, windows[1], k=5) == from_files.report
+    for wrong in (
+        {},
+        {"data_dir": data_dir, "labelled_windows": windows},
+        {"labelled_windows": windows, "exploratory": True},
+    ):
+        with pytest.raises(ValueError):
+            fit_and_score(_Recorder(), k=5, seed=0, **wrong)
 
 
 def test_exploratory_runs_add_customer_columns_only_on_request(data_dir):
@@ -268,6 +301,55 @@ def test_customer_columns_are_compared_under_one_parent_run(
         with_columns.report.at_k.fraud_caught - without.report.at_k.fraud_caught
     )
     assert rerun(with_id, data_dir)["reproduced"]
+
+
+def test_a_run_on_labelled_rows_logs_the_callers_metrics_and_model(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    windows = _database_rows(data_dir)
+    model = boosted_trees_model()
+    model.set_params(
+        **{name: 3 for name in model.get_params() if name.endswith("random_state")}
+    )
+    run_id, result = train(
+        model,
+        k=5,
+        seed=None,
+        labelled_windows=windows,
+        tags={"mlflow.runName": "trees-b1", "batch_id": "b1"},
+        extra_metrics=lambda fit: {"caught_less_one": fit.report.at_k.fraud_caught - 1},
+        max_model_size_bytes=50 * 1024 * 1024,
+    )
+    run = mlflow.get_run(run_id)
+    params = run.data.params
+    assert run.data.tags["mlflow.runName"] == "trees-b1"
+    assert run.data.tags["batch_id"] == "b1"
+    assert params["data_source"] == "labelled_windows"
+    assert not [name for name in params if name.startswith("dataset_sha256")]
+    # With no seed, the model keeps the random state it was given.
+    assert {value for name, value in params.items() if "random_state" in name} == {"3"}
+    assert run.data.metrics["caught_less_one"] == result.report.at_k.fraud_caught - 1
+    assert mlflow.sklearn.load_model(f"runs:/{run_id}/model") is not None
+    with pytest.raises(ValueError, match="rows passed in"):
+        rerun(run_id, data_dir)
+
+    for limit, metrics, message in (
+        (1, None, "over the limit"),
+        (None, lambda fit: {"train_orders": 1}, "train_orders"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            train(
+                baseline_model(),
+                k=5,
+                seed=0,
+                labelled_windows=windows,
+                extra_metrics=metrics,
+                max_model_size_bytes=limit,
+            )
+    assert len(mlflow.search_runs(experiment_names=["harness-test"])) == 1
 
 
 def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
