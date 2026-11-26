@@ -59,6 +59,16 @@ _NUMBERS = {
 _DATES = {"order_date": "order", "first_order_datetime": "customer"}
 
 
+def raw_column_names(columns: pd.Index) -> dict:
+    """Return generated raw names after validating the input columns."""
+    if not columns.is_unique:
+        raise ValueError("Cleaning requires unique column names")
+    raw_names = {column: f"raw_{column}" for column in columns}
+    if set(raw_names.values()) & set(columns):
+        raise ValueError("Input columns conflict with generated raw_ columns")
+    return raw_names
+
+
 def clean_frame(frame: pd.DataFrame) -> pd.DataFrame:
     """Return cleaned columns and exact originals in raw_<column> columns.
 
@@ -77,11 +87,7 @@ def clean_frame(frame: pd.DataFrame) -> pd.DataFrame:
     as nullable Int8. Finite negatives, fractions and refunds within the range
     remain unchanged. IDs and other fields retain their supplied values.
     """
-    if not frame.columns.is_unique:
-        raise ValueError("Cleaning requires unique column names")
-    raw_names = {column: f"raw_{column}" for column in frame.columns}
-    if set(raw_names.values()) & set(frame.columns):
-        raise ValueError("Input columns conflict with generated raw_ columns")
+    raw_names = raw_column_names(frame.columns)
     raw = frame.copy(deep=True)
     cleaned = frame.reset_index(drop=True).copy(deep=True)
     for column in cleaned.columns:

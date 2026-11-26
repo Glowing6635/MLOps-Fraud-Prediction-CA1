@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
+champion-pick = "mlops_fraud_prediction_ca1.champion:main"
 mlops-fraud-prediction-ca1 = "mlops_fraud_prediction_ca1:main"
 log-test-run = "mlops_fraud_prediction_ca1.log_test_run:main"
 redeploy-check = "mlops_fraud_prediction_ca1.redeploy_check:main"
@@ -25,6 +26,9 @@ rds-schema = "mlops_fraud_prediction_ca1.rds_schema:main"
 train = "mlops_fraud_prediction_ca1.training:main"
 load-batch = "mlops_fraud_prediction_ca1.loading:main"
 run-batch = "mlops_fraud_prediction_ca1.batch:main"
+retrain-batch = "mlops_fraud_prediction_ca1.retrain:main"
+rule-report = "mlops_fraud_prediction_ca1.rule_report:main"
+champion-scores = "mlops_fraud_prediction_ca1.champion_scores:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]
@@ -51,6 +55,8 @@ extend-select = ["I", "B", "UP", "T20"]
 "src/mlops_fraud_prediction_ca1/rds_schema.py" = ["T201"]
 "src/mlops_fraud_prediction_ca1/training.py" = ["T201"]
 "src/mlops_fraud_prediction_ca1/loading.py" = ["T201"]
+"src/mlops_fraud_prediction_ca1/retrain.py" = ["T201"]
+"src/mlops_fraud_prediction_ca1/champion_scores.py" = ["T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["src"]
