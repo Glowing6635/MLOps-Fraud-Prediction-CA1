@@ -680,3 +680,21 @@ its logged fraud caught at K and average precision.
   on data the harness runs did not provide, which would not reproduce the frozen runs.
 - Impact: the reviewer item stays open. Deciding owner: the owner/operator who can
   provide MLflow read access; the rerun then takes one command.
+
+## D0-01 — How finished PBIs reach `dev`
+
+- Recorded: 2026-11-26. Affects PBIs #17, #24, #25, #26 and every later delivery. No single PBI owns this entry, so it uses the id `D0-01`.
+
+**Settled**
+
+- Rule: each completed PBI (or a completed part covering at least one acceptance-criteria item) gets its own `user/spiralsky` → `dev` PR. The PR carries `Resolves #<PBI>`, a criterion-by-criterion evidence map, the actual check and review results, and links to the decisions it relies on. This follows `AGENTS.md` and `docs/contributors/README.md` ("Choose the Scope").
+- `user/spiralsky` stays focused on one delivery until its PR merges into `dev`. While PR #171 is open, no second `dev` PR is opened and nothing further is pushed to `user/spiralsky`, because a push would cancel the teammate approval of #171.
+- Waiting work stays on its own feature branch: #17 class weighting (branch from s217), #25 (`feature/spiralsky/pbi-25-roster-release`, 87f6478), #26 (`feature/spiralsky/pbi-26-runbook-final`, 0c01bff6) and #24 (`feature/spiralsky/pbi-24-live-evidence`, dba680d).
+- After #171 merges, the next finished PBI is squashed into `user/spiralsky` and gets its own `dev` PR.
+- #25, #26 and #24 are not finished, so none of them is eligible yet. #25 needs the #15/#23 input factory and a live rehearsal. #26 needs a live clean-checkout and no-IAM proof plus teammate checks. #24 criterion 1 needs RDS, an owner action that is still pending.
+
+**Open question**
+
+- May the `Resolves` lines of several finished PBIs share one `dev` PR? The default is no: one PBI per PR, as above. Alternative: batch several PBIs in one PR, which saves review cycles but breaks the per-PBI evidence map and one-delivery focus. Deciding owner: the project owner (SpiralSky).
+
+**Impact**: no code or branch changes. The rule fixes the order of delivery and keeps each PR reviewable against its own evidence map.
