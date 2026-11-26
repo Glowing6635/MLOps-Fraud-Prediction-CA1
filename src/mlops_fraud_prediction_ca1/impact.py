@@ -18,7 +18,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
-from mlops_fraud_prediction_ca1.splitting import _calendar_dates
+from mlops_fraud_prediction_ca1.splitting import calendar_dates
 from mlops_fraud_prediction_ca1.top_k import select_top_k
 
 MEASURES = ("exposure_sgd", "loyal_wrongly_flagged")
@@ -35,7 +35,7 @@ def select_flags(frame: pd.DataFrame, k: int | Mapping[str, int]) -> pd.DataFram
     if not pd.api.types.is_bool_dtype(flags.dtype) or flags.isna().any():
         raise ValueError("Each rule_flag must be a non-missing boolean.")
 
-    dates = _calendar_dates(frame["order_date"]).to_numpy()
+    dates = calendar_dates(frame["order_date"]).to_numpy()
     values = pd.to_numeric(frame["order_value"], errors="raise")
     scores = pd.to_numeric(frame["score"], errors="raise")
     orders = frame.assign(order_date=dates, order_value=values.to_numpy())
