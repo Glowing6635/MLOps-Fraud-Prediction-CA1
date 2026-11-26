@@ -54,6 +54,27 @@ hides them: their files stay in the artifact bucket until the MLflow server's ga
   the sandbox session (environment or instance profile). No credential, bucket policy
   or public ACL is stored in the repository.
 
+### Reader access evidence (AC1, owner request)
+
+`uv run rehearsal-grant <name> [<name> ...]` prints `GRANT SELECT ON \`rehearsal\`.* TO
+'<name>_reader'@'%'` for each engineer; `--apply` runs them with the admin login in `.env`.
+It is safe to re-run, only grants SELECT, never creates users or changes passwords, and
+refuses a database that does not start with `rehearsal` or equals `TEAM_DB_NAME`. The
+`<name>_reader` users must already exist.
+
+**Request for the owner (needs the admin and each reader's credentials, so it is not
+done in the repository).** Nothing here has been run against AWS.
+
+1. As admin, with `DB_NAME=rehearsal` in `.env` and the schema created:
+   `uv run rehearsal-grant richard spiralsky <other engineers> --apply`
+2. Each engineer, with `DB_USER=<name>_reader`, their own password and `DB_NAME=rehearsal`:
+   `uv run rds-schema check`
+3. Expected output per engineer: `Connected to rehearsal on <host> as <name>_reader.`,
+   `Tables:` listing the four tables, and a grant line
+   `GRANT SELECT ON \`rehearsal\`.* TO \`<name>_reader\`@\`%\``, with no other privilege.
+4. Paste the three lines per engineer (no passwords) as a comment on #24 and in the
+   evidence table of the PR that resolves it. Do not paste `.env`.
+
 ### One-command live run
 
 `scripts/rehearsal-live.sh run` (environment variables listed at the top of the script)
