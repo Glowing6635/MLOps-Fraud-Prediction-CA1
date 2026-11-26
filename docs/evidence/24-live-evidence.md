@@ -47,7 +47,16 @@ auth from AWS SSM (`/mlflow/auth-admin-password`, `admin`).
 
 Remaining items from receipt 2:
 - **Per-engineer `rds-schema check`:** `richard_reader` and `spiralsky_reader` passwords are held by each engineer (not in `~/.config/ca1-aws/`), and `rds-schema reader` was not re-run because MySQL users are server-wide and it would reset their passwords on `fraud`.
-- **MLflow `clear_experiment` + cleanup verification:** In the next active Learner Lab session, in this order: (a) retry `aws rds stop-db-instance --db-instance-identifier fraud-db` (denied by `voc-cancel-cred` at 12:21) and verify with `aws rds describe-db-instances --db-instance-identifier fraud-db` that `DBInstanceStatus` is `stopping` or `stopped` while it is still running — do not rely on the previous run's intent; (b) remove `sgr-01037dd68af1c3798` from `sg-075357648cbf564b9` if still present; (c) re-run `rehearsal-reset` (or `clear_experiment("rehearsal")`) while the MLflow EB environment is up.
+- **DB-dependent `rehearsal-reset` vs MLflow-only `clear_experiment` ordering:** `rehearsal-reset` rebuilds the RDS `rehearsal` tables before clearing MLflow, so a full `rehearsal-reset` requires `fraud-db` to be `available` and SG ingress open (run it *before* stopping `fraud-db` and revoking the SG rule). By contrast, `clear_experiment("rehearsal")` only calls the MLflow tracking server and does not need RDS or `sg-075357648cbf564b9`, so it can run *after* RDS/SG cleanup whenever `sp-buy-mlflow` is serving.
+
+## Run receipt 3: RDS stop, SG rule revoke, and MLflow EB check (2026-11-26 ~13:01 UTC) , DONE for RDS/SG; MLflow pending
+
+| Time (UTC) | Command / Check | Observation |
+|---|---|---|
+| 13:01 | `aws rds describe-db-instances --db-instance-identifier fraud-db --region us-east-1` | `DBInstanceStatus` was `available`. |
+| 13:01 | `aws rds stop-db-instance --db-instance-identifier fraud-db --region us-east-1` & `describe-db-instances` | `DBInstanceStatus` transitioned to `stopping` and verified `stopping`. |
+| 13:01 | `aws ec2 describe-security-group-rules` (`sg-075357648cbf564b9`), `aws ec2 revoke-security-group-ingress` (`sgr-01037dd68af1c3798`), & re-check | Rule `sgr-01037dd68af1c3798` was still present; revoked (`Return: true`) and verified absent from `sg-075357648cbf564b9`. |
+| 13:01 | `aws elasticbeanstalk describe-environments --region us-east-1` & `curl` to `http://sp-buy-mlflow.us-east-1.elasticbeanstalk.com/` | Environment `mlflow` reported `Status: Ready`, `Health: Grey` (instance `i-07e26819a94dc93fc` `running`, no load balancers), but HTTP port 80 refused connections (`curl` exit 7, HTTP 000). EB was not recreated; `clear_experiment("rehearsal")` remains pending until the MLflow service is up. |
 
 ## Acceptance criteria map for #24
 
@@ -58,4 +67,4 @@ Remaining items from receipt 2:
 | 3 | Practice batches in the base format: two synthetic batches plus one small edge batch | Receipt 1: three batches, nine files uploaded with the sizes above; base-format and rejection checks are in the unit tests | Done for generation and serving; loader rejection counts on live DB are **gap** |
 | 4 | Presigned links from the same sandbox session, not a public bucket or the repo; credential source recorded | Receipt 1: 200 signed, 403 unsigned, 403 after expiry, no public grants, bucket deleted; credential source stated above. But receipt 1 and receipt 2 are separate sessions, so links were not generated in the session that rehearsed the batches | **Partial / pending**: needs one live rehearsal run where the presigned links are generated in the same sandbox session as the rehearsal |
 
-#24 should stay open until each engineer runs `rds-schema check` as `<name>_reader` and the MLflow `clear_experiment` step of `rehearsal-reset` completes against a live MLflow server.
+#24 should stay open until: (AC1) each engineer runs `rds-schema check` as `<name>_reader`; (AC2) `clear_experiment("rehearsal")` completes against a live MLflow server; (AC3) live `load-batch` rejection counts are verified on the live DB; and (AC4) one live rehearsal run generates the presigned links in the same sandbox session as the rehearsal.
