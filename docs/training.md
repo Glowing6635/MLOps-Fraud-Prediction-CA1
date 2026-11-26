@@ -88,6 +88,7 @@ model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
 | Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
 | Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
+| Diagnostics | Tables under `diagnostics/` (PBI #22, [model-v2-run.md](model-v2-run.md)): `precision_recall_curve.json` (thinned to 500 points), `confusion_matrix_at_k<K>.json`, and `errors_by_country.json`, `errors_by_payment_method.json`, `errors_by_order_value_band.json`; the tag `order_value_bands` states the bands |
 | Model | The fitted model, under the name `model` |
 
 CSV runs record a SHA-256 for each input file. [Per-batch retraining](retraining.md)

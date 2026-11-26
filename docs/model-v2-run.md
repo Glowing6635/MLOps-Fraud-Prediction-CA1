@@ -38,12 +38,49 @@ reads training plus earlier validation labels for validation orders; 3,042 and
 model about 1.0 MB, so the fit alone is far inside the 85 s #25 budget (a timed #27 run
 and scoring-time history are still unmeasured).
 
-## #22 criteria
+## Logged diagnostics (AC2)
+
+Every `train` run, v1 and v2 alike, now logs the validation diagnostics through one code
+path (`diagnostics.build_diagnostics` and `log_diagnostics`), as table artifacts under
+`diagnostics/`:
+
+- `precision_recall_curve.json`: precision and recall over the whole validation window,
+  thinned to 500 points.
+- `confusion_matrix_at_k250.json`: selected / not selected against fraud / not fraud, from
+  the same daily top-K selection as `fraud_caught_at_k`.
+- `errors_by_country.json`, `errors_by_payment_method.json`,
+  `errors_by_order_value_band.json`: orders, fraud, fraud rate, selected, caught,
+  `missed_fraud` (fraud not selected), `false_alarms` (selected, not fraud), precision and
+  recall at K. A slice's `caught` adds up to the run's `fraud_caught_at_k`.
+
+Order-value bands (currency unit of the data, lower bound included): `[0,3)`, `[3,5)`,
+`[5,8)`, `[8,13)`, `[13,30)`, `[30,∞)`, plus `missing`. The run tag `order_value_bands`
+records them. Reproduce locally with a file store, no server needed:
+
+```bash
+MLFLOW_TRACKING_URI=sqlite:///$HOME/mlflow-local.db uv run train boosted-trees-v2 --data-dir data
+```
+
+Before this change neither version logged any of these: v1 on the team server has none, and
+the per-country, payment and band tables in the diagnosis doc were a one-off refit. v1
+runs logged earlier lack the tables; re-log v1 (the command above does) to get them.
+
+### v2 slices from the local run (K = 250, 101,190 validation orders)
+
+Run with a local SQLite store on `data/` at commit of the logging change: fraud caught 3,042,
+confusion at K: 3,042 caught, 2,208 false alarms, 10,024 fraud missed, 85,916 not fraud
+not selected. Caught by country, v1 (diagnosis doc) to v2: PK 2,080 to 1,943; BD 514 to 587;
+PH 83 to 131; MY 105 to 296; TH 111 to 85. So the gain is in MY, PH and BD, **not** the
+PK/BD pattern the diagnosis predicted, and PK and TH lose fraud. By value band v2 catches
+785, 684, 598, 420, 362 and 193 in `[0,3)` to `[30,∞)`; the top band's recall is 0.53, and
+the v1 band table has not been logged, so band changes are not compared here.
+
+## #22 criteria: SpiralSky status (offline)
 
 | Criterion | Status |
 | --- | --- |
-| At least 2 logged versions per engineer | Open: v1 is logged on the team server; v2 only locally. Needs the team server (credentials). |
-| Curve, confusion matrix at K, slices by country, payment and value band | Partly: the confusion matrix at K and 2K prints for each run; slices are in the diagnosis doc but not logged. The PR curve and logged slice tables are not built. |
-| Run description states weakness, change, primary measure change | Evidenced in the local parent run (text above). Must be repeated on the team server. |
-| #15 review repeated at the second model review; #27 timed run after 25 Nov | Open: needs Glowing6635 and the team server. |
-| Second versions in the #25 training list by 25 Nov | Open: #25 roster; needs scoring-time history (#20, #25) and the packaged model (#16). |
+| AC1: at least 2 logged versions | Partly: v1 and v2 log under one parent run to a local store; not yet on the team server (needs credentials). |
+| AC2: curve, confusion matrix at K, slices by country, payment and value band, bands stated | Met in code and tests (`test_diagnostics.py`) for v1 and v2; to be logged on the team server with AC1. |
+| AC3: description states weakness, change and primary measure change | Met in the parent run's description (v1 AP 0.3716 to v2 AP 0.4239, fraud caught 2,893 to 3,042); repeat on the team server. |
+| AC4: #15 review repeated; #27 timed run after 25 Nov | Open, depends on #25 and Glowing6635; unchecked. |
+| AC5: second versions in the #25 training list by 25 Nov | Open, depends on #23/#25; unchecked. |

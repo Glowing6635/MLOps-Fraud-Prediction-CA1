@@ -490,3 +490,20 @@ offline result through the package: 2893 to 3042 fraud caught at K = 250, averag
 precision 0.3716 to 0.4239 ([model-v2-run.md](model-v2-run.md)). Settled: the wiring and the
 local result. Still open as listed above: the team-server log, the #15 review and the
 #25 roster entry. The fit took about 1.6 s, which narrows open item (5) to the timed run.
+
+### D22-02 — Diagnostics logged by the shared harness
+
+- Recorded: 2026-11-26. Owner: SpiralSky. Affected PBIs: #22 (AC2).
+- Decision: `training.train` logs, for every run (v1, v2 and all other candidates), a
+  precision-recall curve, a confusion matrix at K and errors by country, payment method and
+  order-value band as MLflow table artifacts under `diagnostics/`
+  (`diagnostics.py`). Bands are `[0,3)`, `[3,5)`, `[5,8)`, `[8,13)`, `[13,30)`, `[30,∞)` and
+  `missing`, the ones in model-v2-diagnosis.md, stated in the `order_value_bands` tag.
+- Reason: AC2 needs both versions to log the same evidence; one code path keeps v1 and v2
+  comparable. Slices use the daily top-K selection, so they add up to `fraud_caught_at_k`.
+- Alternatives: a separate v2-only logger (drifts from v1); PNG figures (matplotlib is a dev
+  dependency only, and tables stay machine-readable). Payment slices list every method, not
+  only those with at least 1,000 orders.
+- Impact: runs upload five small extra artifacts; the PR curve is thinned to 500 points.
+- Settled: table form, bands, thinning. Open: whether the team wants a figure rendering in a
+  notebook (needs the owner's preview approval).

@@ -20,7 +20,8 @@ produced, which covers the other #22 acceptance criteria.
   reproduces the registered result exactly: 2893 fraud caught at K = 250 a day,
   average precision 0.3716, over 101,190 labelled validation orders (13,066
   fraud) from 2023-03-27 to 2023-04-16. The slices below come from that refit,
-  not from a logged run. The #13 harness does not yet log slice tables.
+  not from a logged run. The harness now logs slice tables for every run
+  ([model-v2-run.md](model-v2-run.md)).
 - **K:** 250 orders a day in total, as D5-01 sets. Slices use the orders the model
   selects under that rule, so country shares add up to the 5,250 selected orders.
 
