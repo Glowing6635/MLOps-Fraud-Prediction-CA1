@@ -114,14 +114,50 @@ ready versions and source runs after each move. The destination version recorded
 the previous champion version on each move.
 
 See the [acting-analyst sign-off](model-review.md#4-criterion-3-acting-analyst-sign-off).
-Historical version 2 (random forest, 187 MB) is above 50 MB, so it no longer
-qualifies as challenger. Re-registering needs a live registry operation.
-The exact bytes of historical version 2 remain unverified. Size measurements for
-separate PR #164 fits cannot establish that version's size. The historical
+Historical version 2 (random forest, `9a40f8f5e35a48ddb39a97f9f052dcad`) is
+`187,236,750` bytes in the harness (`> 50 MB`), so it no longer qualifies as
+challenger. Re-registering needs a live registry operation. The historical
 sign-off applies to the recorded pair.
 [PR #165](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/165)
-is merged, so integration no longer blocks the registry work. The pick rerun
-that would put the top two runs under 50,000,000 bytes is pending read access
-to the team MLflow tracking URI. Once access exists, run
-`uv run champion-pick --k 250`. Until then the recorded pair stands, and
-version 2 (187 MB random forest) does not qualify.
+is merged, and the live read-only `uv run champion-pick --k 250` rerun against
+`laneA-live` (experiment ID `2`) was completed on `2026-11-26` (see
+[15-champion-pick-k250.md](evidence/15-champion-pick-k250.md), Comparison ID
+`81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`):
+
+- Rank 1 (`HistGradientBoostingClassifier`, `9c3a59771cf8499d92972f5c7873e280`):
+  `1,032,734` bytes (harness) / `1,032,894` bytes (artifact) — under 50,000,000
+  bytes, elected `champion`.
+- Rank 2 (`RandomForestClassifier`, `9a40f8f5e35a48ddb39a97f9f052dcad`):
+  `187,236,750` bytes (harness, `> 50 MB`) — passed over under D15-03.
+- Rank 3 (`ExtraTreesClassifier`, `8af9db9f95e543cfbfebdef82545322c`):
+  `23,109,033` bytes (harness) / `23,109,193` bytes (artifact) — under
+  50,000,000 bytes, elected `challenger` under D15-03.
+
+Under [D15-03](decision-log.md#d15-03--register-the-best-two-ranked-models-within-50-mb),
+the two elected candidates (`champion` rank 1 and `challenger` rank 3) are both
+strictly under 50,000,000 bytes; by raw validation rank, the top two do not both
+satisfy `< 50 MB`.
+
+**Registration is a separate, analyst-approved step.** Neither candidate choice
+changes the live aliases by itself. Training a lighter `< 50 MB` random forest in
+`laneA-live`, or training any run, only adds a run to the experiment; it does not
+create a `fraud-candidate` version or move the `champion`/`challenger` aliases.
+The read-only `uv run champion-pick --k 250` rerun above printed the comparison
+and its Comparison ID but wrote nothing to the registry. The historical pair
+therefore stands — `champion` v1 (`9c3a5977…`) and `challenger` v2
+(`9a40f8f5…`, `187,236,750` bytes) — until an analyst approves and runs the
+registration:
+
+```bash
+uv run champion-pick --k 250 --register fraud-candidate \
+  --approve-comparison APPROVED_ID
+```
+
+That command creates or reuses the `fraud-candidate` versions for the elected
+pair and sets both aliases; with D15-03's current ranking it promotes rank 3
+(`ExtraTreesClassifier`, `8af9db9f…`) to `challenger`. If instead a lighter
+random forest is trained and measured under 50,000,000 bytes, it re-enters by
+rank, so the preview (and therefore the Comparison ID) must be taken again
+before registering. Either path ends in the same approved `--register`
+operation; without it, version 2 (`187,236,750` bytes) remains the registered
+`challenger` and does not qualify.
