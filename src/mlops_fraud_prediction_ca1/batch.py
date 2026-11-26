@@ -111,9 +111,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     finally:
         engine.dispose()
-    seconds = time.perf_counter() - started
-    over = "  OVER BUDGET" if seconds > _COMMAND_LIMIT else ""
-    sys.stdout.write(f"Total: {seconds:.1f} s of {_COMMAND_LIMIT} s{over}\n")
+        seconds = time.perf_counter() - started
+        over = "  OVER BUDGET" if seconds > _COMMAND_LIMIT else ""
+        sys.stdout.write(f"Total: {seconds:.1f} s of {_COMMAND_LIMIT} s{over}\n")
     return 0
 
 
@@ -169,16 +169,18 @@ def _run(
 
 @contextmanager
 def _stage(name: str) -> Iterator[None]:
-    """Time one stage and print its time against its budget, or that it failed."""
+    """Time one stage and print its time against its budget, and whether it failed."""
     start = time.perf_counter()
+    outcome = "failed after "
     try:
         yield
-    except Exception:
-        sys.stdout.write(f"{name}: failed after {time.perf_counter() - start:.1f} s\n")
-        raise
-    seconds = time.perf_counter() - start
-    over = "  OVER BUDGET" if seconds > _BUDGETS[name] else ""
-    sys.stdout.write(f"{name}: {seconds:.1f} s of {_BUDGETS[name]} s{over}\n")
+        outcome = ""
+    finally:
+        seconds = time.perf_counter() - start
+        over = "  OVER BUDGET" if seconds > _BUDGETS[name] else ""
+        sys.stdout.write(
+            f"{name}: {outcome}{seconds:.1f} s of {_BUDGETS[name]} s{over}\n"
+        )
 
 
 def _count_rows(engine: Engine) -> dict[str, int]:

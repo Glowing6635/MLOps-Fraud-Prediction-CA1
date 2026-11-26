@@ -142,7 +142,10 @@ def test_a_failed_download_stops_the_run_at_its_stage(
     assert batch.main(urls) == 1
 
     output = capsys.readouterr()
-    assert _without_times(output.out)[4:] == ["Fetch and validate: failed after T s"]
+    assert _without_times(output.out)[4:] == [
+        "Fetch and validate: failed after T s of 25 s",
+        "Total: T s of 180 s",
+    ]
     assert "Batch stopped: Downloading customers_b1.csv failed with HTTP 404" in (
         output.err
     )

@@ -84,7 +84,7 @@ The command first prints the target database host, database name and MLflow expe
 4. Train and log: trains the baseline model on them and logs the run to MLflow. Per-batch retraining of every candidate (#25) replaces this once it reaches `dev`.
 5. Report: prints each table's rows before and after, the number of MLflow runs logged with this `etl_run_id`, and a link that lists them on the MLflow server.
 
-It ends with the total time against the 180-second limit. That total starts after the settings are read, so it leaves out start-up. A failed stage prints `failed after` with its time, and the command exits with status 1. A failure before the load ends leaves the database as it was. Running the command again for a loaded batch adds no rows and logs new runs.
+It ends with the total time against the 180-second limit. That total starts after the settings are read, so it leaves out start-up. A failed stage prints `failed after` with its time against its budget, the total follows, and the command exits with status 1. A failure before the load ends leaves the database as it was. Running the command again for a loaded batch adds no rows and logs new runs.
 
 To time a run as the three-minute check (#27) asks, rebuild the rehearsal database with #24's reset command (pull request #160 until it merges), point `.env` at it, and time the whole command in PowerShell. The exit status it prints last must be 0:
 
