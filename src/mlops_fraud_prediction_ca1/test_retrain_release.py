@@ -141,8 +141,11 @@ def test_release_through_reader_includes_later_batch_and_counts_old_rows(
     assert kwargs["tags"]["scores_out_of_sample"] == "False"
     assert kwargs["tags"]["mlflow.runName"] == "m-late-etl1"
     assert metrics["train_new_rows"] == 2
-    assert "average_precision_delta" not in metrics
-    assert "average_precision" not in report.results["m"]
+    # AC8: release runs still log the champion comparison, flagged in-sample.
+    assert metrics["champion_average_precision"] == 0.5
+    assert metrics["average_precision_delta"] == 0.5
+    assert metrics["beats_champion"] == 1
+    assert report.results["m"]["scores_out_of_sample"] is False
     assert "mode=release" in lines[0]
 
 
@@ -153,7 +156,11 @@ def test_evaluation_through_reader_is_out_of_sample_and_disjoint(database, write
     kwargs, metrics = calls[0]
     train_rows, validation = kwargs["labelled_windows"]
     assert not set(train_rows["order_id"]) & set(validation["order_id"])
-    assert not set(train_rows["order_date"]) & set(validation["order_date"])
+    train_dates = pd.to_datetime(train_rows["order_date"])
+    validation_dates = pd.to_datetime(validation["order_date"])
+    assert len(train_dates) and len(validation_dates)
+    assert not set(train_dates) & set(validation_dates)
+    assert train_dates.max() < validation_dates.min()
     assert kwargs["tags"]["scores_out_of_sample"] == "True"
     assert metrics["average_precision_delta"] == 0.5
     assert "train_orders" not in metrics

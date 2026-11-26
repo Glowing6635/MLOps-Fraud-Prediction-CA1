@@ -111,19 +111,16 @@ def retrain(
     validation_hash = hashlib.sha256(
         validation.to_csv(index=False).encode()
     ).hexdigest()
-    champion_caught = champion_ap = None
-    if not release:
-        champion = score_rows(inputs.champion_model, validation, k=inputs.k)
-        champion_caught = champion.at_k.fraud_caught
-        champion_ap = champion.average_precision
-        if champion_ap is None:
-            raise ValueError("Frozen validation must support average precision.")
+    champion = score_rows(inputs.champion_model, validation, k=inputs.k)
+    champion_caught = champion.at_k.fraud_caught
+    champion_ap = champion.average_precision
+    if champion_ap is None:
+        raise ValueError("Frozen validation must support average precision.")
 
     def comparison(result):
-        if release:
-            # Release models also fit the frozen validation rows, so their scores are
-            # in-sample and are not compared with the champion's out-of-sample ones.
-            return dict(counts)
+        # Release models also fit the frozen validation rows, so their scores are
+        # in-sample (tagged scores_out_of_sample=False): the comparison is logged for
+        # the record but cannot support promotion.
         caught = result.report.at_k.fraud_caught
         ap = result.report.average_precision
         return {
@@ -164,12 +161,10 @@ def retrain(
                 **comparison(result),
                 "fit_seconds": result.fit_seconds,
                 "mlflow_run_id": run_id,
+                "fraud_caught_at_k": result.report.at_k.fraud_caught,
+                "average_precision": result.report.average_precision,
+                "scores_out_of_sample": not release,
             }
-            if not release:
-                report.results[spec.name] |= {
-                    "fraud_caught_at_k": result.report.at_k.fraud_caught,
-                    "average_precision": result.report.average_precision,
-                }
         except Exception as error:  # noqa: BLE001 - isolate each candidate failure
             report.failures[spec.name] = f"{type(error).__name__}: {error}"
             log(f"FAILED {name}: {report.failures[spec.name]}")

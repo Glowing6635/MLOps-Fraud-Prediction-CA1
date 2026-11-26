@@ -49,12 +49,14 @@ are provisional until the team confirms the roster; add each logged #22 version 
 its own entry.
 
 `uv run retrain-batch BATCH_ID module:factory --mode release` reads every labelled
-order (no date cut-off, later batches included) and is refused while the #6
+order dated on or after the training start in `config/time_split.toml` (no upper
+date cut-off, later batches included) and is refused while the #6
 holdout setting (`test_locked`) is on. It never touches #23 results or the champion
 artifact; runs are tagged `retrain_mode=release`, `champion_eligible=False`.
 Because release models also fit the frozen validation rows, their harness scores
-are in-sample: they carry `scores_out_of_sample=False`, and no champion comparison
-is logged. The run stops if the invocation's batch has no eligible rows, so a
+are in-sample: they carry `scores_out_of_sample=False`. Each run still logs the
+comparison against the current champion on the frozen validation rows, but it is
+in-sample, so it never supports promotion (the champion is not auto-promoted). The run stops if the invocation's batch has no eligible rows, so a
 cut-off cannot silently drop a whole batch.
 
 ## Shared harness contract (#170, merged in dev a14bf94)
