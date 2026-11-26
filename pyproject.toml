@@ -25,6 +25,7 @@ rds-schema = "mlops_fraud_prediction_ca1.rds_schema:main"
 train = "mlops_fraud_prediction_ca1.training:main"
 load-batch = "mlops_fraud_prediction_ca1.loading:main"
 run-batch = "mlops_fraud_prediction_ca1.batch:main"
+review-queue = "mlops_fraud_prediction_ca1.review_queue:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]

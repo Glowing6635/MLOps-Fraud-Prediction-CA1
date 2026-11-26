@@ -160,13 +160,21 @@ def _load_window(
 def _labelled_inputs(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The keys and label, and the features, of labelled order rows a caller passes in."""
     rows = rows.reset_index(drop=True)
+    return rows[_KEYS].astype({"is_fraud": int}), order_features(rows)
+
+
+def order_features(rows: pd.DataFrame) -> pd.DataFrame:
+    """The model inputs of order rows read from the team database, as models train on them.
+
+    Used for training here and for scoring with the champion (issue #33).
+    """
     features = rows[list(ORDER_FEATURE_COLUMNS)].copy()
     # The database driver returns DECIMAL columns as Decimal objects, which the models
     # would one-hot encode as text.
     for name, column in features.items():
         if column.map(lambda value: isinstance(value, Decimal)).any():
             features[name] = column.astype("float64")
-    return rows[_KEYS].astype({"is_fraud": int}), _model_inputs(features)
+    return _model_inputs(features)
 
 
 def _model_inputs(features: pd.DataFrame) -> pd.DataFrame:

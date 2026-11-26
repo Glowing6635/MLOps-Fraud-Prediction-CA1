@@ -46,7 +46,7 @@ Run these once, with the AWS CLI and the sandbox credentials in `~/.aws/credenti
 
    All three are safe to re-run. Running `reader` again for the same name changes that user's password.
 
-6. Each engineer sets `DB_USER=<name>_reader` and their own password in their `.env`, and runs `uv run rds-schema check` from their own laptop. It lists the four tables and shows the user can only read (`GRANT SELECT`).
+6. Each engineer sets `DB_USER=<name>_reader` and their own password in their `.env`, and runs `uv run rds-schema check` from their own laptop. It lists the five tables and shows the user can only read (`GRANT SELECT`).
 
 7. Make the user that loads batches. With the admin settings still in `.env`, run this; it asks for the new user's password:
 
@@ -91,3 +91,21 @@ To time a run as the three-minute check (#27) asks, rebuild the rehearsal databa
 ```powershell
 Measure-Command { uv run run-batch $env:CUSTOMERS_URL $env:ORDERS_URL $env:LABELS_URL | Out-Default }; $LASTEXITCODE
 ```
+
+## Daily review queue
+
+After a batch is loaded, this ranks its orders with the champion: the version of the registered model `fraud-candidate` that its alias `champion` names in MLflow. Nothing is retrained. Use the same `.env` as for loading a batch, with the `<name>_writer` user.
+
+```
+uv run review-queue <batch>
+```
+
+The first time, `uv run rds-schema tables` with the admin settings must add the `review_queue` table. It leaves the other tables alone.
+
+The command prints the champion's version, then:
+
+1. The orders ranked, the orders withheld as test data, and the orders without a label. The holdout setting in `config/time_split.toml` keeps the locked test window out of the ranking. The champion uses order columns only, so an order without a label is scored like the rest.
+2. The queue: each day's top K orders (K = 250, D5-01 in `docs/decision-log.md`), or all of them on a day with fewer, stored in `review_queue` with the model version. A rerun for the same batch and model version writes nothing.
+3. Precision at K: the share of fraud among queued orders with a valid label. The labels are joined only after the queue is stored. Queued orders without a valid label are counted but left out of the share.
+
+It logs one MLflow run, `review-queue-<batch>-v<version>`, holding the queue as a CSV (date, country, order ID, the customer ID from the labels file, and score), the counts and precision at K. If the batch is not loaded, or all its orders are in the test window, it stops with status 1 and writes nothing. Precision from a rehearsal only shows the command works; never quote it as a result.
