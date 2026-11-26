@@ -340,6 +340,27 @@ def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
     assert "--k-status" in capsys.readouterr().err
 
 
+def test_balanced_weighting_leaves_the_validation_fraud_rate_natural(data_dir):
+    # Criterion 2 of #17: weights change the fit only; the scored window is untouched.
+    results = {
+        weighting: fit_and_score(
+            baseline_model(class_weight=weighting), data_dir, k=K, seed=0
+        )
+        for weighting in (None, "balanced")
+    }
+    validation = pd.read_csv(data_dir / "labels_base.csv")
+    validation = validation[validation.order_id.str.startswith("validation")]
+    natural = validation.is_fraud.mean()
+    assert 0 < natural < 0.5  # imbalanced, so a rebalanced window would differ
+    for result in results.values():
+        assert result.validation_orders == len(validation)
+        assert result.report.at_k.total_fraud / result.validation_orders == natural
+    assert (
+        results[None].report.at_k.total_fraud
+        == results["balanced"].report.at_k.total_fraud
+    )
+
+
 @pytest.mark.parametrize("weighting", [None, "balanced"])
 def test_feature_group_cli_logs_weighting_for_both_runs(
     weighting, data_dir, tmp_path, monkeypatch

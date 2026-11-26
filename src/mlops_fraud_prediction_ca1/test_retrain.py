@@ -14,7 +14,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-from . import config, retrain, training
+from . import champion, config, retrain, training
 from .loading import load_files
 from .retrain import EvaluationInputs, ModelSpec, validate_manifest
 from .test_rds_reads import customer, order
@@ -175,6 +175,31 @@ def test_shared_harness_stops_oversized_model_before_upload(inputs, tracker):
     assert mlflow.search_logged_models(experiment_ids=[run.info.experiment_id]).empty
 
 
+def test_artifact_limit_matches_the_champion_rule_and_rejects_52_4_mb(
+    inputs, tracker, monkeypatch
+):
+    assert retrain.MAX_ARTIFACT_BYTES == champion.SIZE_NOTE_BYTES == 50_000_000
+    rows, _ = _snapshot()
+    original = Path.stat
+
+    class _Stat:
+        st_size = 52_400_000
+        st_mode = original(Path(".")).st_mode
+
+    monkeypatch.setattr(
+        training.Path, "is_file", lambda self: self.name == "model.skops"
+    )
+    monkeypatch.setattr(training.Path, "stat", lambda self, **kwargs: _Stat())
+    with pytest.raises(ValueError, match="Saved model has"):
+        training.train(
+            _candidate(),
+            k=1,
+            seed=42,
+            labelled_windows=(rows.dropna(subset=["is_fraud"]), inputs.validation_rows),
+            max_model_size_bytes=retrain.MAX_ARTIFACT_BYTES,
+        )
+
+
 def _score(caught, ap):
     return SimpleNamespace(
         at_k=SimpleNamespace(fraud_caught=caught), average_precision=ap
@@ -191,7 +216,7 @@ def test_candidate_size_failures_and_unique_ids(inputs, monkeypatch):
     monkeypatch.setattr(retrain, "read_training_snapshot", lambda engine: _snapshot())
 
     def reject_oversize(estimator, *, max_model_size_bytes, **kwargs):
-        assert max_model_size_bytes == 52_428_800
+        assert max_model_size_bytes == 50_000_000
         raise ValueError("model exceeds size limit")
 
     def run():

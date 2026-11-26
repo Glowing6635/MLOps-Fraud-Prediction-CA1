@@ -10,11 +10,12 @@ from importlib import import_module
 
 import pandas as pd
 
+from .champion import SIZE_NOTE_BYTES
 from .rds_reads import read_training_snapshot
 from .splitting import split_orders
 
 TRAIN_AND_LOG_SECONDS = 85
-MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
+MAX_ARTIFACT_BYTES = SIZE_NOTE_BYTES  # 50,000,000 bytes, as in D15-03
 
 
 @dataclass(frozen=True)
