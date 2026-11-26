@@ -330,3 +330,27 @@ def test_group_limits_select_fewer_than_k(k, group_limits, selected):
 def test_invalid_selection_options_are_rejected(options, message):
     with pytest.raises(ValueError, match=message):
         select_top_k(ORDER, [0.5], 2, **options)
+
+
+@pytest.mark.parametrize("field", ["order_date", "country_code", "order_id"])
+def test_nullable_dataframe_key_is_reported_as_missing(field):
+    orders = pd.DataFrame(
+        {"order_date": ["d1"], "country_code": ["SG"], "order_id": ["o1"]},
+        dtype="string",
+    )
+    orders.loc[0, field] = pd.NA
+    with pytest.raises(ValueError, match="is missing one"):
+        select_top_k(orders, [0.5], k=1)
+
+
+def test_nullable_label_is_reported_as_invalid():
+    orders, scores = _orders(("d1", "SG", "o1", pd.NA, 0.5))
+    with pytest.raises(ValueError, match="is_fraud must be 0 or 1"):
+        evaluate_top_k(orders, scores, k=1)
+
+
+def test_nullable_score_is_only_rejected_for_eligible_orders():
+    orders, _ = _orders(("d1", "SG", "o1", 1, 0.5))
+    assert not select_top_k(orders, [pd.NA], k=1, eligible=[False]).any()
+    with pytest.raises(ValueError, match="score that is not finite"):
+        select_top_k(orders, [pd.NA], k=1)

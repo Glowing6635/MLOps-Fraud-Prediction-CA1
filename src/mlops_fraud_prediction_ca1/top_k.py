@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from itertools import groupby
 
 import numpy as np
+import pandas as pd
 
 _KEY_COLUMNS = ("order_date", "country_code", "order_id")
 ORDER_COLUMNS = (*_KEY_COLUMNS, "is_fraud")
@@ -84,7 +85,7 @@ def evaluate_top_k(
             "The order columns and the scores must all have the same length."
         )
     for order_id, label in zip(orders["order_id"], labels, strict=True):
-        if label not in (0, 1):
+        if label is pd.NA or label not in (0, 1):
             raise ValueError(
                 f"is_fraud must be 0 or 1, but order {order_id} has {label}."
             )
@@ -148,7 +149,7 @@ def select_top_k(
     bool). A group not in the mapping keeps its K.
 
     Raises `ValueError` for a K that is not a Python int of at least 1, a country with
-    no K, a missing column, a missing date, country or order ID (None, NaN or NaT),
+    no K, a missing column, a missing date, country or order ID (None, NA, NaN or NaT),
     columns of different lengths, an `order_id` repeated within one `country_code`, a
     score that is not finite (only an eligible order's, when `eligible` is given), an
     `eligible` of another length or not all bools, or a group limit for no group in the
@@ -186,14 +187,16 @@ def select_top_k(
         zip(*(orders[column] for column in _KEY_COLUMNS), scores, strict=True)
     ):
         if any(
-            value is None or value != value  # noqa: PLR0124 - only NaN and NaT are unequal to themselves.
+            value is None or value is pd.NA or value != value  # noqa: PLR0124 - NaN and NaT
             for value in (order_date, country_code, order_id)
         ):
             raise ValueError(
                 f"Every order needs an order_date, country_code and order_id, but order"
                 f" {order_id} in country {country_code} on {order_date} is missing one."
             )
-        if eligible[position] and not math.isfinite(score):
+        if eligible[position] and (
+            score is None or score is pd.NA or not math.isfinite(score)
+        ):
             raise ValueError(
                 f"Order {order_id} has a score that is not finite: {score}."
             )
