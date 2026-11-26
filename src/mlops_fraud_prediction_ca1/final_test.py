@@ -8,11 +8,11 @@ threshold X. Scoring needs a clean git tree, so the settings and the code are ex
 commit, and `final_evaluation_enabled = true` in `config/time_split.toml`.
 
 The test window is scored once per MLflow store: a run tagged `final_test = true` in
-any experiment, deleted ones included, stops a new attempt. Every check that reads no test row runs
-first, and a refit is fitted before the test window is read. The run tagged
-`final_test = true` is created just before the first test row is read: a failure before
-that leaves no run and can be retried, and from then on the attempt is used up, even if
-it fails. A second attempt stops before reading anything.
+any experiment, deleted ones included, stops a new attempt. Every check that reads no
+test row runs first, and a refit is fitted before the test window is read. The run
+tagged `final_test = true` is created just before the first test row is read: a
+failure before that leaves no run and can be retried, and from then on the attempt is
+used up, even if it fails. A second attempt stops before reading anything.
 """
 
 import argparse
