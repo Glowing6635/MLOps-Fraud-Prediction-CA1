@@ -2,6 +2,10 @@
 
 How to create the team's cloud services in the AWS sandbox account and set them up. Every service uses only the sandbox's own `LabRole` and `LabInstanceProfile`. Nothing creates an IAM user, role or policy.
 
+For an approved separate Learner Lab account, see the [recreation and recovery
+runbook](../mlflow-server/LAB-RECREATE.md). It covers scoped provisioning,
+data transfer, verification and teardown of trial resources.
+
 ## RDS database
 
 Run these once, with the AWS CLI and the sandbox credentials in `~/.aws/credentials`, which you paste in fresh each session. In Git Bash, run `export MSYS_NO_PATHCONV=1` first.

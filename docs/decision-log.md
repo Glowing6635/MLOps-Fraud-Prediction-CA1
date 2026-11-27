@@ -246,3 +246,53 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D26-02 — Scope Learner Lab recreation and data recovery
+
+- Settled for tooling, 2026-11-27. Owner: SpiralSky. Affected PBI: #26.
+- Decision: keep the recorded SingleInstance Docker, MySQL, ECR, S3, SSM
+  and existing lab roles. Validate existing network rules and account-specific
+  inputs before launching. Create an isolated trial by explicit phase, verify
+  matching existing resources on repeat, and stop on drift. Keep the reviewed
+  image inputs and deploy the destination image by digest.
+- Recovery scope: one repeatable-read snapshot of the four approved InnoDB
+  fraud tables, and a quiesced S3 artifact prefix, with a manifest and local
+  checksums. Prefer data-only rows and bound inserts into a checked empty
+  schema. Use conditional writes and destination checksum validation for S3.
+  Require separate authorization for each direction. Leave MLflow tracking,
+  registry, authentication and all credentials outside the envelope.
+- Rationale: the measured RDS instance uses the default AWS-managed key
+  and the observed snapshots were automated. The source inventory recorded
+  artifact and registry sizes without downloading data or reading secrets.
+  The existing Quickstart supplies the runtime contract, pinned source and
+  success observations. Its default EB group and later ingress action do
+  not fit this trial's approved network boundary. [AWS snapshot sharing
+  restrictions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ShareSnapshot.html)
+  · [AWS EB group behavior](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features.managing.ec2.aws-cli.html)
+  · [MySQL consistent snapshot](https://dev.mysql.com/doc/refman/8.0/en/commit.html)
+  · [S3 conditional write and checksum](https://docs.aws.amazon.com/cli/latest/reference/s3api/put-object.html)
+- Alternatives: a manual snapshot with a customer-managed key could migrate
+  more state, but requires separately authorized key and snapshot operations,
+  additional storage/cost, and explicit disposition of sensitive contents.
+  A whole-database logical dump would require broader rights and could copy
+  auth material and source-account references. Re-loading approved raw
+  inputs and re-running models can create a fresh tracking environment, with
+  elapsed time and any historical registry gaps recorded by the owner. A
+  genuine rehearsal with scoped credentials is required to compare transfer
+  duration and actual recovery with that reload path.
+- Impact: provisioning can be separately tested before any data movement.
+  The DB and artifact envelope can verify a narrow recovery with checksum
+  and row evidence. It cannot recover old runs or model aliases on its own.
+  S3 and RDS have separate commit/rollback behavior. The observed source
+  size is only a sizing proxy. CE lag, readiness and permissions still
+  constrain the approved window. See the [runbook](../mlflow-server/LAB-RECREATE.md).
+- Open: SpiralSky decides the actual source-data scope, network and secret
+  provisioning, whether to preserve/recreate historical registry metadata,
+  and the authorization for a follow-up trial or alternate recovery.
+  The coordinator owns current budget confirmation, live IAM/no-LB
+  observation, stopped-window evidence, independent operator assignment and
+  verifying trial-only cleanup. No cloud migration evidence is claimed.
+- Input lineage: redacted inventory and provenance in Steward
+  `evidence/agile-mlops/lab-recreate/`. Reviewed Quickstart source
+  patch and witness checklist in `evidence/agile-mlops/p26-operator-handoff/`.
+  Approach episode `fdf2584e88df4b2f8597d82099ab215e`, variant B.

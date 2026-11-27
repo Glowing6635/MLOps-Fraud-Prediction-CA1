@@ -1,0 +1,355 @@
+# Recreate the Learner Lab
+
+Use `mlflow-server/lab-recreate` from the repository root on an approved,
+headless Linux or macOS operator machine. It recreates the #26 deployment
+shape in a separate account scope and can transfer the approved fraud data
+and artifact objects. The normal deployment and its seven settings are
+documented in [Deploy](DEPLOY.md) and [Settings](README.md#settings). See
+[decision D26-02](../docs/decision-log.md#d26-02--scope-learner-lab-recreation-and-data-recovery)
+for what can be recovered.
+
+## Set up the operator machine
+
+- Use Bash, Python 3.11 or newer, AWS CLI v2, and a private, encrypted local
+  filesystem. For RDS data commands, use the repository's Python 3.12 and
+  locked PyMySQL through uv. Set up with `uv sync --locked` before the approved
+  window. For image publication, use a local Docker engine and buildx that can
+  build Linux AMD64 and publish an OCI index with provenance. On an ARM host,
+  check AMD64 emulation in advance. Use the explicitly approved local Unix
+  socket. Reserve space on the actual Docker engine filesystem.
+- Use an explicit AWS CLI profile for the approved account's short-lived
+  `voclabs` role. Refresh credentials privately. Keep CLI history disabled
+  in the selected and default profiles and use standard AWS service endpoints
+  and certificate verification. The tool accepts only `us-east-1` and checks
+  the exact account and caller before opening SQL or making changes.
+- Create one operator-owned directory outside the repository with mode
+  `0700`, on the approved encrypted filesystem. Store JSON configuration
+  and password-only files there with mode `0600`. Use absolute, canonical
+  paths. Keep the directory out of backups to unapproved storage, shell
+  history, Git, and shared logs. AWS and Docker output is captured privately.
+  Redacted output includes sizes, state, counts and digests. The manifest and
+  archive remain private.
+- Confirm exclusive trial scope across machines and coordinate the source and
+  destination quiescence windows. Use the same private directory for phases
+  on one machine so its apply lock can prevent concurrent local execution.
+  The local lock cannot protect an account against another operator or service.
+
+Copy [the example](lab/config.example.json) into the private directory and
+replace the example values. Each invocation uses an approval record for the
+exact operation and scope. Set `approval.operation` to
+`create-lab/foundation`, `create-lab/image`, `create-lab/server`, `backup-data`,
+`restore-data`, `verify/stack` or `verify/data` as applicable. Use an explicit
+`source_db` and `source_bucket` for backup. Restore and verify-data need
+`approved_source_account`, the independently received `manifest_sha256`, and
+the destination user's password file. Keep source and destination
+configurations separate and use different AWS account IDs. Do not reuse source network IDs,
+RDS endpoints, Docker registry addresses, or secret values.
+
+```bash
+./mlflow-server/lab-recreate --help
+./mlflow-server/lab-recreate create-lab --phase foundation --config "$FOUNDATION_CONFIG" --offline
+./mlflow-server/lab-recreate create-lab --phase foundation --config "$FOUNDATION_CONFIG" --dry-run
+```
+
+`--offline` checks private inputs, sizes, time and estimates and makes no
+network calls or files. `--dry-run` is the default. It validates against live
+AWS and, for data operations, reads SQL metadata or the approved verification
+scope. It creates no files or resources and does no transfer or restore.
+AWS requests and reads may have charges. `--apply` is an explicit action
+for a separately authorized operation, account, window and trial. The tool
+fetches Cost Explorer (CE) before its first change in each apply invocation
+that has work to do. CE is a billable API. Treat local dry-run and the live
+read preflight as different evidence.
+
+## Exact preflight
+
+Confirm the following with the coordinator for the current lab. The JSON
+attestations refer to checks already performed by the approved operator
+or observer.
+
+| Check | Operator evidence and command behavior |
+| --- | --- |
+| Account, trial and window | Bind the profile, account ID, region and unique trial name to the authorization. Record credential expiry separately from lab expiry. Calculate a work cutoff that preserves stopped observation and teardown. Check every resource with the same profile. A wrong account, expired window or disallowed caller stops work. |
+| Ownership and limits | Reserve the derived trial names with the account owner before launch. Precheck IAM access and account limits for S3 buckets, ECR repositories, EC2 On-Demand vCPU, and any lab-specific restrictions. The tool also checks RDS instance, storage and parameter-group quotas and engine availability, EB application/environment/version limits, EC2 elastic IP availability and instance offering, and subnet free IPs. A quota result cannot reserve capacity. |
+| Network groups and rules | Use distinct existing trial-approved groups in the target VPC. The DB group must already admit TCP 3306 from the EB group and only the explicitly approved client /32s. The EB group must admit TCP 80 from the named approved /32s only. Verify egress, routes, subnet choice and reachability for EB, RDS, ECR, S3 and SSM. The tool rejects broader or different ingress. It does not create a rule, add a client or use the public default EB group. If the exact rules do not exist, stop and take the gap to the network owner. |
+| Roles and inputs | Check existing `LabRole`, `LabInstanceProfile`, RDS and Auto Scaling service-linked roles and operator ability to pass the existing roles. Confirm applicable lab controls prevent IAM creation and collect the no-IAM audit separately. A caller's ability to read a role does not prove the service can use it. Confirm the owner has installed only approved destination SQL and SSM inputs and that SSM and S3 access via the instance profile is allowed. |
+| Billing and storage | Verify available credit, CE posting lag, current rates, paid requests/transfer, local disk and throughput estimate, other builds or lab users, and retention through teardown. Confirm the operator's exact data-read/write and cleanup scope. Stop for unavailable CE, an unreliable upper bound, over USD 10 cumulative trial cost, or less than USD 15 projected remaining credit. |
+
+The underlying network and SSM preparations belong to the approved owner.
+The tool creates no IAM resource, load balancer, VPC, SQL grant, login, or SSM
+value. It leaves existing ingress and shared resources untouched. The
+private config must not stand in for actual authorization. Missing permission
+or uncertainty about who owns an existing resource stops the procedure.
+
+## Create a replacement lab
+
+The trial name derives RDS instance `p26-<trial>-db`, a `mysql8.4` parameter
+group `p26-<trial>-mysql84`, EB application/environment `p26-<trial>-mlflow`,
+ECR repository `p26-<trial>/mlflow-server`, and two
+`p26-<account>-<trial>-{artifacts,bundle}` buckets. Reuse is limited to matching
+resources tagged `P26Trial=<trial>`. Reserve an available EB CNAME separately.
+
+1. Use `create-lab --phase foundation` with the approved private RDS bootstrap
+   input and existing network. The foundation makes the parameter group
+   first, then encrypted Single-AZ MySQL 8.4.11 on db.t3.micro with 20 GiB
+   gp3, baseline 3,000 IOPS/125 MiB/s, AWS-managed encryption, deletion protection
+   and a one-day retention period. Certificate-verified TLS remains required. An
+   available instance needs its parameter group in sync and its security
+   group active. Allow at least 15 minutes, plus headroom for slower
+   provisioning. It verifies the two account-owned private SSE-S3 buckets,
+   with public access blocked and BucketOwnerEnforced ownership, and an
+   immutable, AES256, scan-on-push ECR repository. A reused resource must
+   match the expected settings, owner and trial marker.
+2. The permitted account owners bootstrap the established schemas and
+   service access separately. The fraud data path requires the exact four
+   `fraud` tables from [the database runbook](../docs/runbook.md#rds-database)
+   and separately authorized source and destination users. For MLflow,
+   the owner can attest that the current runtime inputs were provisioned
+   through an authorized process. Match the four SecureString names in
+   [Settings](README.md#settings), replacing source-specific DB hostnames
+   and parameter ARNs for the destination. The tool checks SSM metadata
+   only. It cannot verify the values or grants. Stop if the approved
+   owner cannot provision them without crossing the trial boundary.
+3. Use `create-lab --phase image`. The Dockerfile base digest, dependencies
+   with hashes, CA checksum and startup script are pinned. The tool checks
+   source input hashes, creates a minimal Docker context, and publishes
+   the immutable `3.18.0-r1` tag into the trial repository with a Linux AMD64
+   manifest. Save the returned destination digest in private `image_digest`
+   and verify it before use. A rebuild from pinned inputs need not match
+   the source account's byte-level image digest. An existing tag requires an
+   independently witnessed matching destination digest. The trial path has
+   no registry-to-registry copy. Allow about 10–20 minutes for a cold build
+   as a planning assumption and at least `2 GiB + 4 × image_max_bytes`
+   available on the checked Docker filesystem. Cap upload bandwidth, build
+   time and registry/storage budget in the authorization. The size of a new
+   image is confirmed after its first push.
+4. Use `create-lab --phase server`. This applies the reviewed input checks
+   and all seven runtime options at launch. It assembles a deterministic
+   ZIP with the reviewed health and nginx settings, generating Dockerrun
+   with the destination ECR registry and pinned digest. The checksum-bound
+   application version uses the separate bundle bucket. EB runs the pinned
+   Docker AL2023 platform, SingleInstance t3.small x86-64, 8 GiB gp3, with
+   Spot, managed actions and the public default group disabled. Allow at
+   least 15 minutes and extra cleanup time. If the exact pinned RDS engine,
+   Docker platform, or roles are unavailable, stop. An approved replacement
+   version needs a separate compatibility decision.
+5. Use `verify` for the stack. It checks the exact version and bundle checksum,
+   existing roles, the four SSM names, RDS readiness and groups, expected EB
+   options, actual instance and volume, absence of an LB and unauthenticated
+   `/health` status. It does not send credentials or follow redirects.
+   Follow the reviewed Quickstart's synthetic `log-test-run` and artifact
+   retrieval only from the separately approved operator transport and login.
+   Record the non-author result, IAM audit, stopped-window bill and cleanup
+   evidence separately. HTTP 200 alone does not prove authenticated access
+   or persistence.
+
+Enable apply for an individual phase only after its dry-run and scope review.
+
+```bash
+./mlflow-server/lab-recreate create-lab --phase image --config "$IMAGE_CONFIG" --dry-run
+./mlflow-server/lab-recreate create-lab --phase server --config "$SERVER_CONFIG" --dry-run
+./mlflow-server/lab-recreate verify --config "$VERIFY_STACK_CONFIG"
+```
+
+### Reviewed source
+
+The baseline is dev `a14bf948a94d0ffb4946b49008010dd001fd2dd8`. The
+reviewed #26 Quickstart is pinned by Steward evidence
+`evidence/agile-mlops/p26-operator-handoff/p26-quickstart-source.patch`.
+SHA-256 `9fe2cb14736f028417e24b21f9bc51106030e6a0a82986256ea2987d278e455e`
+applied to `29a931d789241581409762dee5febe81f80fd85f` yields the independently
+reviewed tree `343737c3f0e9920011e7d5cd943a6cdce3a1b951`. Its image build,
+first-boot seven-setting contract, health evidence and synthetic run/artifact
+check carry forward. The prior deployment command uses an EB-created default
+security group and adds DB ingress after creating the environment. For this
+restricted trial, the existing approved group is validated before AWS
+creates the environment. See [AWS EB custom security group behavior](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features.managing.ec2.aws-cli.html).
+
+The redacted input under Steward evidence `agile-mlops/lab-recreate/`
+was recorded on 27 November 2026. Confirm settings against the destination
+account even if the source inventory is still recent.
+
+## Back up approved data
+
+Use a future, separately authorized operation against the explicit source
+account and artifact bucket after confirming the runtime actually used it.
+Stop all writers to the selected fraud tables and artifact prefix and any
+DDL or MLflow changes that would break a coherent checkpoint. Confirm
+permission to copy both scopes and the absence of auth material in the
+approved artifacts. The data commands only accept the existing fraud
+scope and four InnoDB base tables. An approved `*_reader` user needs access
+to read the four tables and their metadata. An owner must confirm no
+triggers or DDL changes, including triggers hidden from this reader.
+The tool always connects with certificate and hostname verification.
+
+```bash
+uv run --locked --no-env-file bash mlflow-server/lab-recreate backup-data --config "$SOURCE_CONFIG" --dry-run
+```
+
+Before any copy, the tool lists the exact S3 prefix, measures object count
+and bytes, reads approximate InnoDB lengths, checks the approved upper
+bounds and private disk, and estimates duration and cost. Use a new private
+`backup_name`. It dumps data only from a single repeatable-read, read-only
+InnoDB snapshot in primary-key order. No executable SQL, grants or schema
+DDL are exported. S3 sync uses owner-checked and ETag-conditional reads
+under exactly `artifacts/`, and verifies the same inventory before and
+after. Rows and artifacts get byte counts and SHA-256. The manifest is
+published last and its digest is printed. Record that digest independently
+with the source-account alias, date, scope, approvals and diligence record.
+The database snapshot and S3 listing do not share a transaction. Keep
+writers quiesced throughout the export.
+
+The artifact scope covers ordinary STANDARD objects of at most 5 GB each.
+Directory markers, archived or unsupported keys, traversal and file/dir
+or case collisions stop the run. It preserves payload bytes and relative
+object keys. The manifest records omissions, including S3 metadata,
+versions, ACLs and tags. An incomplete directory has no final manifest and
+cannot be used for restore. Keep it private until the owner approves
+disposal. Never commit the archive or use the manifest as a public report.
+
+## Restore data and verify
+
+Separate approval is required for the exact destination trial and the
+independently received source manifest SHA-256. Use the authorized fraud
+`*_writer` with existing SELECT/INSERT and metadata access on only the
+required scope. Confirm empty tables initialized to the same DDL, no
+triggers, and an empty verified trial artifact prefix. Keep all writers
+and the application stopped on that destination scope until recovery is
+verified. The read-only default checks the manifest, source/destination
+accounts, per-file hashes, SQL schema, empty target and recent RDS free
+storage. Import requires at least `3 × dump bytes + 1 GiB` of RDS headroom
+for data, undo and logs.
+
+```bash
+uv run --locked --no-env-file bash mlflow-server/lab-recreate restore-data --config "$RESTORE_CONFIG" --offline
+uv run --locked --no-env-file bash mlflow-server/lab-recreate restore-data --config "$RESTORE_CONFIG" --dry-run
+uv run --locked --no-env-file bash mlflow-server/lab-recreate verify --data --config "$VERIFY_DATA_CONFIG"
+```
+
+On apply, S3 uses conditional create-only uploads with server-validated
+SHA-256, and reads back the checksum and expected inventory. The DB side
+locks empty tables and imports bound values in one InnoDB transaction.
+It re-reads and hashes all restored rows before committing. There is no
+cross-service transaction. After an interrupted restore, matching S3
+objects may remain while SQL rolled back, or a lost DB response can leave
+commit state uncertain. Do not rerun over populated data. With the
+coordinator, compare exact partial object checksums and DB state, then use
+approved targeted cleanup or a fresh trial. Run `verify --data` while
+quiesced for an independent read of the restored bytes and counts.
+
+### Account-specific references and recovery gaps
+
+The deployment derives the new ECR registry, account-owned buckets and SSM
+ARNs. The owner binds the private destination backend URI to the new RDS
+endpoint and assigns the approved CNAME in clients' tracking configuration
+when authorized. Restoring artifact objects alone does not make old
+experiments, registered model versions, aliases or stored artifact URIs
+appear in the new registry. Old references to source S3 locations or the
+source server will remain source-specific. The tool does not copy tracking
+metadata or rewrite URI values inside any artifact. The owner must decide
+whether to keep the old account reachable, recreate runs/models from
+approved inputs and map/re-register the approved artifacts through a
+supported application workflow, or arrange a separate approved migration
+with integrity evidence. Do not reuse an old account registry reference
+as if it named the rebuilt image.
+
+The source inventory found automated snapshots encrypted with the default
+AWS-managed RDS key. They do not supply a shareable restore point for
+another account. There is no current approved recovery for MLflow auth
+tables, grants, passwords, SSM values, tracking or model-registry metadata.
+The tooling does not enumerate accounts or logins, touch login tables,
+query them from any principal, or use the MLflow server DB login. A
+foreign or modified fraud schema, missing approved users, unresolved
+artifact ownership, or unavailable source is a stop. [AWS snapshot sharing
+restrictions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ShareSnapshot.html)
+
+## Estimates and stop conditions
+
+Use a per-phase work cutoff and preserve an observation and cleanup
+reserve. The hard limits in the tool are USD 10 cumulative trial spend plus
+commitments and USD 15 residual credit. It meters conservative planning
+rates for compute and two public IPv4 addresses (USD 0.06/hour together),
+provisioned DB/EBS and backup (USD 6/730 hours), artifact and image storage
+(USD 0.03 and USD 0.10/GiB-month), outbound (USD 0.12/GiB), request/CE charges
+and approved local and other costs. For example, four retained hours of
+compute and block storage give approximately USD 0.27 before requests,
+transfer, local costs and contingency. Count the full resource lifetime
+through stopped observation and the end of teardown, including any
+retained copies. Unknown variable costs include T3 CPU credits, excess
+automated/final snapshots, repeated calls, RDS logs, CloudWatch, ECR
+scanning, data paths, and concurrent usage. Bound them in
+`extra_cost_bound_usd`. CE costs USD 0.01 per primary-view request and
+estimated account-wide charges lag. A fresh query through the prior UTC
+day and the owner's measured credit cap plus unposted/concurrent allowance
+are both required before mutation. Include current-month carryover and
+other previously incurred spend in the owner-stated credit balance. Recheck
+rates and the cumulative ledger for each approved phase. These projections
+are distinct from observed stopped-window spend. [CE pricing](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/pricing/)
+· [RDS regional rate catalog](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/us-east-1/index.json)
+· [EC2 T3 pricing](https://aws.amazon.com/ec2/instance-types/t3/)
+· [EBS pricing](https://aws.amazon.com/ebs/pricing/)
+· [VPC pricing](https://aws.amazon.com/vpc/pricing/)
+· [S3 pricing](https://aws.amazon.com/s3/pricing/)
+· [ECR pricing](https://aws.amazon.com/ecr/pricing/)
+
+The redacted source inventory measured approximately 3.54 GiB occupied RDS
+filesystem (not dump size), 0.49 GiB STANDARD artifacts, 50 objects and
+0.29 GiB compressed image. As a planning example, an 8 GiB logical dump
+ceiling plus 1 GiB artifacts needs about 10.8 GiB free on the approved local
+filesystem. At 20 MiB/s aggregate effective throughput and 50 objects,
+allow about 30 minutes for data transfer and verification, plus the
+operator's restore and observation reserves. The command bases backup
+disk checks on the full approved dump ceiling, exact artifact bytes and
+the larger of 1 GiB or 20% margin. Restore uses the sealed sizes and needs
+no second local copy. Include local encryption/storage costs and bandwidth
+if billed. Sizing is provisional until measured data and re-read timings
+replace these assumptions. Pause before copying if live speed, storage,
+credential lifetime, approved scope or projected spend could exceed the
+window.
+
+## Partial failure and cleanup
+
+1. Stop new actions on a mismatch, access denial, unexpected service status or
+   timeout. Reconfirm account and trial and inventory what actually exists.
+   An RDS or EB request can continue after the local timeout. A provisioning
+   dependency may need time before it is safe to retry. A completed
+   matching resource is reused. A drifted option, unmarked bucket or
+   incomplete parameter group needs the owner's disposition before retry.
+2. Preserve the exact trial's approved resources during the stopped
+   observation. Record actual state, elapsed time, IAM evidence and billing
+   as-of time. Price projections and lab expiry cannot supply AC2.
+3. After approved observation, terminate only the trial EB environment and
+   wait for termination. Confirm its ASG, instance and EIP are gone or
+   explicitly accounted for. Delete the named trial application versions
+   and bundle objects, then its application. Recheck the account, marker
+   and references before deleting the named ECR tag/repository or empty
+   trial bundle bucket. Avoid force-deleting a repo or recursive deleting
+   an unreviewed S3 scope.
+4. Before clearing RDS deletion protection or deleting the trial DB, have
+   the owner decide retention, final snapshot and automated backup handling
+   and account for their costs. Wait for DB deletion before removing its
+   trial parameter group. Preserve pre-existing network groups and rules,
+   subnet groups, roles and parameters. Delete or retain the private
+   artifact files and the exact trial artifact bucket only according to
+   the signed retention scope. Record any retained assets and charges.
+5. Re-list the exact trial resources and any dependent IDs from the
+   preflight inventory, checking both absence and retained state. Record
+   cleanup evidence and any residual account or data action. Never recycle
+   a partial artifact or manifest as evidence of successful migration.
+
+## Offline checks
+
+```bash
+bash -n mlflow-server/lab-recreate
+uv run --offline --locked --no-env-file pytest -q mlflow-server/lab/test_recreate.py
+uv run --offline --locked --no-env-file pytest
+uv run --offline --locked --no-env-file ruff check
+uv run --offline --locked --no-env-file ruff format --check
+git diff --check
+```
+
+The focused tests use synthetic config and provider mocks to check offline
+and read-only paths, wrong account, repeat create, partial failure, budget
+gates, artifact integrity and restore behavior. They cannot prove AWS
+permissions, MySQL data transfer under the real grants, ECR image availability,
+EB creation or billing evidence. A later authorized run is required for each.

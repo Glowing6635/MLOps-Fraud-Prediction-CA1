@@ -2,6 +2,9 @@
 
 How to set up the MLflow server's AWS services, build its image and deploy it. `README.md` lists the files and settings.
 
+For a separate Learner Lab account, use the [recreation runbook](LAB-RECREATE.md)
+for preflight, approved recovery and a trial deployment with existing network rules.
+
 ## Set up RDS and S3, once
 
 1. MLflow's database setup creates triggers, which RDS refuses while binary logging is on. Attach a parameter group, `fraud-mysql84`, with `log_bin_trust_function_creators` and `require_secure_transport` both set to `1`. The second makes RDS refuse unencrypted connections. Attach the group when you create the instance, as the RDS steps in `docs/runbook.md` (added by #10) do, and no reboot is needed. Reboot the instance only when you attach the group to one that already exists.

@@ -8,3 +8,6 @@ start.sh
 README.md
 .ebignore
 .gitignore
+lab/
+lab-recreate
+LAB-RECREATE.md
