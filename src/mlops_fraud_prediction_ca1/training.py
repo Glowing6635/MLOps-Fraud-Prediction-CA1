@@ -43,6 +43,7 @@ from sklearn.base import clone
 
 from mlops_fraud_prediction_ca1.cleaning import CLEANING_POLICY_VERSION, clean_frame
 from mlops_fraud_prediction_ca1.data import load_base_data
+from mlops_fraud_prediction_ca1.feature_pipeline import FEATURE_GROUPS, build_pipeline
 from mlops_fraud_prediction_ca1.leakage import (
     ASSUMED_LABEL_DELAY_DAYS,
     ORDER_FEATURE_COLUMNS,
@@ -50,7 +51,12 @@ from mlops_fraud_prediction_ca1.leakage import (
     historical_order_mask,
     select_feature_inputs,
 )
-from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
+from mlops_fraud_prediction_ca1.models import (
+    baseline_model,
+    boosted_trees_model,
+    extra_trees_model,
+    random_forest_model,
+)
 from mlops_fraud_prediction_ca1.relationships import link_orders_customers
 from mlops_fraud_prediction_ca1.splitting import load_policy
 from mlops_fraud_prediction_ca1.top_k import (
@@ -269,8 +275,8 @@ def train(
     the experiment MLFLOW_EXPERIMENT_NAME. The author is git's `user.name`, or "unknown"
     when git has none. A run from a
     tree with uncommitted changes is logged with `git_dirty` set to true and a warning,
-    because its commit alone does not reproduce it. `tags` are added to the run's tags;
-    the tag `mlflow.runName` names the run. If a run is active, this run is logged as
+    because its commit alone does not reproduce it. `tags` are added to the run's tags, but the
+    harness's own git tags take precedence; the tag `mlflow.runName` names the run. If a run is active, this run is logged as
     its child.
 
     `extra_metrics` turns the result into more metrics for the run, such as a
@@ -356,11 +362,11 @@ def train(
         )
         mlflow.set_tags(
             {
+                **(tags or {}),
                 "git_commit": _git("rev-parse", "HEAD"),
                 "git_dirty": dirty,
                 # CI runners and new laptops often have no git identity.
                 "author": _git("config", "--default", "unknown", "user.name"),
-                **(tags or {}),
             }
         )
         # An undefined ratio (no order selected, or no fraud) is left out, not logged as 0.
@@ -399,11 +405,7 @@ def compare_customer_columns(
     model = estimator[-1] if hasattr(estimator, "steps") else estimator
     with mlflow.start_run(
         run_name=f"{type(model).__name__}: customer columns compared",
-        tags={
-            **tags,
-            "git_commit": _git("rev-parse", "HEAD"),
-            "author": _git("config", "--default", "unknown", "user.name"),
-        },
+        tags={**tags, **_provenance_tags()},
     ) as parent:
         without, with_columns = (
             train(
@@ -512,6 +514,15 @@ def _dataset_hashes(data_dir: str | Path) -> dict[str, str]:
     return hashes
 
 
+def _provenance_tags() -> dict[str, str]:
+    return {
+        "git_commit": _git("rev-parse", "HEAD"),
+        "git_dirty": str(bool(_git("status", "--porcelain", "--untracked-files=no"))),
+        # CI runners and new laptops often have no git identity.
+        "author": _git("config", "--default", "unknown", "user.name"),
+    }
+
+
 def _git(*args: str) -> str:
     return subprocess.run(
         ["git", *args],
@@ -522,29 +533,80 @@ def _git(*args: str) -> str:
     ).stdout.strip()
 
 
+def compare_groups(
+    data_dir: str | Path, *, k: int, seed: int = 0, class_weight: str | None = None
+) -> pd.DataFrame:
+    """Train the baseline classifier on each feature group; log one MLflow run each.
+
+    Each run is scored on the validation window by the harness, so the groups are
+    compared on the primary measure (fraud caught at K) out of sample.
+    """
+    rows = []
+    for group in FEATURE_GROUPS:
+        run_id, result = train(
+            build_pipeline(baseline_model(class_weight=class_weight), group),
+            data_dir,
+            k=k,
+            seed=seed,
+        )
+        rows.append(
+            {
+                "group": group,
+                "run_id": run_id,
+                "fraud_caught_at_k": result.report.at_k.fraud_caught,
+                "average_precision": result.report.average_precision,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
+    cli = argparse.ArgumentParser(
         prog="train", description="Train and log models with the shared harness."
     )
-    commands = parser.add_subparsers(dest="command", required=True)
+    commands = cli.add_subparsers(dest="command", required=True)
     baseline = commands.add_parser(
         "baseline", help="Train the baseline model and log the run to MLflow."
+    )
+    comparison = commands.add_parser(
+        "compare-feature-groups",
+        help="Train and compare the baseline on each order feature group.",
     )
     baseline.add_argument(
         "--exploratory",
         action="store_true",
         help="Add the seven unconfirmed customer columns (never for a champion).",
     )
-    trees = commands.add_parser(
-        "boosted-trees",
-        help="Log the boosted-trees model without and with the customer columns.",
-    )
-    trees.add_argument(
-        "--k-status",
-        help="Where K comes from, tagged on every run. Required when --k differs from"
-        f" D5-01's K (default: D5-01: product owner assumption, K = {K}).",
-    )
-    for command in (baseline, trees):
+    candidates = {
+        "boosted-trees": boosted_trees_model,
+        "random-forest": random_forest_model,
+        "extra-trees": extra_trees_model,
+    }
+    candidate_parsers = []
+    for name in candidates:
+        parser = commands.add_parser(
+            name, help=f"Log the {name} model without and with the customer columns."
+        )
+        parser.add_argument(
+            "--k-status",
+            help="Where K comes from, tagged on every run. Required when --k differs"
+            f" from D5-01's K (default: D5-01: product owner assumption, K = {K}).",
+        )
+        parser.add_argument(
+            "--tag",
+            action="append",
+            default=[],
+            metavar="KEY=VALUE",
+            help="Extra tag on every run (repeatable), such as pr=164. "
+            "git_commit, git_dirty, and author are set by the harness.",
+        )
+        candidate_parsers.append(parser)
+    for command in (baseline, comparison, *candidate_parsers):
+        command.add_argument(
+            "--weighting",
+            choices=("balanced",),
+            help="Balance class weights using the training labels.",
+        )
         command.add_argument(
             "--k",
             type=int,
@@ -555,20 +617,20 @@ def main() -> None:
         command.add_argument("--seed", type=int, default=0)
     again = commands.add_parser("rerun", help="Re-run a logged run and compare.")
     again.add_argument("run_id")
-    for command in (baseline, trees, again):
+    for command in (baseline, comparison, *candidate_parsers, again):
         command.add_argument(
             "--data-dir", default="data", help="Folder with the three base CSV files."
         )
-    args = parser.parse_args()
-    if args.command == "boosted-trees" and args.k_status is None:
+    args = cli.parse_args()
+    if args.command in candidates and args.k_status is None:
         if args.k != K:
-            parser.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
+            cli.error(f"--k {args.k} differs from D5-01's K = {K}: give --k-status")
         args.k_status = f"D5-01: product owner assumption, K = {K}"
     # MLflow prints an emoji when a run ends, which Windows cannot encode when piped.
     sys.stdout.reconfigure(errors="replace")
     if args.command == "baseline":
         run_id, result = train(
-            baseline_model(),
+            baseline_model(class_weight=args.weighting),
             args.data_dir,
             k=args.k,
             seed=args.seed,
@@ -576,18 +638,26 @@ def main() -> None:
         )
         print(format_report(result.report))
         print(f"Logged run {run_id}.")
-    elif args.command == "boosted-trees":
+    elif args.command in candidates:
         parent_id, *children = compare_customer_columns(
-            boosted_trees_model(),
+            candidates[args.command](class_weight=args.weighting),
             args.data_dir,
             k=args.k,
             seed=args.seed,
-            tags={"k_status": args.k_status},
+            tags={
+                "k_status": args.k_status,
+                **dict(tag.split("=", 1) for tag in args.tag),
+            },
         )
         for label, (run_id, result) in zip(("Without", "With"), children, strict=True):
             print(f"{label} the customer columns:\n{format_report(result.report)}")
             print(f"Logged run {run_id}.")
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
+    elif args.command == "compare-feature-groups":
+        table = compare_groups(
+            args.data_dir, k=args.k, seed=args.seed, class_weight=args.weighting
+        )
+        print(table.to_string(index=False))
     else:
         for name, value in rerun(args.run_id, args.data_dir).items():
             print(f"{name}: {value}")

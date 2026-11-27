@@ -13,6 +13,9 @@ files must be in `data/`, or in the folder given by `--data-dir`.
 ```
 uv run train baseline --seed 0
 uv run train boosted-trees
+uv run train random-forest --seed 0
+uv run train extra-trees --seed 0
+uv run train compare-feature-groups
 uv run train rerun <run ID>
 ```
 
@@ -24,13 +27,22 @@ Safety gives a capacity. Every candidate must use the same K, or the runs can't 
 compared. Add
 `--exploratory` to include the seven unconfirmed customer columns.
 
-`boosted-trees` trains histogram gradient-boosted trees twice, without and with the
-seven unconfirmed customer columns, as two child runs under one parent run (see
-"Comparing the customer columns"). `--k-status` says where K comes from, and is tagged
-`k_status` on all three runs. It defaults to `D5-01: product owner assumption, K = 250`;
-with another `--k`, the command stops unless `--k-status` says where that K comes from,
-such as `provisional: <reason>`. It prints both children's run IDs. The models are in
+The candidate commands are `boosted-trees` (histogram gradient-boosted trees),
+`random-forest` (random forest) and `extra-trees` (extremely randomized trees). Each
+trains twice, without and with the seven unconfirmed customer columns, as two child
+runs under one parent run (see "Comparing the customer columns"). Each command prints
+both children's run IDs. Random forest caps its 100 trees at 2,400 leaves per tree to
+fit within the retraining model-size limit (#25). Extra trees uses 200 trees. Both
+require at least 50 training samples per leaf. The models are in
 `src/mlops_fraud_prediction_ca1/models.py`.
+
+`--k-status` says where K comes from, and is tagged `k_status` on all three runs. It
+defaults to `D5-01: product owner assumption, K = 250`; with another `--k`, the command
+stops unless `--k-status` says where that K comes from, such as
+`provisional: <reason>`.
+
+`compare-feature-groups` fits and logs the baseline separately for each
+[order feature group](feature-pipeline.md) and prints the validation results and run IDs.
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
@@ -52,6 +64,23 @@ The model receives a DataFrame of the feature columns. Numbers and true/false va
 are floats, text is a Python string, and every missing value is NaN. Missing values must
 be filled by a step fitted inside the pipeline, so only the training window is used.
 
+## Comparing training class weights
+
+Both commands default to the estimator's unweighted fit. Add
+`--weighting balanced` to opt in, or pass `class_weight="balanced"` to
+`baseline_model()`, `boosted_trees_model()`, `random_forest_model()` or
+`extra_trees_model()` before calling `train()`.
+For `train compare-feature-groups`, the option applies to both feature groups.
+To compare the two methods without exploratory customer columns, call `train()`
+with each candidate twice, omitting `class_weight` on the first call and setting
+it to `"balanced"` on the second. Use the frozen split, `k=250`, and `seed=0`
+for both calls.
+
+The classifier derives weights from training labels during fit. The validation
+report uses the original orders and fraud rate. MLflow records the final
+classifier's `class_weight` parameter, and rerun restores it from the logged
+model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
+
 ## What each run records
 
 | Kind | Recorded |
@@ -59,11 +88,12 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 | Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels`, or `data_source` set to `labelled_windows` for a run on rows passed in |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
 | Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders`, and any metrics from `extra_metrics` |
-| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
+| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives (the git tags win if a caller uses the same names); the tag `mlflow.runName` sets the run name |
 | Model | The fitted model, under the name `model` |
 
 The dataset version is the SHA-256 of each input file. A run on rows passed in has no
 files to hash, so its caller tags it with where the rows came from, such as the batch ID.
+[Per-batch retraining](retraining.md) logs the batch ID and validation digest the same way.
 
 `validation_customer_overlap` is the share of validation orders whose customer also
 has an order in the training window. A high share means the validation score partly
@@ -74,6 +104,8 @@ nothing to divide by is not logged.
 
 A run from a working tree with uncommitted changes is still logged, with `git_dirty`
 set to true and a warning, because the commit alone does not hold its code.
+The harness ignores caller-supplied values for `git_commit`, `git_dirty` and
+`author`.
 
 ## Comparing the customer columns
 
@@ -89,7 +121,7 @@ run shows what leaving the columns out costs.
 
 The with-columns run adds seven columns, one of them the customer's first order date
 as `days_since_first_order`, and their values are NaN for orders whose customer dates
-fail the D4-03 checks. A pipeline that picks columns by type, as both models in
+fail the D4-03 checks. A pipeline that picks columns by type, as the models in
 `models.py` do, handles them; one that names its columns must name these too.
 
 The parent logs the with-columns result minus the without result as
@@ -115,7 +147,7 @@ run_id, result = train(
         "batch_id": "<batch ID>",
     },
     extra_metrics=lambda result: {"fraud_caught_at_k_delta": ...},
-    max_model_size_bytes=50 * 1024 * 1024,
+    max_model_size_bytes=50_000_000,
 )
 report = score_labelled_rows(champion_model, validation_rows, k=K)
 ```

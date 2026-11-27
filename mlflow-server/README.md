@@ -11,7 +11,9 @@ The team's MLflow server: a Docker image kept in ECR, and the bundle that tells 
 - `start.sh`: checks every setting is set, waits up to 15 minutes for RDS, sets up the login database and starts the server. A missing setting stops it.
 - `.ebextensions/health.config`: points the health check at `/health`, the one page that needs no login.
 - `.platform/`: raises nginx's upload limit from 1 MB to 200 MB.
-- `DEPLOY.md`: setting up RDS and S3, building and pushing the image, and deploying it.
+- [`deploy.sh`](deploy.sh): creates the Elastic Beanstalk environment with the
+  seven settings below and checks those settings before a redeploy.
+- [`DEPLOY.md`](DEPLOY.md): prerequisites, image publishing, deployment and verification.
 
 ## Settings
 

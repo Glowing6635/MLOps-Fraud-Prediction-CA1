@@ -56,21 +56,25 @@ artifact; runs are tagged `retrain_mode=release`, `champion_eligible=False`.
 Because release models also fit the frozen validation rows, their harness scores
 are in-sample: they carry `scores_out_of_sample=False`. Each run still logs the
 comparison against the current champion on the frozen validation rows, but it is
-in-sample, so it never supports promotion (the champion is not auto-promoted). The run stops if the invocation's batch has no eligible rows, so a
-cut-off cannot silently drop a whole batch.
+in-sample, so it never supports promotion. The run stops if the requested batch
+has no eligible rows. See [D25-02](decision-log.md#d25-02-release-mode-retraining-and-its-in-sample-scores).
 
-## Shared harness contract (#170, merged in dev a14bf94)
+## Shared training harness
 
-The CLI uses `training.train()` and `score_labelled_rows()` as merged. `train()` has
-no `run_name` or `extra_params`, so the run name goes in the `mlflow.runName` tag
-and the model, owner, `etl_run_id`, batch ID, champion run ID, validation digest and
-overrides are tags. Counts and comparisons are metrics through `extra_metrics`.
+The command passes the two labelled windows directly to the harness, without
+reading base CSV files. The harness records `data_source=labelled_windows`
+and records `batch_id`, `etl_run_id`, `champion_run_id`, `validation_sha256`,
+`model` and `owner` as run tags. The run name uses `mlflow.runName`, candidate
+overrides use `model_params`, and counts and comparisons are metrics. The
+harness converts decimal order values to numbers and preserves the estimator's
+random state when the seed is omitted. It reports models over 50,000,000 bytes
+as candidate failures before artifact upload.
 
 ## Acceptance map (offline, 2026-11-26)
 
 | Criterion | State |
 | --- | --- |
-| Read once, shared | Done: one snapshot per run (`test_cli_delegates...`). |
+| Read once, shared | Done: one snapshot per run (`test_cli_trains_and_logs_real_models_after_candidate_failure`). |
 | Train only before the validation window; print exclusions | Done in evaluation mode (reader counts, logged). |
 | Every model retrained, stored params, <=50 MB, 85 s budget | Done in code (roster, size cap, 85 s timer). Real fit time on RDS rows and the real #22 entries: gap. |
 | Evaluation vs champion; release mode, results unchanged | Done offline for both; release scores tagged in-sample. Real #23 final evaluation and holdout switch: gap (depends on #23). |

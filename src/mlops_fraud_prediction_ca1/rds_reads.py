@@ -93,7 +93,7 @@ def read_release_snapshot(engine: Engine) -> tuple[pd.DataFrame, dict[str, int]]
     """Read every labelled order for release training, from one MySQL snapshot.
 
     Allowed only once the #6 holdout setting is off (`test_locked = false`), so no
-    order date cut-off applies and later batches are included. Orders without a
+    upper order-date cut-off applies and later batches are included. Orders without a
     usable date or dated before the training start are the only exclusions, and they
     are counted.
     """

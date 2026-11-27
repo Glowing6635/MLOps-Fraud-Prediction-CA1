@@ -1,6 +1,7 @@
 """Roster and release-mode tests for PBI #25."""
 
 from dataclasses import replace
+from inspect import signature
 from types import SimpleNamespace
 
 import pandas as pd
@@ -9,16 +10,10 @@ import pytest
 from mlops_fraud_prediction_ca1 import rds_reads, splitting
 from mlops_fraud_prediction_ca1.loading import load_files
 
-from . import retrain, retrain_roster
+from . import retrain, retrain_roster, training
 from .retrain import EvaluationInputs, ModelSpec
 from .test_rds_reads import customer, order
-from .test_retrain import (
-    _candidate,
-    _rows,
-    _score,
-    _score_champion,
-    check_train_call,
-)
+from .test_retrain import _candidate, _rows, _score, _score_champion
 
 
 def test_default_roster_loads_every_engineer_with_fresh_estimators():
@@ -60,7 +55,7 @@ def _inputs():
 
 def _run(mode, read_rows, calls, log=lambda _: None):
     def train(estimator, **kwargs):
-        check_train_call(estimator, kwargs)
+        signature(training.train).bind(estimator, **kwargs)
         result = SimpleNamespace(report=_score(1, 1.0), fit_seconds=0.1)
         calls.append((kwargs, kwargs["extra_metrics"](result)))
         return "run", result

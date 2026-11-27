@@ -10,11 +10,12 @@ from importlib import import_module
 
 import pandas as pd
 
+from .champion import SIZE_NOTE_BYTES
 from .rds_reads import read_release_snapshot, read_training_snapshot
 from .splitting import split_orders
 
 TRAIN_AND_LOG_SECONDS = 85
-MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
+MAX_ARTIFACT_BYTES = SIZE_NOTE_BYTES  # 50,000,000 bytes, as in D15-03
 MODES = ("evaluation", "release")
 
 
@@ -105,7 +106,9 @@ def retrain(
             f"Release mode found no eligible labelled rows for batch {batch_id}; "
             "a date cut-off or missing labels would silently exclude it."
         )
-    report = RetrainReport(etl_run_id, batch_id, counts)
+    report = RetrainReport(
+        etl_run_id, batch_id, {**counts, "train_orders": len(train_rows)}
+    )
     log(f"mode={mode} etl_run_id={etl_run_id} batch_id={batch_id} {counts}")
     started = time.perf_counter()
     validation_hash = hashlib.sha256(
@@ -159,10 +162,10 @@ def retrain(
             )
             report.results[spec.name] = {
                 **comparison(result),
-                "fit_seconds": result.fit_seconds,
-                "mlflow_run_id": run_id,
                 "fraud_caught_at_k": result.report.at_k.fraud_caught,
                 "average_precision": result.report.average_precision,
+                "fit_seconds": result.fit_seconds,
+                "mlflow_run_id": run_id,
                 "scores_out_of_sample": not release,
             }
         except Exception as error:  # noqa: BLE001 - isolate each candidate failure
@@ -228,13 +231,8 @@ def main(argv=None) -> int:
     module, separator, factory = args.inputs.partition(":")
     if not separator or not module or not factory:
         parser.error("inputs must be module:factory")
-    try:
-        from .training import score_labelled_rows, train
-    except ImportError as error:
-        parser.error(
-            f"Shared training harness unavailable ({error}). "
-            "See docs/retraining.md for the required #151 integration."
-        )
+    from .training import score_labelled_rows, train
+
     settings = load_settings()
     inputs = getattr(import_module(module), factory)()
     engine = create_db_engine(settings)
