@@ -296,3 +296,14 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   `evidence/agile-mlops/lab-recreate/`. Reviewed Quickstart source
   patch and witness checklist in `evidence/agile-mlops/p26-operator-handoff/`.
   Approach episode `fdf2584e88df4b2f8597d82099ab215e`, variant B.
+
+- Release gates: the recreation checkout carries the
+  [authenticated synthetic check](../mlflow-server/LAB-RECREATE.md#quickstart),
+  adapted from reviewed source `27ca5139622f7354f98a6ee859cf6d5d3fe53043`.
+  Depending on the older checkout would leave the operator without the
+  procedure, and reusing its deploy command would change the approved
+  security-group flow. Keep the standalone CLI and collect its regressions
+  under the existing pytest `src` path to preserve the team's test command
+  and configuration. SpiralSky still owns approval of the transport and
+  trial login. The coordinator owns exact-source handoff and independent
+  live evidence.

@@ -13,15 +13,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from zipfile import ZipFile
 
-import common
-import infrastructure
 import pytest
-import recovery
-from common import AWS, GIB, TAG, Approval, Stop, json_bytes
-from infrastructure import DB_CLASS, ENGINE, IMAGE_TAG, PARAMETERS, Stack
-from recovery import KEYS, OMISSIONS, Recovery, portable_paths
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2] / "mlflow-server"
+# Match the standalone script's sibling imports without leaving its directory
+# on the default suite's import path.
+with pytest.MonkeyPatch.context() as imports:
+    imports.syspath_prepend(str(ROOT / "lab"))
+    import common
+    import infrastructure
+    import recovery
+    from common import AWS, GIB, TAG, Approval, Stop, json_bytes
+    from infrastructure import DB_CLASS, ENGINE, IMAGE_TAG, PARAMETERS, Stack
+    from recovery import KEYS, OMISSIONS, Recovery, portable_paths
+
 ACCOUNT = "111111111111"
 OTHER = "222222222222"
 DB_SG = "sg-11111111"

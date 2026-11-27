@@ -137,8 +137,7 @@ resources tagged `P26Trial=<trial>`. Reserve an available EB CNAME separately.
    existing roles, the four SSM names, RDS readiness and groups, expected EB
    options, actual instance and volume, absence of an LB and unauthenticated
    `/health` status. It does not send credentials or follow redirects.
-   Follow the reviewed Quickstart's synthetic `log-test-run` and artifact
-   retrieval only from the separately approved operator transport and login.
+   Complete the [Quickstart](#quickstart) for authenticated verification.
    Record the non-author result, IAM audit, stopped-window bill and cleanup
    evidence separately. HTTP 200 alone does not prove authenticated access
    or persistence.
@@ -151,23 +150,106 @@ Enable apply for an individual phase only after its dry-run and scope review.
 ./mlflow-server/lab-recreate verify --config "$VERIFY_STACK_CONFIG"
 ```
 
-### Reviewed source
+## Quickstart
 
-The baseline is dev `a14bf948a94d0ffb4946b49008010dd001fd2dd8`. The
-reviewed #26 Quickstart is pinned by Steward evidence
-`evidence/agile-mlops/p26-operator-handoff/p26-quickstart-source.patch`.
-SHA-256 `9fe2cb14736f028417e24b21f9bc51106030e6a0a82986256ea2987d278e455e`
-applied to `29a931d789241581409762dee5febe81f80fd85f` yields the independently
-reviewed tree `343737c3f0e9920011e7d5cd943a6cdce3a1b951`. Its image build,
-first-boot seven-setting contract, health evidence and synthetic run/artifact
-check carry forward. The prior deployment command uses an EB-created default
-security group and adds DB ingress after creating the environment. For this
-restricted trial, the existing approved group is validated before AWS
-creates the environment. See [AWS EB custom security group behavior](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features.managing.ec2.aws-cli.html).
+Run this authenticated check from the repository root after
+[creating the replacement lab](#create-a-replacement-lab) and passing stack
+verification. Use the approved transport, exact trial tracking URI, and
+an existing trial login authorized to create runs and read artifacts in the
+approved synthetic experiment. Confirm the target and secure transport with
+the owner before entering credentials. Stop if either is unavailable. Use a
+trial OS account whose username can be logged as synthetic operator metadata
+by `log-test-run`. This check sends one synthetic run and a small text artifact.
 
-The redacted input under Steward evidence `agile-mlops/lab-recreate/`
-was recorded on 27 November 2026. Confirm settings against the destination
-account even if the source inventory is still recent.
+1. Confirm the stack verification passed, including the recorded deployed
+   version, instance type, and unauthenticated `/health` response. Prepare
+   the repository's locked environment with `uv sync --locked` before the
+   approved window. Start a Bash subshell with tracing disabled, and set
+   the tracking values interactively. The URI must contain no credentials.
+   Keep the login and password out of Git, command arguments, and the
+   evidence record.
+
+   ```bash
+   bash
+   set +x
+   read -r -p 'Approved trial tracking URI: ' MLFLOW_TRACKING_URI
+   read -r -p 'Approved synthetic experiment: ' MLFLOW_EXPERIMENT_NAME
+   read -r -p 'Trial login: ' MLFLOW_TRACKING_USERNAME
+   read -r -s -p 'Trial password: ' MLFLOW_TRACKING_PASSWORD
+   printf '\n'
+   export MLFLOW_TRACKING_URI MLFLOW_EXPERIMENT_NAME
+   export MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD
+   export PYTHON_DOTENV_DISABLED=1
+   ```
+
+2. Run the reviewed synthetic client. Stop on failure. Open the resulting
+   run in the approved tracking UI and copy the run ID from its run details.
+
+   ```bash
+   uv run --locked --no-env-file log-test-run
+   ```
+
+3. In the same subshell, retrieve the artifact by run ID through MLflow.
+   This command requires the run to belong to the selected experiment,
+   checks `connection_ok`, and compares the downloaded file with the
+   exact synthetic contents. Keep the private trial directory as the
+   destination for the temporary download.
+
+   ```bash
+   read -r -p 'Private trial directory: ' P26_PRIVATE_DIR
+   read -r -p 'Synthetic run ID: ' P26_RUN_ID
+   export P26_PRIVATE_DIR P26_RUN_ID
+   uv run --locked --no-env-file python - <<'PY'
+   import os
+   from pathlib import Path
+   from tempfile import TemporaryDirectory
+
+   import mlflow
+   from mlflow import MlflowClient
+
+   run_id = os.environ["P26_RUN_ID"]
+   client = MlflowClient(tracking_uri=os.environ["MLFLOW_TRACKING_URI"])
+   run = client.get_run(run_id)
+   experiment = client.get_experiment(run.info.experiment_id)
+   if (
+       experiment.name != os.environ["MLFLOW_EXPERIMENT_NAME"]
+       or run.info.status != "FINISHED"
+       or run.data.metrics.get("connection_ok") != 1
+   ):
+       raise SystemExit("Synthetic run verification failed")
+   with TemporaryDirectory(dir=os.environ["P26_PRIVATE_DIR"]) as directory:
+       downloaded = mlflow.artifacts.download_artifacts(
+           run_id=run_id,
+           artifact_path="connection_test.txt",
+           dst_path=directory,
+           tracking_uri=os.environ["MLFLOW_TRACKING_URI"],
+       )
+       if Path(downloaded).read_bytes() != b"This artifact came from an engineer's laptop.":
+           raise SystemExit("Synthetic artifact contents did not match")
+   print("Synthetic metric and artifact verified")
+   PY
+   ```
+
+4. Record the successful run ID, UTC time, metric and artifact retrieval
+   result privately with the independent operator's evidence. On failure,
+   record the failing step and stop. Exit the subshell to clear the trial
+   variables. Stack health and a synthetic run leave stopped-window cost,
+   IAM audit, and trial cleanup as separate observations.
+
+### Source handoff
+
+Start with the clean checkout supplied for the trial. From the repository
+root, run `git status --porcelain`, `git rev-parse HEAD` and
+`git rev-parse 'HEAD^{tree}'`. Require empty status and compare both hashes
+with the coordinator's approved source receipt before continuing. Record
+the verified hashes with the trial evidence. This runbook and its local links
+contain the instructions for the trial.
+
+The synthetic verification follows the separately reviewed #26 Quickstart
+at `27ca5139622f7354f98a6ee859cf6d5d3fe53043`. For this trial, the
+[recreation phases](#create-a-replacement-lab) supply the deployment using
+existing roles and approved security groups. Confirm account-specific
+inputs against the trial account before any live action.
 
 ## Back up approved data
 
@@ -341,7 +423,7 @@ window.
 
 ```bash
 bash -n mlflow-server/lab-recreate
-uv run --offline --locked --no-env-file pytest -q mlflow-server/lab/test_recreate.py
+uv run --offline --locked --no-env-file pytest -q src/mlops_fraud_prediction_ca1/test_lab_recreate.py
 uv run --offline --locked --no-env-file pytest
 uv run --offline --locked --no-env-file ruff check
 uv run --offline --locked --no-env-file ruff format --check
