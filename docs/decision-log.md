@@ -354,6 +354,26 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Decision: use the #20 reader and #6 train predicate for the shared RDS snapshot. Count exclusions in the database and score all candidates and the current champion on the same frozen validation input. No window changed. Release mode follows #23.
 - Reason: this lets retraining run independently of the #24 rehearsal tooling and keeps the frozen test rows out of the training process.
 
+- Handoff (2026-11-27, SpiralSky): pin an explicitly trusted validation CSV by
+  byte SHA-256 and the fitted champion by numeric registry version and source
+  run ID. Use the checked-in candidate roster and D5-01 K. This preserves row
+  identity and avoids a moving champion alias, a newly fitted model, or an
+  export from the latest database state changing what the run compares.
+- Use a separate synthetic #25 batch with fresh training-window order IDs and
+  later controls. Reusing #24's existing 2025 inputs alone would exercise
+  exclusion without proving eligible new orders reach training. Use disposable
+  SQLite through the application loader, reader and CLI when MySQL 8.4 is
+  unavailable. The successful offline exercise can establish dispatch, counts
+  and local artifact logging, with MySQL, RDS, S3, demo timing and official
+  validation/champion identity still to verify. See [retraining](retraining.md).
+- For offline evidence, record order and label provenance separately, retain
+  the current order-origin count in the CLI, and keep the #6 holdout locked.
+  First labels arriving for existing orders are counted as old and can leave
+  release with zero new rows. Open (SpiralSky with #20 owner Glowing6635):
+  confirm whether production reports keep that count and report late labels
+  separately or count contributions by both provenances and revise the release
+  guard. No split window changed.
+
 ## D27-01: Wall-clock budget for a practice batch
 
 Recorded 2026-11-20 for [the three-minute pipeline (#27)](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/27)

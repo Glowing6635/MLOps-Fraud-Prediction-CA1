@@ -213,7 +213,7 @@ def run_release_mode(
 
 
 def main(argv=None) -> int:
-    from .config import create_db_engine, load_settings
+    from . import config
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("batch_id")
@@ -233,9 +233,9 @@ def main(argv=None) -> int:
         parser.error("inputs must be module:factory")
     from .training import score_labelled_rows, train
 
-    settings = load_settings()
+    settings = config.load_settings()
     inputs = getattr(import_module(module), factory)()
-    engine = create_db_engine(settings)
+    engine = config.create_db_engine(settings)
     try:
         run = run_release_mode if args.mode == "release" else run_evaluation_mode
         report = run(
