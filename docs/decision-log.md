@@ -397,9 +397,9 @@ Recorded 2026-11-26 for [per-batch retraining (#25)](https://github.com/Glowing6
   never promotes and never touches the #23 results or champion artifact.
   Alternative: add a score-free path to `training.py` so release runs can skip the
   comparison entirely (an open question for the #170 owner, Glowing6635).
-- Settled: release mode applies a lower bound only and logs the in-sample champion
-  comparison without promotion. Open: roster owners in `config/retrain_roster.toml`;
-  the trigger for turning the holdout off (#23).
+- The release-mode decisions above remain proposed for team confirmation. Open:
+  roster owners in `config/retrain_roster.toml` and the trigger for turning the
+  holdout off (#23).
 - Paid AWS actions: none. This work was offline.
 
 ## D26-01 — Apply and verify the deployment settings before rollout

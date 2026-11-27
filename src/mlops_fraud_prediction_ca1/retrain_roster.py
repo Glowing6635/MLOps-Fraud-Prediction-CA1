@@ -1,7 +1,7 @@
 """Load the PBI #25 engineer roster and candidate manifest from `config/retrain_roster.toml`.
 
 Factories are looked up by name in `models.py` only, so the file cannot import
-arbitrary code. `build_roster()` returns what `EvaluationInputs` needs besides the
+arbitrary code. `load_roster()` returns what `EvaluationInputs` needs besides the
 frozen validation frame and champion, which the caller supplies.
 """
 
