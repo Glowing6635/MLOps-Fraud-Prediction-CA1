@@ -4,8 +4,8 @@ import runpy
 import subprocess
 import sys
 from pathlib import Path
+from shutil import which
 from unittest.mock import Mock, call
-from urllib.parse import unquote, urlsplit
 
 import mlflow
 import mlflow.sklearn
@@ -15,6 +15,7 @@ from mlflow import MlflowClient
 from mlflow.entities import FileInfo
 from mlflow.exceptions import MlflowException
 from mlflow.store.entities.paged_list import PagedList
+from mlflow.utils.file_utils import local_file_uri_to_path
 from sklearn.dummy import DummyClassifier
 
 from mlops_fraud_prediction_ca1 import champion
@@ -178,9 +179,9 @@ def test_registry_gets_best_two_within_50_mb_and_ranking_keeps_the_rest(
     _log("third", 50, 0.1)
     monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "e")
     cli = _installed_cli()
-    monkeypatch.setattr(sys, "argv", [str(cli), "--k", "250"])
+    monkeypatch.setattr(sys, "argv", [cli, "--k", "250"])
     with pytest.raises(SystemExit) as status:
-        runpy.run_path(str(cli), run_name="__main__")
+        runpy.run_path(cli, run_name="__main__")
     assert status.value.code in (None, 0)
 
     preview = capsys.readouterr().out
@@ -193,10 +194,10 @@ def test_registry_gets_best_two_within_50_mb_and_ranking_keeps_the_rest(
     monkeypatch.setattr(
         sys,
         "argv",
-        [str(cli), "--k", "250", "--register", MODEL, "--approve-comparison", approval],
+        [cli, "--k", "250", "--register", MODEL, "--approve-comparison", approval],
     )
     with pytest.raises(SystemExit) as status:
-        runpy.run_path(str(cli), run_name="__main__")
+        runpy.run_path(cli, run_name="__main__")
     assert status.value.code in (None, 0)
     assert f"Champion: best ({best}) (rank 2)." in capsys.readouterr().out
     assert client.get_model_version_by_alias(MODEL, CHAMPION).run_id == best
@@ -379,7 +380,9 @@ def test_rollback_from_a_third_version_keeps_both_displaced_versions(client):
 
 
 def _installed_cli():
-    return Path(sys.executable).with_name("champion-pick")
+    cli = which("champion-pick", path=str(Path(sys.executable).parent))
+    assert cli is not None, "champion-pick must be installed in the test environment"
+    return cli
 
 
 def _cli(*args, cwd):
@@ -431,7 +434,7 @@ def test_cli_registers_and_loads_only_exact_sources(client, monkeypatch, tmp_pat
     runner_up = _log("runner-up", 90, 0.4, legacy_manifest=False)
     logged = _log_logged_model(winner, 1)
     location = client.get_logged_model(logged.model_id).artifact_location
-    nested = Path(unquote(urlsplit(location).path)) / "extra"
+    nested = Path(local_file_uri_to_path(location)) / "extra"
     nested.mkdir()
     with (nested / "payload").open("wb") as payload:
         payload.truncate(1_000)
@@ -583,9 +586,9 @@ def test_cli_approval_survives_optional_size_inventory_failure(
         lambda *_args, **_kwargs: Mock(list_artifacts=inventory),
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "argv", [str(_installed_cli()), "--k", "250"])
+    monkeypatch.setattr(sys, "argv", [_installed_cli(), "--k", "250"])
     with pytest.raises(SystemExit) as exit_status:
-        runpy.run_path(str(_installed_cli()), run_name="__main__")
+        runpy.run_path(_installed_cli(), run_name="__main__")
 
     assert exit_status.value.code in (None, 0)
     output = capsys.readouterr().out
@@ -628,7 +631,7 @@ def test_cli_rejects_ambiguous_or_changed_elected_source(client, monkeypatch, tm
     assert not client.search_registered_models()
 
     legacy_uri = client.get_run(winner).info.artifact_uri
-    (Path(legacy_uri.removeprefix("file://")) / "model" / "MLmodel").unlink()
+    (Path(local_file_uri_to_path(legacy_uri)) / "model" / "MLmodel").unlink()
     result = _cli_register(approval, tmp_path)
     assert result.returncode == 1
     assert "Comparison changed" in result.stderr
@@ -653,7 +656,7 @@ def test_cli_retry_completes_interrupted_registration(client, monkeypatch, tmp_p
             sys,
             "argv",
             [
-                str(_installed_cli()),
+                _installed_cli(),
                 "--k",
                 "250",
                 "--register",
@@ -663,7 +666,7 @@ def test_cli_retry_completes_interrupted_registration(client, monkeypatch, tmp_p
             ],
         )
         with pytest.raises(KeyboardInterrupt):
-            runpy.run_path(str(_installed_cli()), run_name="__main__")
+            runpy.run_path(_installed_cli(), run_name="__main__")
 
     before = _aliases(client)
     assert list(before) == [CHALLENGER]

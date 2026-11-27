@@ -3,6 +3,7 @@ import sys
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
+from shutil import which
 from types import ModuleType, SimpleNamespace
 
 import mlflow
@@ -110,14 +111,15 @@ def test_cli_trains_and_logs_real_models_after_candidate_failure(
         return _snapshot()
 
     monkeypatch.setattr(retrain, "read_training_snapshot", read)
-    cli = Path(sys.executable).with_name("retrain-batch")
+    cli = which("retrain-batch", path=str(Path(sys.executable).parent))
+    assert cli is not None, "retrain-batch must be installed in the test environment"
     monkeypatch.setattr(
         sys,
         "argv",
-        [str(cli), "new", "representative_inputs:build", "--etl-run-id", "invocation"],
+        [cli, "new", "representative_inputs:build", "--etl-run-id", "invocation"],
     )
     with pytest.raises(SystemExit) as status:
-        runpy.run_path(str(cli), run_name="__main__")
+        runpy.run_path(cli, run_name="__main__")
     assert status.value.code == 1
     assert snapshots == [engine]
     assert disposed == [True]

@@ -5,8 +5,6 @@ the daily review capacity K for PBI #5 (D5-01), where the MLflow server keeps it
 and the champion registry workflow for PBI #15 (D15-01).
 No Operations confirmation has been received, so every timing status in D4-01 to D4-05 remains
 unconfirmed. K is a product owner assumption, set on 23 November 2026. Feature-timing decisions were
-
-unconfirmed. The product owner confirmed K on 23 November 2026. Feature-timing decisions were
 recorded on 15 November 2026, temporal windows on 16 November and the MLflow server's storage
 on 18 November. Owner identifies the accountable engineer.
 
@@ -172,11 +170,6 @@ Other #30 decisions and its engineer handover remain pending.
 - Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each #14 candidate run records where K comes from in its `k_status` tag.
 - Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and about 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and a single K applied to every country wouldn't work, since Thailand has only about 19 fraud a day, so any K above 19 could never be filled with fraud there.
 - Set before any model result was seen, from the training and validation windows' daily order and fraud counts only. The team MLflow server's run list for the experiment `fraud-prediction` (checked on 25 November 2026) shows that before 23 November it holds only the 17 November server tests. The first model runs are the #14 boosted-trees runs, all tagged `git_commit` 83d2fea: the parent run, "HistGradientBoostingClassifier: customer columns compared" (`7d57012eafcc4f278070bd4368eba4a4`), started on 23 November 2026 at 15:06 (UTC+8), and its two child runs at 15:09 and 15:15. Commit fa0a687 (22 November, 20:51) already used K = 250 provisionally, but no model run reached the server that day.
-
-- Settled: 2026-11-23, when the product owner confirmed it. Owner: Glowing6635. Affected PBIs: #5, #13, #14, #15, #30.
-- Decision: K, the daily review capacity, is 250 orders a day, one total for all countries, so the evaluator selects the top 250 orders of each order date and also reports 2K = 500. It is a product owner assumption, since Trust & Safety has given no capacity yet. The #13 harness and every #14 candidate use it, and each #14 candidate run records where K comes from in its `k_status` tag.
-- Reason: 250 is about 5% of daily orders, roughly two or three analysts' work. 50, the earlier example, is about 1% of the roughly 4,800 validation orders a day and about 8% of their roughly 620 fraud, which is too few for a 13% fraud rate. At 50, a good model would catch close to the most it can each day, so fraud caught would hardly separate candidates and average precision, the tie-breaker, would decide instead. At 250 and 500, every validation day has more fraud than K (at least 546), so the most catchable is always the full K. One total, not a K per country, follows #5's default selection group of one order date; no country has a capacity of its own, and a single K applied to every country wouldn't work, since Thailand has only about 19 fraud a day, so any K above 19 could never be filled with fraud there.
-- Set before any model result was seen, from the training and validation windows' daily order and fraud counts only.
 - If Trust & Safety gives a capacity that differs, the candidates are re-run at the new K and the change is logged here, as #5 says.
 
 ## D6-01 — Frozen retrospective windows and protected exposure
@@ -324,9 +317,36 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   candidates are strictly `< 50,000,000` bytes, while the raw top two by
   validation rank are not. Registering the elected pair needs a live registry
   operation with analyst approval, which this read-only rerun did not perform.
-  Open question: whether PR #171 reviewer (`Glowing6635`) and the Product Owner
-  accept D15-03's pass-over election (rank 1 + rank 3) or require a `< 50 MB`
-  rank-2 random-forest rerun in `laneA-live`.
+  The review recommends registering the elected pair. See
+  [D15-04](#d15-04--read-only-champion-rerun-and-pending-registration) for the
+  rerun evidence and the outstanding analyst approval.
+
+## D15-04 — Read-only champion rerun and pending registration
+
+- Recorded: 2026-11-26 (updated after live rerun). Accountable engineer: SpiralSky. Affected PBI: #15.
+- Decision: executed `uv run champion-pick --k 250` read-only against team
+  MLflow (`laneA-live`, experiment ID `2`; AWS/MLflow spend: `$0`). Recorded full
+  output in [15-champion-pick-k250.md](evidence/15-champion-pick-k250.md)
+  (Comparison ID `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`):
+  - Rank 1 (`HistGradientBoostingClassifier`, `9c3a59771cf8499d92972f5c7873e280`):
+    `1,032,734` bytes (harness) / `1,032,894` bytes (artifact) — `< 50,000,000` bytes.
+  - Rank 2 (`RandomForestClassifier`, `9a40f8f5e35a48ddb39a97f9f052dcad`):
+    `187,236,750` bytes (harness, `> 50 MB`) — passed over under D15-03.
+  - Rank 3 (`ExtraTreesClassifier`, `8af9db9f95e543cfbfebdef82545322c`):
+    `23,109,033` bytes (harness) / `23,109,193` bytes (artifact) — `< 50,000,000` bytes (elected `challenger`).
+- Rationale: live MLflow read access confirmed exact artifact and harness sizes
+  without fabricating values or mutating the registry.
+- Alternatives not taken: mutating the live registry without analyst approval
+  for the new Comparison ID; fabricating or training an unapproved offline
+  substitute.
+- Impact: the elected pair (rank 1 champion and rank 3 challenger) are both
+  under 50,000,000 bytes. The raw top two include the 187 MB random forest.
+- Settled in the 26 November PR #171 review: Glowing6635 recommended proceeding
+  with the elected pair under D15-03. A lighter random forest rerun was the
+  alternative and would require a new preview before registration.
+- Open: the acting analyst approves the Comparison ID above, then the registry
+  operator runs `--register` and checks both aliases. The 187 MB random forest
+  remains the registered challenger until that operation succeeds.
 
 ## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
 
@@ -439,12 +459,28 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   their models in `build_pipeline`, so models they register have no skew handling until a
   candidate is chosen using the validation comparison above (tracked in #16).
 
+## D16-03 — A local MLflow run satisfies #16 criterion 1 and #17 criterion 3
+
+- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBIs: #16, #17.
+- Settled (owner ruling, 2026-11-26): a PBI is finished when every acceptance
+  criterion has recorded evidence and its dev PR is open. For #16 criterion 1
+  (feature-group comparison logged to MLflow) and #17 criterion 3 (each method compared
+  and logged to MLflow), the local MLflow runs recorded in D16-02 and D17-01 satisfy
+  the criterion; logging to the team server is not required for them.
+- Rationale: the criteria require logging to MLflow, not a particular server, and the
+  local runs record the comparisons and parameters. Team-server logging
+  remains an optional follow-up.
+- Alternatives not taken: require team-server logging (needs credentials and a
+  reachable host); run a resampling arm (resampling was deliberately not compared in
+  D17-01, and criterion 1 reads "resampling or class weights").
+- Open: none for these two criteria.
+
 ## D17-01 — Training-only class weighting
 
-- Recorded: 2026-11-23. Updated: 2026-11-25. Accountable engineer: SpiralSky.
+- Recorded: 2026-11-23. Updated: 2026-11-26. Accountable engineer: SpiralSky.
   Affected PBIs: #17, #13, #5, #14.
 - Decision: Keep `class_weight=None` as the default and use the final
-  estimator's `class_weight="balanced"` for the opt-in comparison. Both
+  estimator's `class_weight="balanced"` for the opt-in comparison. All four
   candidates in `models.py` (logistic regression, histogram gradient boosting,
   random forest and extra trees) support this parameter. `balanced` computes a weight
   of n / (2 × class count) from the training labels. Values in `models.py`:
@@ -456,17 +492,17 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   | `random_forest_model` | `None` | `"balanced"` |
   | `extra_trees_model` | `None` | `"balanced"` |
 
-  The measured comparison below covers the first two rows only; the forest rows are
-  supported by the same parameter but were not run. The harness scores the
-  original validation orders at their natural fraud rate.
-- Reason: Both candidates produced identical probabilities on a synthetic
-  fixture when native balancing was compared with explicit balanced sample
-  weights. The harness already logs the classifier parameter and restores
+  The harness scores the original validation orders at their natural fraud rate.
+  See [D16-03](#d16-03--a-local-mlflow-run-satisfies-16-criterion-1-and-17-criterion-3)
+  for the decision on using local MLflow evidence.
+- Reason: Logistic regression and histogram gradient boosting produced identical
+  probabilities on a synthetic fixture with native balancing and with
+  explicit balanced sample weights. The harness already logs the classifier parameter and restores
   it when it clones the saved model for replay. Omitted weighting keeps
   the existing estimator fit. Explicit unit weights were dropped because
   supplying them can change seeded tree binning.
 - Alternatives: Resampling changes the training rows. A fit adapter adds
-  weight routing and serialization handling that neither candidate needs.
+  weight routing and serialization handling that these candidates do not need.
 - Scope: The production weighting decision stays open. This comparison uses
   the frozen split, seed 0, and the product owner's K=250/day assumption
   in D5-01. The final holdout stays locked. See
@@ -474,11 +510,13 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
 
 ### Frozen validation comparison
 
-The training window had 75,449 fraud labels across 721,354 orders. All four
-runs and their replays scored the same 101,190 validation orders, including
-13,066 fraud cases (12.91%). The local MLflow runs used the standard fit,
-parameter logging, artifact loading and replay. Each replay exactly matched
-its logged fraud caught at K and average precision.
+The training window had 75,449 fraud labels across 721,354 orders. All eight
+local MLflow runs scored the same 101,190 validation orders, including 13,066
+fraud cases (12.91%), with 5,250 orders selected at K. For the four logistic
+regression and boosted-tree runs, artifact loading and replay exactly matched
+the logged fraud caught at K and average precision. The random forest and extra
+trees runs from 26 November used a throwaway local MLflow store and were not
+replayed.
 
 | Candidate | Class weight | Fraud caught at K | Fraud caught at 2K | Average precision |
 | --- | --- | ---: | ---: | ---: |
@@ -486,6 +524,14 @@ its logged fraud caught at K and average precision.
 | Logistic regression | `balanced` | 2,479 | 3,933 | 0.322586 |
 | Boosted trees | `None` | 2,893 | 4,370 | 0.371637 |
 | Boosted trees | `balanced` | 2,856 | 4,395 | 0.371064 |
+| Random forest | `None` | 2,813 | 4,288 | 0.357147 |
+| Random forest | `balanced` | 2,662 | 4,273 | 0.354187 |
+| Extra trees | `None` | 2,695 | 4,220 | 0.343432 |
+| Extra trees | `balanced` | 2,589 | 4,294 | 0.341215 |
+
+Balancing reduced fraud caught at K and average precision for both forest
+families. Extra trees caught 74 more fraud orders at 2K. These results support
+keeping the unweighted default while production weighting remains open.
 
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 
@@ -657,51 +703,3 @@ its logged fraud caught at K and average precision.
   D18-06). (2) The PR closes #18 only if the reviewer accepts the proxy X and
   the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
   Owner). The deployed X and capacity are unobtainable (D18-04).
-
-
-## D19-01 — A local MLflow run satisfies #16 criterion 1 and #17 criterion 3
-
-- Recorded: 2026-11-26. Accountable engineer: SpiralSky. Affected PBIs: #16, #17, #15, #25.
-- Settled (owner ruling, 2026-11-26): a PBI is finished when every acceptance
-  criterion has recorded evidence and its dev PR is open. For #16 criterion 1
-  (feature-group comparison logged to MLflow) and #17 criterion 3 (each method compared
-  and logged to MLflow), the local MLflow runs recorded in D16-02 and D17-01 satisfy
-  the criterion; logging to the team server is not required for them.
-- Rationale: the criteria require logging to MLflow, not a particular server, and the
-  runs, parameters and replays are recorded. Gaps G16-a/G17-a stay as optional
-  follow-ups; G16-b and G17-b are dropped.
-- Alternatives not taken: require team-server logging (needs credentials and a
-  reachable host); run a resampling arm (resampling was deliberately not compared in
-  D17-01, and criterion 1 reads "resampling or class weights").
-- Open: none for these two criteria. #15 criterion 1 still has live-registry state
-  that needs a registry operator (G15-b); #25 criteria 3-5 remain PARTIAL.
-
-
-## D19-02 — Champion rerun executed read-only against `laneA-live`; D15-03 elected pair `< 50 MB`, raw top-2 by rank exceeds `50 MB`
-
-- Recorded: 2026-11-26 (updated after live rerun). Accountable engineer: SpiralSky. Affected PBIs: #15, #171.
-- Decision: executed `uv run champion-pick --k 250` read-only against team
-  MLflow (`laneA-live`, experiment ID `2`; AWS/MLflow spend: `$0`). Recorded full
-  output in [15-champion-pick-k250.md](evidence/15-champion-pick-k250.md)
-  (Comparison ID `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`):
-  - Rank 1 (`HistGradientBoostingClassifier`, `9c3a59771cf8499d92972f5c7873e280`):
-    `1,032,734` bytes (harness) / `1,032,894` bytes (artifact) — `< 50,000,000` bytes.
-  - Rank 2 (`RandomForestClassifier`, `9a40f8f5e35a48ddb39a97f9f052dcad`):
-    `187,236,750` bytes (harness, `> 50 MB`) — passed over under D15-03.
-  - Rank 3 (`ExtraTreesClassifier`, `8af9db9f95e543cfbfebdef82545322c`):
-    `23,109,033` bytes (harness) / `23,109,193` bytes (artifact) — `< 50,000,000` bytes (elected `challenger`).
-- Rationale: live MLflow read access confirmed exact artifact and harness sizes
-  without fabricating values or mutating the registry.
-- Alternatives not taken: mutating the live registry without analyst approval
-  for the new Comparison ID; fabricating or training an unapproved offline
-  substitute.
-- Impact & open question: under D15-03, the elected pair (`champion` rank 1 +
-  `challenger` rank 3) are both strictly `< 50,000,000` bytes; by raw validation
-  rank, the top two do not both satisfy `< 50 MB` because rank 2 RF is
-  `187,236,750` bytes. Alternatives going forward: (1) confirm D15-03 pass-over
-  and run `--register` with analyst approval of Comparison ID
-  `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`, or (2) train
-  and log a `< 50 MB` RandomForest candidate in `laneA-live` and rerun
-  `champion-pick`. Deciding owners: Product Owner / Glowing6635 (PR #171
-  acceptance of D15-03 pass-over vs. RF rerun) and registry operator + acting
-  analyst (`--register` execution).
