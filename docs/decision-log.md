@@ -364,8 +364,13 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   exclusion without proving eligible new orders reach training. Use disposable
   SQLite through the application loader, reader and CLI when MySQL 8.4 is
   unavailable. The successful offline exercise can establish dispatch, counts
-  and local artifact logging, with MySQL, RDS, S3, demo timing and official
-  validation/champion identity still to verify. See [retraining](retraining.md).
+  and local artifact logging. See [retraining](retraining.md).
+- Rehearsal scope (2026-11-28, SpiralSky): the retained MySQL/RDS and
+  MLflow/S3 run exercised evaluation mode with the two provisional roster
+  entries, synthetic validation and the pinned numeric HistGB v1 artifact.
+  See the [live synthetic rehearsal](retraining.md#live-synthetic-rehearsal).
+  The final #22 roster, official frozen validation comparison, #23 final
+  evaluation and release, holdout switch and full #27 timing remain gated.
 - For offline evidence, record order and label provenance separately, retain
   the current order-origin count in the CLI, and keep the #6 holdout locked.
   First labels arriving for existing orders are counted as old and can leave
