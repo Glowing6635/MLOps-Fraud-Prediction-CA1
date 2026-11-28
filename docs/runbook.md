@@ -9,7 +9,9 @@ The [verified #26 trial record](../mlflow-server/LAB-RECREATE.md#verified-trial-
 documents the clean-checkout deployment, SingleInstance stack checks, and
 authenticated reads. Use the [authenticated quickstart](../mlflow-server/LAB-RECREATE.md#quickstart)
 after stack verification. Actual stopped-sandbox charges and teammate
-acceptance evidence are pending.
+acceptance evidence are pending. See the
+[AC3 fresh-operator witness](../mlflow-server/LAB-RECREATE.md#ac3-fresh-operator-witness-on-2026-11-28)
+for the separate deployment and synthetic artifact check.
 
 ## RDS database
 

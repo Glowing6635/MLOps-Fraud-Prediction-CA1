@@ -7,7 +7,9 @@ for preflight, approved recovery and a trial deployment with existing network ru
 The [verified #26 trial](LAB-RECREATE.md#verified-trial-on-2026-11-28)
 used its phased `lab-recreate` entry point and the existing Learner Lab
 service role and instance profile. The record includes readiness,
-authenticated checks, and the pending stopped-sandbox charge measurement.
+authenticated checks, and the pending stopped-sandbox charge measurement. See the
+[AC3 fresh-operator witness](LAB-RECREATE.md#ac3-fresh-operator-witness-on-2026-11-28)
+for the separate deployment and synthetic artifact check.
 
 ## Set up RDS and S3, once
 

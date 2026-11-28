@@ -338,8 +338,30 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
 - Keep #26 open. This is partial AC1 deployment evidence. AC2 records the
   verified SingleInstance configuration, with actual stopped-sandbox charges
   pending the independently tracked attributable-window measurement. The
-  coordinator owns the AC3 trial on separate resources. AC4 still needs
-  teammate receipts for the runbook and quickstart. The separate AC3/AC4
-  handoff remains pinned at `1c22d2c0abb635081daaae2c7b70d0bb9e3cde9b`.
+  fresh-operator AC3 evidence and remaining AC4 handoff are tracked in
+  [D26-04](#d26-04--bind-the-fresh-operator-witness-and-fix-the-runbook).
 
 [d26-deploy-record]: ../mlflow-server/LAB-RECREATE.md#verified-trial-on-2026-11-28
+
+## D26-04 — Bind the fresh-operator witness and fix the runbook
+
+- Decision recorded 2026-11-28. Owner: SpiralSky. Affected PBI: #26.
+- SpiralSky accepted the fresh context-free session as the practical AC3
+  witness. The coordinator performed only the designated SQL/SSM owner
+  handoff. Record the exact source pin, raw-report digest, UTC, stack status
+  and successful synthetic artifact check in the [AC3 witness record][d26-ac3].
+- Repair the nine gaps in the operator instructions. The changes cover
+  network capacity and routes, security groups and SQL grants, private SSM
+  files, headless Quickstart, image engine access, cost and time gates,
+  canonical config paths, and TLS client selection. Preserve the CLI and
+  the witnessed source pin. The revised instructions have offline checks.
+- An unchanged runbook would leave the same manual interventions for the
+  next operator. A new deployment would test the revised instructions but
+  require a new scoped window and resources. A human AC3 repeat remains a
+  separate marker decision for SpiralSky.
+- SpiralSky owns arranging independent AC1 IAM evidence. The coordinator
+  owns the AC2 attributable stopped-window cost observation. A distinct
+  teammate owns AC4 runbook and Quickstart verification, with approved
+  access from the coordinator. #26 stays open.
+
+[d26-ac3]: ../mlflow-server/LAB-RECREATE.md#ac3-fresh-operator-witness-on-2026-11-28

@@ -13,10 +13,8 @@ for what can be recovered.
 - Use Bash, Python 3.11 or newer, AWS CLI v2, and a private, encrypted local
   filesystem. For RDS data commands, use the repository's Python 3.12 and
   locked PyMySQL through uv. Set up with `uv sync --locked` before the approved
-  window. For image publication, use a local Docker engine and buildx that can
-  build Linux AMD64 and publish an OCI index with provenance. On an ARM host,
-  check AMD64 emulation in advance. Use the explicitly approved local Unix
-  socket. Reserve space on the actual Docker engine filesystem.
+  window. For image publication, prepare the
+  [local image engine and buildx](#prepare-the-image-engine) before the window.
 - Use an explicit AWS CLI profile for the approved account's short-lived
   `voclabs` role. Refresh credentials privately. Keep CLI history disabled
   in the selected and default profiles and use standard AWS service endpoints
@@ -24,9 +22,9 @@ for what can be recovered.
   the exact account and caller before opening SQL or making changes.
 - Create one operator-owned directory outside the repository with mode
   `0700`, on the approved encrypted filesystem. Store JSON configuration
-  and password-only files there with mode `0600`. Use absolute, canonical
-  paths. Keep the directory out of backups to unapproved storage, shell
-  history, Git, and shared logs. AWS and Docker output is captured privately.
+  and password-only files there with mode `0600`. Keep the directory out
+  of backups to unapproved storage, shell history, Git, and shared logs.
+  AWS and Docker output is captured privately.
   Redacted output includes sizes, state, counts and digests. The manifest and
   archive remain private.
 - Confirm exclusive trial scope across machines and coordinate the source and
@@ -34,8 +32,52 @@ for what can be recovered.
   on one machine so its apply lock can prevent concurrent local execution.
   The local lock cannot protect an account against another operator or service.
 
-Copy [the example](lab/config.example.json) into the private directory and
-replace the example values. For the scoped trial route, set
+### Prepare private config paths
+
+From the repository root, set `P26_PRIVATE_DIR` to the existing, approved
+operator directory. Set `P26_ENGINE_STORAGE_DIR` to an operator-owned
+directory on the filesystem that actually backs the image engine. Run this
+in Bash before creating the private copies. `cd -P` and `pwd -P` work on
+Linux and macOS and resolve directory symlinks without `realpath` options.
+
+```bash
+P26_PRIVATE_DIR=$(CDPATH= cd -P -- "${P26_PRIVATE_DIR:?Set the approved private trial directory}" && pwd -P) || exit 1
+P26_ENGINE_STORAGE_DIR=$(CDPATH= cd -P -- "${P26_ENGINE_STORAGE_DIR:?Set the approved engine storage directory}" && pwd -P) || exit 1
+FOUNDATION_CONFIG="$P26_PRIVATE_DIR/foundation.json"
+IMAGE_CONFIG="$P26_PRIVATE_DIR/image.json"
+SERVER_CONFIG="$P26_PRIVATE_DIR/server.json"
+VERIFY_STACK_CONFIG="$P26_PRIVATE_DIR/verify-stack.json"
+RDS_PASSWORD_FILE="$P26_PRIVATE_DIR/rds-bootstrap-password"
+DATA_PASSWORD_FILE="$P26_PRIVATE_DIR/data-password"
+(
+  umask 077
+  set -eC
+  for config in "$FOUNDATION_CONFIG" "$IMAGE_CONFIG" "$SERVER_CONFIG" "$VERIFY_STACK_CONFIG"; do
+    cat mlflow-server/lab/config.example.json > "$config"
+  done
+)
+```
+
+Use the same path pattern for `--config` in backup, restore and data verify,
+in the approved source or destination directory for each. Set each JSON
+path field to the literal resulting absolute path on the machine running
+the command. Bash variables and `~` are not expanded in JSON.
+
+| Path | Value and validation |
+| --- | --- |
+| Every `--config` | A mode `0600` regular single-link JSON file in a mode `0700` canonical directory owned by the operator |
+| `private_dir` | The canonical workspace (`P26_PRIVATE_DIR`), mode `0700` |
+| `rds_password_file` | The approved bootstrap password file (`RDS_PASSWORD_FILE`) for foundation |
+| `data_password_file` | The approved reader or writer password file (`DATA_PASSWORD_FILE`) for backup, restore and data verify |
+| `docker_capacity_dir` | The canonical engine storage check directory (`P26_ENGINE_STORAGE_DIR`), mode `0700`, for a new image build |
+| `docker_socket` | The approved absolute local Unix socket path used by the image runner. Set a filesystem path, without the `unix://` prefix. |
+
+Password files follow the same ownership, mode and parent directory rules
+as the configuration. For a recovery-only machine, omit the engine
+storage assignment and use only the relevant recovery paths.
+
+Replace the placeholders from [the example](lab/config.example.json).
+For the scoped trial route, set
 `runtime_parameter_prefix` to `/p26-<trial>/mlflow/` using the exact `trial`
 label and keep it consistent across the trial's stack configs. For an approved
 legacy deployment in a clean account, omit the field to use `/mlflow/`.
@@ -66,6 +108,51 @@ fetches Cost Explorer (CE) before its first change in each apply invocation
 that has work to do. CE is a billable API. Treat local dry-run and the live
 read preflight as different evidence.
 
+### Prepare the image engine
+
+The image phase invokes `docker buildx build`, even when the engine is
+Podman. Use the Docker CLI with a buildx plugin discoverable under a fresh
+`DOCKER_CONFIG` (for example, a system-installed plugin). The engine must
+support a Linux AMD64 build and publishing an OCI index with provenance.
+Check AMD64 emulation on ARM hosts in advance. The runner clears
+`DOCKER_*`, `BUILDKIT_*` and `BUILDX_*` settings and sets `DOCKER_HOST`
+from `docker_socket`, so an interactive Docker context or custom builder
+selection does not configure the runner.
+
+For rootless Podman, use an already approved local Podman API socket or,
+with approval, run the service in a separate headless process. Set
+`P26_DOCKER_SOCKET` to the chosen absolute path in a private directory and
+keep the service running for the image phase.
+
+```bash
+podman system service --time=0 "unix://${P26_DOCKER_SOCKET:?Set the approved Podman socket path}"
+```
+
+The ordinary Docker fallback is the Docker CLI plus buildx pointed at an
+approved local Docker Engine socket (for example, `/var/run/docker.sock`
+when that is the approved socket). Use the actual socket in the image
+config for either engine. Check connectivity and plugin availability
+from the same operator account before starting the phase.
+
+```bash
+(
+  set -e
+  unset DOCKER_CONTEXT DOCKER_API_VERSION
+  : "${P26_DOCKER_SOCKET:?Set the approved image engine socket}"
+  DOCKER_CONFIG=$(mktemp -d "${P26_PRIVATE_DIR:?Set the approved private trial directory}/docker-check.XXXXXXXX")
+  trap 'rmdir -- "$DOCKER_CONFIG"' EXIT
+  export DOCKER_CONFIG
+  export DOCKER_HOST="unix://$P26_DOCKER_SOCKET"
+  docker version
+  docker buildx version
+)
+```
+
+These local checks establish socket access and plugin discovery. If the
+Podman engine cannot perform the pinned build, use an approved Docker
+Engine and point the config and capacity check at that engine. Check for
+an existing immutable tag before retrying a failed publication.
+
 ## Exact preflight
 
 Confirm the following with the coordinator for the current lab. The JSON
@@ -76,9 +163,47 @@ or observer.
 | --- | --- |
 | Account, trial and window | Bind the profile, account ID, region and unique trial name to the authorization. Record credential expiry separately from lab expiry. Calculate a work cutoff that preserves stopped observation and teardown. Check every resource with the same profile. A wrong account, expired window or disallowed caller stops work. |
 | Ownership and limits | Reserve the derived trial names with the account owner before launch. Precheck IAM access and account limits for S3 buckets, ECR repositories, EC2 On-Demand vCPU, and any lab-specific restrictions. The tool also checks RDS instance, storage and parameter-group quotas and engine availability, EB application/environment/version limits, EC2 elastic IP availability and instance offering, and subnet free IPs. A quota result cannot reserve capacity. |
-| Network groups and rules | Use distinct existing trial-approved groups in the target VPC. The DB group must already admit TCP 3306 from the EB group and only the explicitly approved client /32s. The EB group must admit TCP 80 from the named approved /32s only. Verify egress, routes, subnet choice and reachability for EB, RDS, ECR, S3 and SSM. The tool rejects broader or different ingress. It does not create a rule, add a client or use the public default EB group. If the exact rules do not exist, stop and take the gap to the network owner. |
+| Network groups and rules | Use the two trial-owned groups and exact ingress described below. Verify egress, routes, subnet choice and reachability for EB, RDS, ECR, S3 and SSM. The tool compares the approved ingress with the observed rules. |
 | Roles and inputs | Check existing `LabRole`, `LabInstanceProfile`, RDS and Auto Scaling service-linked roles and operator ability to pass the existing roles. Confirm applicable lab controls prevent IAM creation and collect the no-IAM audit separately. A caller's ability to read a role does not prove the service can use it. Confirm the owner has installed only approved destination SQL and SSM inputs and that SSM and S3 access via the instance profile is allowed. |
 | Billing and storage | Verify available credit, CE posting lag, current rates, paid requests/transfer, local disk and throughput estimate, other builds or lab users, and retention through teardown. Confirm the operator's exact data-read/write and cleanup scope. Stop for unavailable CE, an unreliable upper bound, over USD 10 cumulative trial cost, or less than USD 15 projected remaining credit. |
+
+### Order network preparation before foundation
+
+1. Confirm the target account/VPC, trial label, approved SQL client and
+   routes with the network owner. Prefer `db_public: false` and an
+   authorized reachable client, such as an approved host inside the VPC or
+   an approved private access path. Resolve the client source IPv4 that
+   RDS will see after any routing or forwarding. HOLD before foundation if
+   there is no approved bootstrap route.
+2. Inventory regional EIP quota and existing allocations with the owner
+   before creating RDS. Public RDS consumes the lab's EIP capacity.
+   Account for any public RDS addresses when assessing headroom, including
+   service-managed use that the visible EC2 inventory might miss. Plan
+   for one free EIP for the new SingleInstance EB environment **after**
+   RDS provisioning, then recheck just before the server phase. If a
+   public RDS bootstrap exception is authorized, agree the exposure-revert
+   owner and timing first. When private addressing is required to free
+   capacity, the owner must confirm the DB is private and available, the
+   planned ingress is in effect, and the EIP headroom has returned before
+   server apply. Use the observed network and `db_public` values in the
+   subsequent configs. HOLD if capacity or the approved route is missing.
+3. Use two distinct groups in the target VPC owned by the trial account.
+   Select existing groups tagged `P26Trial=<trial>` only after checking
+   that this trial owns them and uses their exact rules. If they do not
+   exist, the network owner creates and tags them, or explicitly authorizes
+   a named actor to do so, before foundation. Record the two IDs privately
+   in `db_security_group` and `eb_security_group`. Restrict EB TCP 80 to
+   the approved `eb_http_hosts` IPv4 /32s. Restrict DB TCP 3306 to the EB
+   group peer and the approved SQL client IPv4 /32s only. Preserve shared
+   or existing rules outside this scope.
+4. Set `db_client_hosts` to the exact SQL client /32 list on the DB group,
+   even when `db_public` is false. Use `[]` when the EB peer is the only
+   admitted source. Separately have the SQL owner configure the MySQL
+   `user@host` accounts and grants for the actual authorized client
+   paths, including the EB runtime user. Security group ingress and SQL
+   grants are independent. If the approved client, address, or rules
+   change between phases, have the owners confirm all three still agree
+   and update the private configs before proceeding.
 
 The underlying network and SSM preparations belong to the approved owner.
 The tool creates no IAM resource, load balancer, VPC, SQL grant, login, or SSM
@@ -119,6 +244,8 @@ resources tagged `P26Trial=<trial>`. Reserve an available EB CNAME separately.
    value correctness and existing instance-profile access, including any
    required decryption permission, before setting `runtime_inputs_verified`.
    Stop if provisioning or access would cross the approved trial boundary.
+   Complete the [SQL and SSM handoff](#sql-and-ssm-owner-handoff) before
+   server apply.
 3. Use `create-lab --phase image`. The Dockerfile base digest, dependencies
    with hashes, CA checksum and startup script are pinned. The tool checks
    source input hashes, creates a minimal Docker context, and publishes
@@ -159,6 +286,83 @@ Enable apply for an individual phase only after its dry-run and scope review.
 ./mlflow-server/lab-recreate create-lab --phase server --config "$SERVER_CONFIG" --dry-run
 ./mlflow-server/lab-recreate verify --config "$VERIFY_STACK_CONFIG"
 ```
+
+### SQL and SSM owner handoff
+
+The coordinator names the authorized SQL/SSM owner and agrees how the
+operator will receive the handoff before foundation. The owner confirms
+the exact trial account and DB instance is available on port 3306,
+then connects from the approved route using its verified RDS DNS name
+in `P26_DB_HOST`. Run from the repository root. The bare `--password`
+option prompts without putting the credential on argv. Use an unrecorded
+terminal with tracing disabled.
+
+Oracle MySQL client:
+
+```bash
+MYSQL_HISTFILE=/dev/null mysql --no-defaults --protocol=TCP \
+  --host="${P26_DB_HOST:?Set the verified RDS DNS name}" --port=3306 \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$PWD/src/mlops_fraud_prediction_ca1/rds-global-bundle.pem" \
+  --user="${P26_DB_USER:?Set the approved SQL user}" --password
+```
+
+MariaDB client (also check `mysql --version` if the installed `mysql` is
+a MariaDB alias):
+
+```bash
+MYSQL_HISTFILE=/dev/null mariadb --no-defaults --protocol=TCP \
+  --host="${P26_DB_HOST:?Set the verified RDS DNS name}" --port=3306 \
+  --ssl --ssl-verify-server-cert \
+  --ssl-ca="$PWD/src/mlops_fraud_prediction_ca1/rds-global-bundle.pem" \
+  --user="${P26_DB_USER:?Set the approved SQL user}" --password
+```
+
+Follow [the MLflow schema and grant instructions](DEPLOY.md#set-up-rds-and-s3-once)
+with the exact scoped SQL principals agreed in preflight. Privately
+check `CURRENT_USER()`, a nonempty `Ssl_cipher` from
+`SHOW SESSION STATUS LIKE 'Ssl_cipher'`, and successful schema selection
+with the approved runtime principal from its allowed route. HOLD if
+hostname verification, reachability, or the grant check fails.
+
+The authorized SSM owner checks that the four scoped names are unused.
+Store each value in its own approved mode `0600` private file as raw text,
+with no trailing newline. A newline in `auth-admin-password`
+would become part of the SecureString and would not match the Quickstart
+password. For an interactive entry, use an approved unrecorded terminal.
+This example creates the file without showing the value or overwriting
+anything. For headless preparation, have the owner supply that same
+raw file over the approved private channel.
+
+```bash
+(
+  set +x
+  set -eC
+  umask 077
+  IFS= read -r -s -p 'Approved trial admin password: ' p26_password
+  printf '\n' >&2
+  test -n "$p26_password"
+  printf '%s' "$p26_password" > "${P26_PRIVATE_DIR:?Set the private trial directory}/auth-admin-password"
+)
+```
+
+Use the equivalent private file for each other approved value. For example,
+after confirming the exact account, region and prefix and receiving
+authorization to create this parameter, the owner can pass the file
+reference to AWS CLI v2. Set `P26_PROFILE` and `P26_RUNTIME_PREFIX` from
+the verified trial config. Keep AWS CLI history and debug logging off.
+The default create-only behavior stops on a name collision.
+
+```bash
+aws --profile "${P26_PROFILE:?Set the approved AWS profile}" --region us-east-1 \
+  ssm put-parameter --name "${P26_RUNTIME_PREFIX:?Set the exact prefix including the final slash}auth-admin-password" \
+  --type SecureString --value "file://${P26_PRIVATE_DIR:?Set the private trial directory}/auth-admin-password"
+```
+
+Check the four names and types and confirm value correctness and authorized
+runtime access privately before attesting `runtime_inputs_verified`. The
+lab tool checks SecureString metadata and the binding, so the owner's
+access check is a separate responsibility.
 
 ## Verified trial on 2026-11-28
 
@@ -209,8 +413,40 @@ and the bootstrap evidence reference in
 `evidence/agile-mlops/p26-server-public-bootstrap/receipt-reference.md`.
 The trial's actual stopped-sandbox charges remain open for the independently
 tracked attributable-window billing measurement. Account-wide Cost Explorer
-readings and preflight estimates cannot establish that charge. The AC3
-coordinator trial uses separate resources, and AC4 still needs teammate receipts.
+readings and preflight estimates cannot establish that charge.
+
+## AC3 fresh-operator witness on 2026-11-28
+
+SpiralSky accepted a fresh, context-free agent session as the practical
+non-author operator for AC3. The operator used only the clean pinned
+checkout, this runbook as it stood in that checkout, and ordinary trial
+inputs. The coordinator acted solely as the designated owner for SQL
+and SSM preparation. The witnessed source remains pinned at commit
+`1c22d2c0abb635081daaae2c7b70d0bb9e3cde9b`, tree
+`0b72f92b01f15645fe694cdecd0ad111d412c625`.
+
+- On 2026-11-28 (UTC), the operator applied foundation, image and server
+  phases from 05:24:15Z to 05:48:09Z. Stack verification returned
+  Ready/Green and unauthenticated `/health` HTTP 200.
+- At 05:50:45Z the Quickstart verified the synthetic metric and downloaded
+  the expected artifact for run `009a5efaee064827a041aa6812aa0853`.
+  The report also records one object in the trial artifact bucket.
+- The SHA-256 of the private raw `AC3-REPORT.md` is
+  `4e4b4495bc7e0f93191d696e7d860456fe48f966bf29d92ff835e786776a0b36`.
+
+The witness applies to the pinned source. The follow-up instructions have
+local checks only. The report shows runtime startup and artifact access.
+A direct decrypted read under `LabInstanceProfile` was outside the
+witness. SpiralSky owns any later marker decision about the need for a
+human repeat.
+
+| Open criterion | Remaining evidence and owner |
+| --- | --- |
+| AC1 | SpiralSky arranges an independent IAM audit for the deployed scope to establish that no IAM resources were created. |
+| AC2 | The designated billing observer (coordinator) records measured, attributable stopped-window cost for the retained SingleInstance trial. |
+| AC4 | A distinct teammate follows the runbook and Quickstart and returns their own results. The coordinator supplies the approved stack access. |
+
+See [decision D26-04](../docs/decision-log.md#d26-04--bind-the-fresh-operator-witness-and-fix-the-runbook).
 
 ## Quickstart
 
@@ -224,44 +460,76 @@ trial OS account whose username can be logged as synthetic operator metadata
 by `log-test-run`. This check sends one synthetic run and a small text artifact.
 
 1. Confirm the stack verification passed, including the recorded deployed
-   version, instance type, and unauthenticated `/health` response. Prepare
-   the repository's locked environment with `uv sync --locked` before the
-   approved window. Start a Bash subshell with tracing disabled, and set
-   the tracking values interactively. The URI must contain no credentials.
-   Keep the login and password out of Git, command arguments, and the
-   evidence record.
+   version, instance type, and unauthenticated `/health` response. Set up
+   the locked environment with `uv sync --locked` before the approved window.
+   Use a dedicated Bash session and the existing canonical `P26_PRIVATE_DIR`.
+   The tracking URI must contain no credentials. Keep the trial inputs and
+   command output private. Use one of the following input methods.
+
+   For an unrecorded terminal, enter the values interactively.
 
    ```bash
-   bash
    set +x
-   read -r -p 'Approved trial tracking URI: ' MLFLOW_TRACKING_URI
-   read -r -p 'Approved synthetic experiment: ' MLFLOW_EXPERIMENT_NAME
-   read -r -p 'Trial login: ' MLFLOW_TRACKING_USERNAME
-   read -r -s -p 'Trial password: ' MLFLOW_TRACKING_PASSWORD
+   set -e
+   IFS= read -r -p 'Approved trial tracking URI: ' MLFLOW_TRACKING_URI
+   IFS= read -r -p 'Approved synthetic experiment: ' MLFLOW_EXPERIMENT_NAME
+   IFS= read -r -p 'Trial login: ' MLFLOW_TRACKING_USERNAME
+   IFS= read -r -s -p 'Trial password: ' MLFLOW_TRACKING_PASSWORD
    printf '\n'
+   ```
+
+   For headless use, have the owner supply four operator-owned mode `0600`
+   files in `P26_PRIVATE_DIR`, one raw nonempty value per file with no line
+   terminator. Use the same approved password value that the owner installed
+   if it is the initial admin login. Run these lines in Bash with no TTY.
+
+   ```bash
+   set +x
+   set -e
+   p26_read_value() {
+     local value
+     test -f "$1" || return 1
+     if IFS= read -r -d '' value < "$1"; then
+       return 1
+     fi
+     case "$value" in
+       ''|*$'\r'*|*$'\n'*) return 1 ;;
+     esac
+     printf '%s' "$value"
+   }
+   : "${P26_PRIVATE_DIR:?Set the canonical private trial directory}"
+   MLFLOW_TRACKING_URI=$(p26_read_value "$P26_PRIVATE_DIR/tracking-uri")
+   MLFLOW_EXPERIMENT_NAME=$(p26_read_value "$P26_PRIVATE_DIR/experiment-name")
+   MLFLOW_TRACKING_USERNAME=$(p26_read_value "$P26_PRIVATE_DIR/trial-login")
+   MLFLOW_TRACKING_PASSWORD=$(p26_read_value "$P26_PRIVATE_DIR/trial-password")
+   ```
+
+2. In the same shell, run the synthetic client. Keep the output in a new
+   private log. Take the run ID after `/runs/` in the printed `View run`
+   line, with any query string removed. The command below accepts a single
+   matching run ID and stops if it is missing or ambiguous. Inspect the
+   private output on failure before any retry.
+
+   ```bash
+   : "${P26_PRIVATE_DIR:?Set the canonical private trial directory}"
    export MLFLOW_TRACKING_URI MLFLOW_EXPERIMENT_NAME
    export MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD
    export PYTHON_DOTENV_DISABLED=1
+   P26_QUICKSTART_LOG=$(mktemp "$P26_PRIVATE_DIR/quickstart.XXXXXXXX")
+   uv run --locked --no-env-file log-test-run > "$P26_QUICKSTART_LOG" 2>&1
+   P26_RUN_ID=$(sed -nE 's@^.*View run .*/runs/([0-9a-f]{32})([?].*)?$@\1@p' "$P26_QUICKSTART_LOG")
+   [[ "$P26_RUN_ID" =~ ^[0-9a-f]{32}$ ]] || exit 1
    ```
 
-2. Run the reviewed synthetic client. Stop on failure. Open the resulting
-   run in the approved tracking UI and copy the run ID from its run details.
-
-   ```bash
-   uv run --locked --no-env-file log-test-run
-   ```
-
-3. In the same subshell, retrieve the artifact by run ID through MLflow.
+3. In the same shell, retrieve the artifact by run ID through MLflow.
    This command requires the run to belong to the selected experiment,
    checks `connection_ok`, and compares the downloaded file with the
    exact synthetic contents. Keep the private trial directory as the
-   destination for the temporary download.
+   destination for the temporary download. Keep client output private.
 
    ```bash
-   read -r -p 'Private trial directory: ' P26_PRIVATE_DIR
-   read -r -p 'Synthetic run ID: ' P26_RUN_ID
    export P26_PRIVATE_DIR P26_RUN_ID
-   uv run --locked --no-env-file python - <<'PY'
+   uv run --locked --no-env-file python - >> "$P26_QUICKSTART_LOG" 2>&1 <<'PY'
    import os
    from pathlib import Path
    from tempfile import TemporaryDirectory
@@ -294,8 +562,8 @@ by `log-test-run`. This check sends one synthetic run and a small text artifact.
 
 4. Record the successful run ID, UTC time, metric and artifact retrieval
    result privately with the independent operator's evidence. On failure,
-   record the failing step and stop. Exit the subshell to clear the trial
-   variables. Stack health and a synthetic run leave stopped-window cost,
+   record the failing step and stop. Exit the dedicated Bash session to
+   clear the trial variables. Stack health and a synthetic run leave stopped-window cost,
    IAM audit, and trial cleanup as separate observations.
 
 ### Source handoff
@@ -410,8 +678,24 @@ restrictions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ShareS
 ## Estimates and stop conditions
 
 Use a per-phase work cutoff and preserve an observation and cleanup
-reserve. The hard limits in the tool are USD 10 cumulative trial spend plus
-commitments and USD 15 residual credit. It meters conservative planning
+reserve. Record `approval.credential_expiry_utc` from the independently
+verified credential issuance or lab session information. A credentials
+file may omit the expiry. Obtain it from the authorized issuer if it is
+absent. Record `approval.lab_end_utc` separately. The work cutoff plus
+observation and cleanup minutes must fit before the earlier expiry.
+
+Use these USD bounds from the approval record:
+
+- Before live billing reads, require `available_credit_usd - unposted_and_concurrent_usd - trial_remaining_bound_usd >= 15`.
+- At live apply, first use the lower of `available_credit_usd` and
+  `credit_limit_usd - max(0, posted_ce_usd)`. Subtract the same unposted
+  allowance and remaining trial bound and require at least USD 15. For
+  example, a USD 50 limit, USD 31 posted, USD 21 reported available, USD 1
+  unposted allowance and USD 3 remaining trial bound leave USD 15.
+- Separately, require the operation estimate to fit within
+  `trial_remaining_bound_usd` and `trial_spent_and_committed_usd + trial_remaining_bound_usd <= 10`.
+
+The tool meters conservative planning
 rates for compute and two public IPv4 addresses (USD 0.06/hour together),
 provisioned DB/EBS and backup (USD 6/730 hours), artifact and image storage
 (USD 0.03 and USD 0.10/GiB-month), outbound (USD 0.12/GiB), request/CE charges
