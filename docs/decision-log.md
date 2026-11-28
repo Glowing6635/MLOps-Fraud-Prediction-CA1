@@ -518,35 +518,64 @@ local result. Still open as listed above: the team-server log, the #15 review an
 - Settled: table form, bands, thinning. Open: whether the team wants a figure rendering in a
   notebook (needs the owner's preview approval).
 
-## D22-03 — The order's country as a model input
+## D22-03 — The order's country and training-only recency weighting
 
-- Recorded: 2026-11-26. Owner: Glowing6635 (SpiralSky to review). Affected PBIs: #22, #15,
+- Recorded: 2026-11-26. Updated: 2026-11-28. Owner: Glowing6635 (SpiralSky to review). Affected PBIs: #22, #15,
   #25. Amends D4-01 and D4-02, which keep `country_code` as a key only.
 - Decision: version 2 of the boosted-trees candidate (#14, #142) gives the model the order's
-  `country_code` as a fifth input, beside D4-01's four order columns. The harness adds it only
-  for a run with `country_input=True` (`training.compare_country`, `uv run train
+  `country_code` as a fifth input, beside D4-01's four order columns, and applies training-only
+  14-day exponential recency decay weights (`0.5 ** (age_days / 14)` from the latest training
+  `order_date`). The harness adds both only when requested (`country_input=True`,
+  `recency_half_life_days=14`, via `training.compare_country` and `uv run train
   boosted-trees-country`), so v1, the baseline and every other candidate keep the four columns
-  and their logged runs still reproduce. The customer table's `country_code` stays a key.
-- Reason: like D4-01's four columns, this rests on an **engineering assumption**, not
-  Operations confirmation: the order's country is known when the order is placed, because it
-  is the marketplace the order is placed in. Without it, v1 can't tell a risky order in Pakistan from the same
-  order in the Philippines, and payment method can't stand in for country: payment on delivery
-  (42% of all fraud) and credit card are used in all five countries. On the validation window
-  (K = 250 a day, seed 0), the Philippines (5.9% fraud) took 649 of v1's 5,250 places and v1
-  caught 83 fraud with them, precision 0.13; Pakistan's precision was 0.68. Two changes on the
-  four columns caught less than v1: native category splits 2,884 and 300 trees at learning
-  rate 0.05 2,876, against v1's 2,893. Adding the country input raised fraud caught at K from
-  2,893 to 3,272 (+379) and average precision from 0.3716 to 0.4663.
-- Cost: under one shared K (D5-01), v2 gives the Philippines 13 places instead of 649, so its
-  fraud gets almost no review; the list goes to Pakistan and Bangladesh, where fraud is
-  densest. A K per country would change that, and D5-01 decides K.
+  and uniform training weights, and their logged runs still reproduce. Validation orders are
+  never weighted. The customer table's `country_code` stays a key.
+- Reason:
+  1. **Country input.** Like D4-01's four columns, this rests on an **engineering assumption**,
+     not Operations confirmation: the order's country is known when the order is placed, because
+     it is the marketplace the order is placed in. Without it, v1 can't tell a risky order in
+     Pakistan from the same order in the Philippines, and payment method can't stand in for
+     country: payment on delivery (42% of all fraud) and credit card are used in all five
+     countries. On the validation window (K = 250 a day, seed 0), the Philippines (5.9% fraud)
+     took 649 of v1's 5,250 places and v1 caught 83 fraud with them, precision 0.13; Pakistan's
+     precision was 0.68. Two changes on the four columns caught less than v1: native category
+     splits 2,884 and 300 trees at learning rate 0.05 2,876, against v1's 2,893.
+  2. **Training-only recency weighting.** Kickoff EDA (#3) found a sharp fraud surge from mid-March
+     2023 onward, concentrated in Pakistan (21.1% before 13 March to 38.1% from 13 March inside
+     the training window) and Bangladesh (25.6% to 37.8%), while the Philippines fell (9.3% to
+     7.3%). Uniform training weights average 4.5 months together and under-weight the current
+     regime. Chosen strictly inside the training window using an inner temporal holdout
+     (train `[2022-11-12, 2023-03-06)` -> inner validation `[2023-03-06, 2023-03-27)`, K = 250),
+     exponential decay raised inner-validation fraud caught from 2,939 (uniform, AP 0.4143) to
+     2,990 (30-day half-life), 3,031 (21-day) and 3,058 (14-day, +119, AP 0.4297). A 14-day
+     half-life matches the two-week post-surge horizon while keeping enough effective sample
+     weight across earlier months.
+- Validation ablation (frozen validation window, K = 250 a day, seed 0, 101,190 orders, 13,066 fraud):
+
+| Variant | Fraud caught at K | Fraud caught at 2K | Average precision | Saved size |
+| --- | ---: | ---: | ---: | ---: |
+| v1: 4 order columns, uniform | 2,893 | 4,370 | 0.3716 | 1.03 MB |
+| v2a: + `country_code`, uniform | 3,272 (+379) | 5,476 | 0.4663 | 1.04 MB |
+| v2b: + `country_code` + 14-day recency | 3,403 (+510) | 5,550 | 0.4899 | 1.04 MB |
+
+- Cost: under one shared K (D5-01), v2b gives the Philippines 35 places (14 fraud caught,
+  precision 0.40) instead of v1's 649 (83 caught, precision 0.13), because one shared K favours
+  Pakistan (3,639 places, 2,497 caught, precision 0.69) and Bangladesh (1,260 places, 720 caught,
+  precision 0.57), where fraud is densest. Malaysia (175 places, 95 caught, precision 0.54) and
+  Thailand (141 places, 77 caught, precision 0.55) also get fewer but higher-precision places.
+  A 14-day half-life adapts faster to shifts, but if a short spike reverses, recent weights can
+  overshoot until new batches arrive.
 - Alternatives: a K per country (outside #22; D5-01 rejected it); customer-history counts
-  (D22-01), which are SpiralSky's change for his own candidate.
+  (D22-01), which are SpiralSky's change for his own candidate and depend on unconfirmed
+  customer linkage and 30-day label delay (D4-02, D4-04); extra engineered ratios and frequency
+  encodings on the five placement-time columns (offline validation caught 3,392, below the
+  simpler one-hot pipeline's 3,403).
 - Scoring: `training.score_labelled_rows` gives `country_code` to any model fitted with it,
-  so per-batch retraining (#25) can score v2 as the champion.
-- Open: (1) logging v1 and v2 to the team server needs the AWS lab; (2) training v2 as a #25
-  candidate needs a `ModelSpec` field for the country input and `retrain.py` passing it to
-  `train`; (3) the #27 timed run and the #15 second review.
+  so per-batch retraining (#25) can score v2 as the champion. Recency weights apply during
+  training only, so scoring needs no extra inputs or date logic.
+- Open: (1) logging the three ablation runs to the team server; (2) training v2 as a #25
+  candidate needs `ModelSpec` fields for `country_input` and `recency_half_life_days` and
+  `retrain.py` passing them to `train`; (3) the #27 timed run and the #15 second review.
 
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 

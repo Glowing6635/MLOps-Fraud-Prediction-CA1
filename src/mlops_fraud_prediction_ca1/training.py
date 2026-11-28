@@ -1,3 +1,4 @@
+# Comparisons and CLI stay together with the harness's private provenance helpers.
 """The shared training harness (issue #13): fit a model on the training window, score the
 validation window with the top-K evaluator and log the run to MLflow.
 
@@ -22,7 +23,7 @@ reproduces. docs/training.md says what a run records.
 
 The file is over the 500-line target. The comparisons and the command line call the
 harness's private experiment and provenance helpers, which is why they stay together
-with it; moving them out needs those helpers made public, a refactor of its own (AI-3).
+with it; moving them out needs those helpers made public, a refactor of its own.
 """
 
 import argparse
@@ -84,6 +85,7 @@ FORBIDDEN_COLUMNS = ("is_fraud", "refund_value", "order_id", "customer_id", "bat
 TABLES = ("customers", "orders", "labels")
 _CUTOFFS = ("train_start", "validation_start", "test_start", "test_end_exclusive")
 _KEYS = ["order_date", "country_code", "order_id", "customer_id", "is_fraud"]
+RECENCY_HALF_LIFE_DAYS = 14.0
 
 
 @dataclass(frozen=True)
@@ -225,6 +227,38 @@ def _with_country(keys: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
     return features.assign(country_code=keys.country_code.astype(object).to_numpy())
 
 
+def _validate_half_life(half_life_days: float) -> float:
+    """Validate that a recency half-life is a positive, finite number (not bool)."""
+    if (
+        isinstance(half_life_days, bool)
+        or not np.isfinite(half_life_days)
+        or half_life_days <= 0
+    ):
+        raise ValueError("recency_half_life_days must be a positive finite number.")
+    return float(half_life_days)
+
+
+def _recency_weights(order_dates: pd.Series, half_life_days: float) -> np.ndarray:
+    """Exponential decay weights from the latest training `order_date` (D22-03)."""
+    validated = _validate_half_life(half_life_days)
+    dates = pd.to_datetime(order_dates, errors="coerce")
+    if dates.empty or dates.isna().any():
+        raise ValueError(
+            "Training rows need valid order_date values for recency weighting."
+        )
+    age_days = (dates.max() - dates).dt.days.to_numpy(dtype=float)
+    return np.power(0.5, age_days / validated)
+
+
+def _fit_kwargs(estimator, sample_weight: np.ndarray | None) -> dict[str, object]:
+    """Route `sample_weight` to the final step of a pipeline or directly to an estimator."""
+    if sample_weight is None:
+        return {}
+    if hasattr(estimator, "steps"):
+        return {f"{estimator.steps[-1][0]}__sample_weight": sample_weight}
+    return {"sample_weight": sample_weight}
+
+
 def score_labelled_rows(estimator, rows: pd.DataFrame, *, k: int) -> TopKReport:
     """Score an already fitted model on cleaned, labelled rows.
 
@@ -246,6 +280,7 @@ def fit_and_score(
     labelled_windows: tuple[pd.DataFrame, pd.DataFrame] | None = None,
     history: bool = False,
     country_input: bool = False,
+    recency_half_life_days: float | None = None,
 ) -> FitResult:
     """Fit `estimator` on the training window and evaluate it on the validation window.
 
@@ -255,9 +290,13 @@ def fit_and_score(
     parameter when supplied. Set daily review capacity `k` before seeing any result.
     `history` adds the three v2 customer-history counts (decision D22-01).
     `country_input` adds the order's `country_code` as a text column (D22-03).
+    `recency_half_life_days` weights training rows by exponential decay from the
+    latest training `order_date` without weighting validation rows (D22-03).
     """
     if (data_dir is None) == (labelled_windows is None):
         raise ValueError("Supply exactly one of data_dir and labelled_windows.")
+    if recency_half_life_days is not None:
+        _validate_half_life(recency_half_life_days)
     if labelled_windows is None:
         train_keys, train_x = _load_window(data_dir, "train", exploratory)
         validation_keys, validation_x = _load_window(
@@ -276,6 +315,11 @@ def fit_and_score(
     if country_input:
         train_x = _with_country(train_keys, train_x)
         validation_x = _with_country(validation_keys, validation_x)
+    sample_weight = (
+        _recency_weights(train_keys.order_date, recency_half_life_days)
+        if recency_half_life_days is not None
+        else None
+    )
     if seed is not None:
         estimator.set_params(
             **{
@@ -286,7 +330,7 @@ def fit_and_score(
         )
     check_feature_columns(train_x)
     start = time.perf_counter()
-    estimator.fit(train_x, train_keys.is_fraud)
+    estimator.fit(train_x, train_keys.is_fraud, **_fit_kwargs(estimator, sample_weight))
     fit_seconds = time.perf_counter() - start
     scores = estimator.predict_proba(validation_x)[:, 1]
     report = evaluate_top_k(validation_keys, scores, k)
@@ -322,6 +366,7 @@ def train(
     max_model_size_bytes: int | None = None,
     history: bool = False,
     country_input: bool = False,
+    recency_half_life_days: float | None = None,
 ) -> tuple[str, FitResult]:
     """Run `fit_and_score` and log the run to MLflow; return the run ID and the result.
 
@@ -356,6 +401,7 @@ def train(
         labelled_windows=labelled_windows,
         history=history,
         country_input=country_input,
+        recency_half_life_days=recency_half_life_days,
     )
     policy = load_policy()
     model_params = {
@@ -389,6 +435,7 @@ def train(
                 "exploratory": exploratory,
                 "history_features": history,
                 "country_input": country_input,
+                "recency_half_life_days": recency_half_life_days,
                 "label_delay_days": ASSUMED_LABEL_DELAY_DAYS,
                 "cleaning_policy_version": CLEANING_POLICY_VERSION,
                 **{name: getattr(policy, name).isoformat() for name in _CUTOFFS},
@@ -527,67 +574,122 @@ def compare_history(
 
 
 def compare_country(
-    estimator, data_dir: str | Path, *, k: int, seed: int, tags: dict[str, str]
-) -> tuple[str, tuple[str, FitResult], tuple[str, FitResult]]:
-    """Train `estimator` on the order columns (v1), then with the country input (#22).
+    estimator,
+    data_dir: str | Path,
+    *,
+    k: int,
+    seed: int,
+    tags: dict[str, str],
+    recency_half_life_days: float | None = RECENCY_HALF_LIFE_DAYS,
+) -> tuple[str, list[tuple[str, str, FitResult]]]:
+    """Train `estimator` on the order columns (v1), then with country input and optional recency weighting (#22).
 
-    Both runs are children of one parent run, whose description (`mlflow.note.content`)
-    states the weakness, the change, the validation change in the primary measure and
-    what the change costs the country with v1's lowest precision at K (D22-03). A
-    country v1 gave no place has no precision, so it is never the one named. The
-    parent logs the differences too. Returns the parent run ID and `train`'s
-    (run ID, result) for v1, then v2.
+    Children are logged under one parent run whose description (`mlflow.note.content`)
+    states the weaknesses, the changes, the ablation in fraud caught at K and average
+    precision, and what the change costs the country with v1's lowest precision at K
+    (D22-03). A country v1 gave no place has no precision, so it is never the one named.
+    Returns the parent run ID and a list of `(label, run_id, result)` tuples.
     """
     _use_experiment()
+    if recency_half_life_days is not None:
+        _validate_half_life(recency_half_life_days)
     model = estimator[-1] if hasattr(estimator, "steps") else estimator
+    stages: list[tuple[str, bool, float | None]] = [
+        ("v1 order columns", False, None),
+        ("v2 country input", True, None),
+    ]
+    if recency_half_life_days is not None:
+        stages.append(
+            (
+                f"v2 country input + {recency_half_life_days:g}d recency",
+                True,
+                recency_half_life_days,
+            )
+        )
+    run_title = (
+        f"{type(model).__name__}: v2 country input and recency weighting compared"
+        if recency_half_life_days is not None
+        else f"{type(model).__name__}: v2 country input compared"
+    )
     with mlflow.start_run(
-        run_name=f"{type(model).__name__}: v2 country input compared",
+        run_name=run_title,
         tags={**tags, **_provenance_tags()},
     ) as parent:
-        order_only, with_country = (
-            train(
+        children: list[tuple[str, str, FitResult]] = []
+        for label, country_input, half_life in stages:
+            run_id, result = train(
                 clone(estimator),
                 data_dir,
                 k=k,
                 seed=seed,
                 country_input=country_input,
+                recency_half_life_days=half_life,
                 tags={**tags, "mlflow.runName": label, "champion_eligible": "True"},
             )
-            for country_input, label in (
-                (False, "v1 order columns"),
-                (True, "v2 country input"),
-            )
-        )
-        before, after = order_only[1], with_country[1]
+            children.append((label, run_id, result))
+        before = children[0][2]
+        country_only = children[1][2]
+        after = children[-1][2]
         caught = after.report.at_k.fraud_caught - before.report.at_k.fraud_caught
         precision = after.report.average_precision - before.report.average_precision
-        mlflow.log_metrics(
-            {
-                "fraud_caught_at_k_difference": caught,
-                "average_precision_difference": precision,
-            }
-        )
+        parent_metrics = {
+            "fraud_caught_at_k_difference": caught,
+            "average_precision_difference": precision,
+        }
+        if recency_half_life_days is not None:
+            parent_metrics["country_only_fraud_caught_at_k_difference"] = (
+                country_only.report.at_k.fraud_caught - before.report.at_k.fraud_caught
+            )
+            parent_metrics["recency_fraud_caught_at_k_difference"] = (
+                after.report.at_k.fraud_caught - country_only.report.at_k.fraud_caught
+            )
+        mlflow.log_metrics(parent_metrics)
         was, now = (
             result.diagnostics.slices["country"].set_index("country")
             for result in (before, after)
         )
         # A country with no selected order has no precision, and idxmin skips it.
         worst = was.precision_at_k.idxmin()
-        mlflow.set_tag(
-            "mlflow.note.content",
-            "Weakness: v1 has no country input, so its daily list holds orders from"
-            f" low-fraud countries. {worst} had the lowest precision at K: v1 caught"
-            f" {int(was.caught[worst])} fraud with {int(was.selected[worst])} places."
-            " Change: add the order's country_code as a model input (D22-03)."
-            f" Validation, K = {k}: fraud caught {before.report.at_k.fraud_caught} ->"
-            f" {after.report.at_k.fraud_caught} ({caught:+d}); average precision"
-            f" {before.report.average_precision:.4f} ->"
-            f" {after.report.average_precision:.4f} ({precision:+.4f}). Cost: {worst}"
-            f" gets {int(now.selected[worst])} places ({int(now.caught[worst])} fraud"
-            " caught), because one shared K (D5-01) favours the countries with the"
-            " most fraud.",
-        )
-    return parent.info.run_id, order_only, with_country
+        if recency_half_life_days is not None:
+            change_text = (
+                "Weakness: v1 has no country input, so its daily list holds orders"
+                f" from low-fraud countries ({worst} had the lowest precision at K:"
+                f" v1 caught {int(was.caught[worst])} fraud with"
+                f" {int(was.selected[worst])} places), and uniform training weights"
+                " lag behind the mid-March fraud surge across countries."
+                " Change: add the order's country_code as a model input and apply"
+                f" training-only {recency_half_life_days:g}-day exponential recency"
+                " decay weights (D22-03)."
+                f" Validation, K = {k}: fraud caught"
+                f" {before.report.at_k.fraud_caught} ->"
+                f" {country_only.report.at_k.fraud_caught} (country) ->"
+                f" {after.report.at_k.fraud_caught} (country + recency,"
+                f" {caught:+d} total); average precision"
+                f" {before.report.average_precision:.4f} ->"
+                f" {country_only.report.average_precision:.4f} ->"
+                f" {after.report.average_precision:.4f} ({precision:+.4f})."
+                f" Cost: {worst} gets {int(now.selected[worst])} places"
+                f" ({int(now.caught[worst])} fraud caught), because one shared K"
+                " (D5-01) favours the countries with the most recent fraud."
+            )
+        else:
+            change_text = (
+                "Weakness: v1 has no country input, so its daily list holds orders"
+                f" from low-fraud countries. {worst} had the lowest precision at K:"
+                f" v1 caught {int(was.caught[worst])} fraud with"
+                f" {int(was.selected[worst])} places."
+                " Change: add the order's country_code as a model input (D22-03)."
+                f" Validation, K = {k}: fraud caught"
+                f" {before.report.at_k.fraud_caught} ->"
+                f" {after.report.at_k.fraud_caught} ({caught:+d}); average precision"
+                f" {before.report.average_precision:.4f} ->"
+                f" {after.report.average_precision:.4f} ({precision:+.4f})."
+                f" Cost: {worst} gets {int(now.selected[worst])} places"
+                f" ({int(now.caught[worst])} fraud caught), because one shared K"
+                " (D5-01) favours the countries with the most fraud."
+            )
+        mlflow.set_tag("mlflow.note.content", change_text)
+    return parent.info.run_id, children
 
 
 def rerun(run_id: str, data_dir: str | Path) -> dict:
@@ -611,6 +713,10 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
         raise ValueError(
             f"The input files differ from the logged run's: {', '.join(changed)}."
         )
+    raw_half_life = params.get("recency_half_life_days")
+    recency_half_life_days = (
+        None if raw_half_life in (None, "", "None") else float(raw_half_life)
+    )
     model = clone(mlflow.sklearn.load_model(f"runs:/{run_id}/model"))
     result = fit_and_score(
         model,
@@ -620,6 +726,7 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
         exploratory=params["exploratory"] == "True",
         history=params.get("history_features") == "True",
         country_input=params.get("country_input") == "True",
+        recency_half_life_days=recency_half_life_days,
     )
     caught, logged_caught = (
         result.report.at_k.fraud_caught,
@@ -720,7 +827,20 @@ def main() -> None:
     )
     country_parser = commands.add_parser(
         "boosted-trees-country",
-        help="Log boosted trees on the order columns (v1) and with the country input.",
+        help="Log boosted trees on the order columns (v1), with country input, and with recency weighting.",
+    )
+    recency_group = country_parser.add_mutually_exclusive_group()
+    recency_group.add_argument(
+        "--recency-half-life",
+        type=float,
+        default=RECENCY_HALF_LIFE_DAYS,
+        help="Half-life in days for training-only exponential recency weights"
+        " (default: %(default)g, D22-03).",
+    )
+    recency_group.add_argument(
+        "--no-recency-weighting",
+        action="store_true",
+        help="Compare v1 against country_code alone with uniform training weights.",
     )
     comparison = commands.add_parser(
         "compare-feature-groups",
@@ -835,7 +955,8 @@ def main() -> None:
             print(f"Logged run {run_id}.")
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")
     elif args.command == "boosted-trees-country":
-        parent_id, *children = compare_country(
+        half_life = None if args.no_recency_weighting else args.recency_half_life
+        parent_id, children = compare_country(
             boosted_trees_model(class_weight=args.weighting),
             args.data_dir,
             k=args.k,
@@ -843,8 +964,9 @@ def main() -> None:
             tags={"k_status": f"D5-01: product owner assumption, K = {K}"}
             if args.k == K
             else {},
+            recency_half_life_days=half_life,
         )
-        for label, (run_id, result) in zip(("v1", "v2"), children, strict=True):
+        for label, run_id, result in children:
             print(f"{label}:\n{format_report(result.report)}")
             print(f"Logged run {run_id}.")
         print(f"Logged parent run {parent_id}. Re-run a child run, not the parent.")

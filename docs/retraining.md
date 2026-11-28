@@ -15,8 +15,8 @@ Use a fresh estimator factory per manifest entry, such as #14's order-only
 pipeline factories, and pass the stored estimator parameter overrides in
 `ModelSpec.params`. Factory defaults supply the other stored settings. Include
 each logged #22 candidate version as its own entry when available. A version
-fitted with the country input (D22-03) can't be an entry yet, because
-`ModelSpec` has no way to ask `train` for that input. Candidates accept the four
+fitted with the country input or recency weighting (D22-03) can't be an entry yet,
+because `ModelSpec` has no way to ask `train` for those options. Candidates accept the four
 order features; the champion may also take the order's country, which
 `score_labelled_rows` adds for a model fitted with it. The command
 checks manifest coverage against the supplied roster before reading data.

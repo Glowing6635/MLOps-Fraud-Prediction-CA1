@@ -2,6 +2,7 @@
 
 import re
 import sys
+from types import SimpleNamespace
 
 import mlflow
 import numpy as np
@@ -96,8 +97,9 @@ def data_dir(tmp_path):
 class _Recorder(ClassifierMixin, BaseEstimator):
     """Scores by order value and records every feature matrix it is given."""
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         self.seen_ = [X]
+        self.sample_weight_ = sample_weight
         self.classes_ = np.array([0, 1])
         return self
 
@@ -459,7 +461,31 @@ def test_country_input_reaches_each_order_only_on_request(data_dir):
         assert features.country_code.eq("TH").any()
 
 
-def test_country_command_logs_both_versions_and_country_runs_rerun_and_score(
+def test_recency_weighting_decays_training_rows_only_and_rejects_bad_half_life(
+    data_dir,
+):
+    uniform, weighted = _Recorder(), _Recorder()
+    fit_and_score(uniform, data_dir, k=5, seed=0)
+    fit_and_score(weighted, data_dir, k=5, seed=0, recency_half_life_days=14.0)
+    assert uniform.sample_weight_ is None
+    weights = weighted.sample_weight_
+    assert weights is not None and len(weights) == 300
+    assert np.isclose(weights.max(), 1.0)
+    # Training dates span 13 days (i % 14 -> 0..13), so oldest weight is 0.5**(13/14).
+    assert np.isclose(weights.min(), 0.5 ** (13 / 14))
+    assert np.all((weights > 0) & (weights <= 1.0))
+    for bad in (0, -7, True, False, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="positive finite"):
+            fit_and_score(
+                _Recorder(), data_dir, k=5, seed=0, recency_half_life_days=bad
+            )
+    bad_orders = pd.read_csv(data_dir / "orders_base.csv")
+    bad_orders.loc[bad_orders.order_id.eq("train0"), "order_date"] = "not-a-date"
+    with pytest.raises(ValueError, match="valid order_date"):
+        training._recency_weights(bad_orders["order_date"], 14.0)
+
+
+def test_country_command_logs_ablation_and_recency_runs_rerun_and_score(
     data_dir, tmp_path, monkeypatch, capsys
 ):
     # Every TH order is fraud, so only a model that sees the country can tell.
@@ -474,31 +500,145 @@ def test_country_command_logs_both_versions_and_country_runs_rerun_and_score(
     )
     main()
     out = capsys.readouterr().out
-    order_only_id, country_id = re.findall(r"Logged run (\w+)\.", out)
+    order_only_id, country_id, recency_id = re.findall(r"Logged run (\w+)\.", out)
     (parent_id,) = re.findall(r"Logged parent run (\w+)\.", out)
-    order_only, country = map(mlflow.get_run, (order_only_id, country_id))
-    assert order_only.data.params["country_input"] == "False"
-    assert country.data.params["country_input"] == "True"
-    for run in (order_only, country):
-        assert run.data.tags["champion_eligible"] == "True"
-    before, after = (
-        int(run.data.metrics["fraud_caught_at_k"]) for run in (order_only, country)
+    order_only, country, recency = map(
+        mlflow.get_run, (order_only_id, country_id, recency_id)
     )
-    assert after > before
+    assert order_only.data.params["country_input"] == "False"
+    assert order_only.data.params["recency_half_life_days"] == "None"
+    assert country.data.params["country_input"] == "True"
+    assert country.data.params["recency_half_life_days"] == "None"
+    assert recency.data.params["country_input"] == "True"
+    assert float(recency.data.params["recency_half_life_days"]) == 14.0
+    for run in (order_only, country, recency):
+        assert run.data.tags["champion_eligible"] == "True"
+    before, mid, after = (
+        int(run.data.metrics["fraud_caught_at_k"])
+        for run in (order_only, country, recency)
+    )
+    assert mid > before and after > before
     parent = mlflow.get_run(parent_id)
     note = parent.data.tags["mlflow.note.content"]
     assert "Weakness:" in note and "D22-03" in note and "Cost: MY gets" in note
-    assert f"fraud caught {before} -> {after}" in note
+    assert f"fraud caught {before} -> {mid} (country) -> {after}" in note
     assert parent.data.metrics["fraud_caught_at_k_difference"] == after - before
-    again = rerun(country_id, data_dir)
+    assert (
+        parent.data.metrics["country_only_fraud_caught_at_k_difference"] == mid - before
+    )
+    assert parent.data.metrics["recency_fraud_caught_at_k_difference"] == after - mid
+    again = rerun(recency_id, data_dir)
     assert again["fraud_caught_at_k"] == after and again["reproduced"]
     validation = orders.merge(labels, on=["country_code", "order_id"]).loc[
         lambda rows: rows.order_id.str.startswith("validation")
     ]
-    model = mlflow.sklearn.load_model(f"runs:/{country_id}/model")
+    model = mlflow.sklearn.load_model(f"runs:/{recency_id}/model")
     assert training.score_labelled_rows(model, validation, k=5).at_k.fraud_caught == (
         after
     )
+
+
+def test_country_command_without_recency_weighting_logs_two_runs(
+    data_dir, tmp_path, monkeypatch, capsys
+):
+    _move_even_orders_to_thailand(data_dir, {}, {"is_fraud": 1})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "boosted-trees-country",
+            "--no-recency-weighting",
+            "--data-dir",
+            str(data_dir),
+            "--k",
+            "5",
+        ],
+    )
+    main()
+    out = capsys.readouterr().out
+    order_only_id, country_id = re.findall(r"Logged run (\w+)\.", out)
+    assert mlflow.get_run(order_only_id).data.params["recency_half_life_days"] == "None"
+    assert mlflow.get_run(country_id).data.params["recency_half_life_days"] == "None"
+
+
+def test_country_command_custom_half_life_rejects_conflicts_and_rerun_handles_omitted_params(
+    data_dir, tmp_path, monkeypatch, capsys
+):
+    _move_even_orders_to_thailand(data_dir, {}, {"is_fraud": 1})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "harness-test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "boosted-trees-country",
+            "--recency-half-life",
+            "7",
+            "--no-recency-weighting",
+            "--data-dir",
+            str(data_dir),
+        ],
+    )
+    with pytest.raises(SystemExit):
+        main()
+    with pytest.raises(ValueError, match="positive finite"):
+        training.compare_country(
+            _Recorder(), data_dir, k=5, seed=0, tags={}, recency_half_life_days=-1
+        )
+    assert (
+        mlflow.search_runs(experiment_names=["harness-test"], output_format="list")
+        == []
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "boosted-trees-country",
+            "--recency-half-life",
+            "7",
+            "--data-dir",
+            str(data_dir),
+            "--k",
+            "5",
+        ],
+    )
+    main()
+    out = capsys.readouterr().out
+    _, _, recency_id = re.findall(r"Logged run (\w+)\.", out)
+    run = mlflow.get_run(recency_id)
+    assert run.data.tags["mlflow.runName"] == "v2 country input + 7d recency"
+    assert float(run.data.params["recency_half_life_days"]) == 7.0
+    assert rerun(recency_id, data_dir)["reproduced"]
+
+    # Simulate an earlier logged run missing `recency_half_life_days` and `country_input`.
+    order_run_id = re.findall(r"Logged run (\w+)\.", out)[0]
+    order_run = mlflow.get_run(order_run_id)
+    prior_params = {
+        k: v
+        for k, v in order_run.data.params.items()
+        if k not in ("recency_half_life_days", "country_input")
+    }
+    monkeypatch.setattr(
+        mlflow,
+        "get_run",
+        lambda rid: SimpleNamespace(
+            info=order_run.info,
+            data=SimpleNamespace(
+                metrics=order_run.data.metrics,
+                params=prior_params,
+                tags=order_run.data.tags,
+            ),
+        ),
+    )
+    assert rerun(order_run_id, data_dir)["reproduced"]
 
 
 def test_boosted_trees_v2_command_logs_two_runs(

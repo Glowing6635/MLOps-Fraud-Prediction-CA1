@@ -45,8 +45,8 @@ stops unless `--k-status` says where that K comes from, such as
 `compare-feature-groups` fits and logs the baseline separately for each
 [order feature group](feature-pipeline.md) and prints the validation results and run IDs.
 
-`boosted-trees-country` logs the boosted-trees candidate's two versions for #22 (see
-"Version 2: the country input").
+`boosted-trees-country` logs the boosted-trees candidate's version 2 ablation for #22 (see
+"Version 2: country input and recency weighting").
 
 A candidate model calls the harness from Python with any scikit-learn classifier or
 pipeline that has `predict_proba`:
@@ -88,7 +88,7 @@ model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
 
 | Kind | Recorded |
 | --- | --- |
-| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `country_input`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
+| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `country_input`, `recency_half_life_days`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
 | Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
 | Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
@@ -132,25 +132,31 @@ The parent logs the with-columns result minus the without result as
 `average_precision_difference`. The parent holds no model, so re-run a child by its own
 run ID.
 
-## Version 2: the country input
+## Version 2: country input and recency weighting
 
-`uv run train boosted-trees-country` logs the boosted-trees candidate twice under one
-parent run, `HistGradientBoostingClassifier: v2 country input compared`: `v1 order
-columns` on the four order columns, and `v2 country input`, which also gives the model
-the order's `country_code` ([D22-03](decision-log.md#d22-03--the-orders-country-as-a-model-input)).
-Both children are tagged `champion_eligible` `True`, and each logs the diagnostics
-tables. The parent's description (`mlflow.note.content`) states the weakness, the change,
-the change in fraud caught at K and in average precision, and how many places v2 gives
-the country with v1's lowest precision at K. A country v1 gave no place has no
-precision, so it is never the one named. The parent also logs
-`fraud_caught_at_k_difference` and `average_precision_difference`.
+`uv run train boosted-trees-country` logs the boosted-trees candidate's ablation ladder under
+one parent run, `HistGradientBoostingClassifier: v2 country input and recency weighting compared`:
+`v1 order columns` on the four order columns, `v2 country input` adding the order's
+`country_code`, and `v2 country input + 14d recency` adding training-only 14-day exponential
+recency decay weights ([D22-03](decision-log.md#d22-03--the-orders-country-and-training-only-recency-weighting)).
+Pass `--recency-half-life <days>` to change the half-life, or `--no-recency-weighting` to log
+only `v1 order columns` and `v2 country input`. Every child is tagged `champion_eligible`
+`True` and logs the diagnostics tables. The parent's description (`mlflow.note.content`) states
+the weaknesses, the changes, the ablation in fraud caught at K and average precision, and how
+many places the final version gives the country with v1's lowest precision at K. A country v1
+gave no place has no precision, so it is never the one named. The parent also logs
+`fraud_caught_at_k_difference` and `average_precision_difference`, plus
+`country_only_fraud_caught_at_k_difference` and `recency_fraud_caught_at_k_difference`
+when recency weighting is enabled.
 
-From Python, pass `country_input=True` to `train` or `fit_and_score`. It works for rows
-passed in too, since every row carries its `country_code`. A model fitted with the
+From Python, pass `country_input=True` and optionally `recency_half_life_days=14` to `train`
+or `fit_and_score`. Recency weights decay from the latest training `order_date` and apply to
+training rows only; validation rows are never weighted. Both options work for rows passed in
+too, since every row carries its `country_code` and `order_date`. A model fitted with the
 country input needs the column whenever it scores. `score_labelled_rows` adds it for any
-model that was fitted with it, so per-batch retraining can score version 2 as the
-champion. Training version 2 there as a candidate needs `retrain.py` to pass
-`country_input=True` for it, which `ModelSpec` can't ask for yet.
+model that was fitted with it, so per-batch retraining can score version 2 as the champion.
+Training version 2 there as a candidate needs `retrain.py` to pass `country_input=True` and
+`recency_half_life_days` for it, which `ModelSpec` can't ask for yet.
 
 ## Re-running a run
 
