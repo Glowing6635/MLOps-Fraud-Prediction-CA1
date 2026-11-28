@@ -160,6 +160,58 @@ Enable apply for an individual phase only after its dry-run and scope review.
 ./mlflow-server/lab-recreate verify --config "$VERIFY_STACK_CONFIG"
 ```
 
+## Verified trial on 2026-11-28
+
+The retained #26 trial started from a clean checkout of
+`45569024565300c6d6c5c1962f3bbff9aac867bd` (tree
+`afde2388a6cd5ae47fc636ba61bc96a63d2ec360`). The operator ran the
+`lab-recreate` foundation, image and server phases with a fresh trial namespace.
+Network preparation and destination SQL and SSM bootstrap were separately
+authorized. The first operator route to private RDS timed out. The approved
+trial retry temporarily enabled public RDS addressing with a scoped host /32
+rule and passed authenticated TLS SQL
+before submitting Elastic Beanstalk at 03:37Z. Confirm the authorized route
+for each new trial and follow its exposure-revert handoff.
+
+The deployed configuration used the existing `LabRole` as the EB service
+role and `LabInstanceProfile` for the EC2 instance. Preflight verified both
+and the existing RDS and Auto Scaling service-linked roles. Stack verification
+checked the deployed role/profile settings and all seven runtime options,
+including the four scoped SecureString bindings. Successful startup after the
+scoped refresh demonstrated that the configured instance could load its runtime
+inputs. The runner provisions no IAM resources. The separate no-IAM audit
+listed in [Exact preflight](#exact-preflight) is outside this record.
+
+- Elastic Beanstalk reached Ready/Green, but the initial application health
+  request returned HTTP 502. The operator corrected the two trial SQL URI
+  SecureStrings and restarted the application server to refresh them.
+- The pinned stack check passed after the refresh. It verified Ready/Green,
+  SingleInstance with one running x86-64 `t3.small`, 8 GiB gp3, no load
+  balancer, and unauthenticated `/health` returning HTTP 200.
+- At 03:44:53Z the encrypted Session Manager route returned HTTP 200 for health
+  and HTTP 401 for anonymous discovery. Authenticated experiment discovery
+  returned one experiment and authenticated registry search succeeded with
+  zero registered models. These were discovery and registry read checks.
+  The separate teammate quickstart is still pending.
+
+The raw-log SHA-256 is
+`9bda33bbc55513273c1e3c674812445b5e155b9e4a6b89a522234298a967d6a7`.
+From the authorized private evidence directory, reproduce it in this order.
+
+```bash
+cat public-host-{route,bootstrap,eb,discovery}.log | sha256sum
+```
+
+Steward holds the sanitized foundation trace in
+`evidence/agile-mlops/p26-fresh-start-1128/phase-trace.log` (lines 1–37,
+SHA-256 `d521f4492dc68bb23f57480812af7e3a6a9e3b0826818d6cc39080f8f0170425`)
+and the bootstrap evidence reference in
+`evidence/agile-mlops/p26-server-public-bootstrap/receipt-reference.md`.
+The trial's actual stopped-sandbox charges remain open for the independently
+tracked attributable-window billing measurement. Account-wide Cost Explorer
+readings and preflight estimates cannot establish that charge. The AC3
+coordinator trial uses separate resources, and AC4 still needs teammate receipts.
+
 ## Quickstart
 
 Run this authenticated check from the repository root after

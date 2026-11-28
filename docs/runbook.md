@@ -5,6 +5,11 @@ How to create the team's cloud services in the AWS sandbox account and set them 
 For an approved separate Learner Lab account, see the [recreation and recovery
 runbook](../mlflow-server/LAB-RECREATE.md). It covers scoped provisioning,
 data transfer, verification and teardown of trial resources.
+The [verified #26 trial record](../mlflow-server/LAB-RECREATE.md#verified-trial-on-2026-11-28)
+documents the clean-checkout deployment, SingleInstance stack checks, and
+authenticated reads. Use the [authenticated quickstart](../mlflow-server/LAB-RECREATE.md#quickstart)
+after stack verification. Actual stopped-sandbox charges and teammate
+acceptance evidence are pending.
 
 ## RDS database
 

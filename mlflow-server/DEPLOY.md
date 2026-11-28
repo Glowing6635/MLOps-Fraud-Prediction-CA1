@@ -4,6 +4,10 @@ How to set up the MLflow server's AWS services, build its image and deploy it. `
 
 For a separate Learner Lab account, use the [recreation runbook](LAB-RECREATE.md)
 for preflight, approved recovery and a trial deployment with existing network rules.
+The [verified #26 trial](LAB-RECREATE.md#verified-trial-on-2026-11-28)
+used its phased `lab-recreate` entry point and the existing Learner Lab
+service role and instance profile. The record includes readiness,
+authenticated checks, and the pending stopped-sandbox charge measurement.
 
 ## Set up RDS and S3, once
 

@@ -326,16 +326,20 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   the existing parameters and their consumers. Independent source review
   passed for the scoped name mapping, environment binding, compatibility
   and documented isolation.
-- The renewed live attempt was held. About 50 minutes remained before the
-  provisioning cutoff, and cold RDS, image and Elastic Beanstalk provisioning
-  could already take that long before network setup, dry-runs, database and
-  parameter bootstrap, and authentication. The observation and teardown
-  window stayed reserved. Live provisioning did not start.
-- Keep #26 open. The manager owns live AC1/2: a clean-checkout deployment
-  using the supplied roles, including instance-profile access to the four
-  fresh parameters and authenticated verification, and evidence of the
-  SingleInstance environment and its stopped-sandbox cost. The next attempt
-  needs a longer authorized window and confirmed bootstrap, verification
-  and cleanup routes. Glowing6635 owns AC3/4: an unaided deployment and
-  quickstart using the runbook, including its service and configuration
-  inventory and architecture diagram.
+- The follow-up deployed from a clean checkout of
+  `45569024565300c6d6c5c1962f3bbff9aac867bd` (tree
+  `afde2388a6cd5ae47fc636ba61bc96a63d2ec360`). The pinned CLI applied the
+  foundation, image and server phases with separately scoped network and
+  SQL/SSM bootstrap. Elastic Beanstalk used the supplied `LabRole` service
+  role and `LabInstanceProfile` and reached Ready/Green. The stack and
+  authenticated checks passed after refreshing the two scoped SQL URI
+  parameters. See the [deployment record][d26-deploy-record] for the exact
+  checks, incident sequence and raw-log SHA-256.
+- Keep #26 open. This is partial AC1 deployment evidence. AC2 records the
+  verified SingleInstance configuration, with actual stopped-sandbox charges
+  pending the independently tracked attributable-window measurement. The
+  coordinator owns the AC3 trial on separate resources. AC4 still needs
+  teammate receipts for the runbook and quickstart. The separate AC3/AC4
+  handoff remains pinned at `1c22d2c0abb635081daaae2c7b70d0bb9e3cde9b`.
+
+[d26-deploy-record]: ../mlflow-server/LAB-RECREATE.md#verified-trial-on-2026-11-28
