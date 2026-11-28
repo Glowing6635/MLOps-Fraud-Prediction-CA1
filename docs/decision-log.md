@@ -796,20 +796,36 @@ keeping the unweighted default while production weighting remains open.
   [comparison table](baseline-rule.md#result-rule-versus-the-15-champion-re-score-validation-window).
   Raw parity log SHA-256:
   `96d929050f6977d038162b95159293f066fe5e959095e2c706b739e1cc59126c`.
-- Post-score trial metadata at 05:04:21Z: a separate read confirmed
-  `champion` READY v1 and `challenger` READY v2 with `previous` tags 2 and 1
-  respectively. Metadata log SHA-256:
-  `b19a794996f5d554cd1b2a4f0f6af1a095fb3e71afbd3bfefd621a2bd4d44f33`.
-  The earlier replay command's trailing full source and package rebind
-  failed with a connection refusal after the fixed-X report completed as
-  the tunnel closed. The metadata read confirms the aliases and tags.
-- Decision limits: the draft candidate is partial. The score and report
-  evidence supports criteria 4–6 for the pinned champion, the frozen
-  validation window, the recorded criterion 3 loyalty definition and the
-  proxy X and assumed K accepted in
+- Earlier trial provenance: the first replay's trailing source and package
+  rebind received a connection refusal after the report as the tunnel closed.
+  A separate 05:04:21Z read confirmed the aliases and tags (metadata log
+  SHA-256 `b19a794996f5d554cd1b2a4f0f6af1a095fb3e71afbd3bfefd621a2bd4d44f33`).
+- Retained trial registry rebind on 2026-11-28 at 05:28–05:31 UTC: both
+  numeric `fraud-candidate` v1 downloads, before scoring and after the report,
+  matched all five approved files (1,032,894 bytes) and loaded the pipeline.
+  Package inventory SHA-256:
+  `8b160d12614689ad532211b2638107a0178f0bd7c88980149e416de893c61dbc`.
+  Authenticated reads in experiment `2` bound registry run
+  `f6599bbb797e4a69b55ea7919dd74ac2` to trial logged model
+  `m-93b4a7cf3a0145879b1bebe233016ec5` by matching both the registry source
+  and download URI to the model's exact artifact URI
+  `mlflow-artifacts:/2/models/m-93b4a7cf3a0145879b1bebe233016ec5/artifacts`.
+  The optional registry `model_id` was absent. The authenticated readback
+  also confirmed the pinned champion source run and source logged model
+  recorded above. Both checks confirmed READY `champion` v1 and READY
+  `challenger` v2 with `previous` tags 2 and 1 respectively.
+- Retained trial parity: all 101,190 ordered D18-06 keys and scores matched
+  with maximum absolute delta 0. The registered-score export matched the
+  protected replay's SHA-256 above. The report reproduced all 15 D18-07
+  aggregates with frozen X = 13.36 SGD and K = 250 orders per day across all
+  countries. Retained trial run log SHA-256:
+  `36d4c15ca4612240e1e9c3f050b6b539e95da4c5a37f5b5d39fa87688d9828b6`.
+  The 02:55–02:57 UTC protected replay remains the team-server read.
+- Decision limits: the evidence supports criteria 4–6 for the pinned
+  champion, the frozen validation window, the recorded criterion 3 loyalty
+  definition and timing limits, and the proxy X and assumed K accepted in
   [D18-07](#d18-07--18-outcome-criteria-status-and-score-file-key-check).
-  The holdout stayed locked. The coordinator's authorized reader can
-  complete the open source and package recheck if needed, particularly
-  when verifying a revised criterion 3 report. Regenerate that report if
-  the loyalty definition changes, and repeat parity and the report if the
-  champion binding changes.
+  The holdout stayed locked. Regenerate the report if the loyalty definition
+  changes, and repeat parity and the report if the champion binding changes.
+  Delivery requires the #171 teammate merge, then final review of the exact
+  candidate head.

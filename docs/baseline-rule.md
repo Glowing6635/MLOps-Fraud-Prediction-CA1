@@ -246,12 +246,13 @@ flags. The rule flagged zero orders at X = 100 SGD or higher.
 **Acceptance status.** The Product Owner accepted the validation-tuned proxy
 X = 13.36 SGD and assumed K = 250 per day for criteria 1 and 4 in
 [D18-07](decision-log.md#d18-07--18-outcome-criteria-status-and-score-file-key-check).
-The approved trial registry replay provides scoped evidence for criteria 4–6
-using READY `fraud-candidate` v1 from the pinned
+The retained trial registry replay and completed rebind provide scoped evidence
+for criteria 4–6 using READY `fraud-candidate` v1 from the pinned
 [#15 champion](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/161)
-source run `9c3a59771cf8499d92972f5c7873e280`. The draft candidate remains
-partial. The full post-score source and package check is open, and the
-comparison uses the criterion 3 loyalty definition documented above. See
+source run `9c3a59771cf8499d92972f5c7873e280`. The comparison uses the
+criterion 3 loyalty definition and timing limits documented above. The final
+holdout stayed locked. Delivery still requires the #171 teammate merge,
+followed by final review of the exact candidate head. See
 [D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
 for the evidence and the conditions for rechecking it.
 
@@ -303,7 +304,7 @@ Run on 2026-11-26 with `uv run champion-scores` output
 Candidate X values tested on validation: 13.36 (132 flags, 73 fraud), 17.72
 (64, 34), 31.14 (19, 11), 38.78 (11, 7), 61.32 (2, 2), 119.41 (0, 0).
 
-On 2026-11-28 at 05:03:37Z, the downloaded trial-registry v1 package matched
+On 2026-11-28 at 05:28–05:31 UTC, the retained trial registry replay matched
 all 101,190 ordered D18-06 validation keys and scores exactly (maximum
 absolute delta 0). The fixed-X report completed with the frozen X = 13.36 SGD
 and K = 250 per day across all countries. It applied each day's rule flag
@@ -316,10 +317,9 @@ The table below is the trial report, which reproduced all 15 earlier values.
 | Champion, matched to the rule's count | 132 | 102 | 625.36 | 30 | 6 |
 | Champion at K (250 a day) | 5,250 | 2,893 | 33,650.06 | 2,357 | 663 |
 
-A later offline fixed-X replay reproduced all 15 comparison values on the
-same 101,190 labelled validation orders using the D18-06 re-score.
-[D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
-records its evidence digest and the subsequent registered package checks.
+An offline fixed-X replay also reproduced all 15 comparison values using
+the D18-06 re-score. [D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
+records the evidence digests and the registered package checks.
 
 Population: 101,190 labelled validation orders; account-age status `valid`
 101,109, `unusable_first_order` 71, `negative` 10; rule status `flagged` 132,
@@ -338,14 +338,18 @@ The protected team registry replay on 2026-11-28 matched every ordered key
 and score on the 101,190 frozen validation orders and reproduced all 15 values
 using the saved champion at the same proxy threshold and K.
 
-For the trial replay, the separate 05:04:21Z metadata read confirmed
-`champion` on READY v1 and `challenger` on READY v2, with `previous` tag
-targets 2 and 1 respectively. The trailing full source and package recheck
-received a connection refusal after the report as the tunnel closed. The
-authorized reader can complete that recheck if needed. A change to the loyalty
-definition in criterion 3 requires regenerating the report for the revised
-definition, and a change to the champion binding requires fresh score parity
-and report evidence.
+The retained trial rebind verified two numeric v1 downloads, one before scoring
+and one after the report. Both matched the five approved files and loaded the
+pipeline. Authenticated metadata bound both downloads to trial logged model
+`m-93b4a7cf3a0145879b1bebe233016ec5` and run
+`f6599bbb797e4a69b55ea7919dd74ac2` by matching the registry source and
+download URI to the logged model's exact artifact URI while the optional
+registry `model_id` was absent. The aliases stayed at READY `champion` v1 and
+READY `challenger` v2, with `previous` tags 2 and 1 respectively. This is
+retained trial registry evidence. The 02:55–02:57 UTC protected replay above
+remains the team-server read. Regenerate the report if the criterion 3 loyalty
+definition changes. Repeat score parity and the report if the champion
+binding changes.
 
 ## Verify the exact registered champion's validation scores
 
