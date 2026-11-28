@@ -2,6 +2,8 @@
 
 - [Contributor guide](contributors/README.md) — Git workflow, pull requests,
   reviews, branch synchronisation and releases.
+- [Handover](handover.md) — the release checklist, the release archive and
+  what reviewers need to check the release.
 - [Decision log](decision-log.md) — major decisions, with their dates, owners
   and reasons.
 - [Feature pipeline](feature-pipeline.md) — feature groups and how to load a
