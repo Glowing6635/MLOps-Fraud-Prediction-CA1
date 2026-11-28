@@ -749,3 +749,33 @@ def test_retry_recovers_old_champion_first_partial_swap(client):
 
     assert move_champion(client, MODEL, second, "promote") == first
     assert _aliases(client) == {CHAMPION: second, CHALLENGER: first}
+
+
+def test_register_passes_model_id_only_for_logged_models(client, monkeypatch, tmp_path):
+    winner = _log("winner", 200, 0.3, legacy_manifest=False)
+    runner_up = _log("runner-up", 90, 0.4, legacy_manifest=False)
+    logged = _log_logged_model(winner, 1)
+    _log_legacy_model(client, tmp_path, runner_up, 0, "model")
+
+    calls = []
+    real_create = client.create_model_version
+
+    def spy_create(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr(client, "create_model_version", spy_create)
+    versions = _register(
+        client, MODEL, eligible_candidates(client, _experiment(client), 250)
+    )
+
+    assert len(calls) == 2
+    assert calls[0][1]["model_id"] == logged.model_id
+    assert calls[1][1]["model_id"] is None
+    champion_version = client.get_model_version(MODEL, versions[CHAMPION])
+    challenger_version = client.get_model_version(MODEL, versions[CHALLENGER])
+    assert (
+        champion_version.source
+        == client.get_logged_model(logged.model_id).artifact_location
+    )
+    assert not challenger_version.model_id
