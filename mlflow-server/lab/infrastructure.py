@@ -161,6 +161,19 @@ class Stack:
         self.trial = config["trial"]
         self.account = config["account"]
         stem = f"p26-{self.trial}"
+        trial_prefix = f"/{stem}/mlflow/"
+        if "runtime_parameter_prefix" in config:
+            require(
+                config["runtime_parameter_prefix"] == trial_prefix,
+                "runtime_parameter_prefix must be /p26-<trial>/mlflow/ for this trial.",
+            )
+            self.runtime_parameter_prefix = trial_prefix
+        else:
+            self.runtime_parameter_prefix = "/mlflow/"
+        self.runtime_parameters = {
+            name: f"{self.runtime_parameter_prefix}{suffix}"
+            for name, suffix in SECRETS.items()
+        }
         self.db = f"{stem}-db"
         self.group = f"{stem}-mysql84"
         self.app = f"{stem}-mlflow"
@@ -885,13 +898,13 @@ class Stack:
             "ssm",
             "describe-parameters",
             "--parameter-filters",
-            "Key=Name,Option=BeginsWith,Values=/mlflow/",
+            f"Key=Name,Option=BeginsWith,Values={self.runtime_parameter_prefix}",
         )["Parameters"]
         actual = {p["Name"]: p["Type"] for p in parameters}
         require(
             all(
-                actual.get(f"/mlflow/{name}") == "SecureString"
-                for name in SECRETS.values()
+                actual.get(path) == "SecureString"
+                for path in self.runtime_parameters.values()
             ),
             "Approved SecureString names are missing or have the wrong type.",
         )
@@ -928,8 +941,8 @@ class Stack:
                 "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS": f"http://{self.host}",
             },
             "aws:elasticbeanstalk:application:environmentsecrets": {
-                name: f"arn:aws:ssm:{REGION}:{self.account}:parameter/mlflow/{suffix}"
-                for name, suffix in SECRETS.items()
+                name: f"arn:aws:ssm:{REGION}:{self.account}:parameter{path}"
+                for name, path in self.runtime_parameters.items()
             },
         }
         return [

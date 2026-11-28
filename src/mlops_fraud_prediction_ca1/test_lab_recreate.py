@@ -143,6 +143,7 @@ def test_offline_entry_points_do_not_call_aws_or_create_data(private, tmp_path):
         exe.chmod(0o700)
     env = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}")
     settings = config(private)
+    settings["runtime_parameter_prefix"] = "/p26-trialone/mlflow/"
     for phase in ("foundation", "image", "server"):
         settings["approval"] = approval(f"create-lab/{phase}")
         result = cli(
@@ -157,6 +158,17 @@ def test_offline_entry_points_do_not_call_aws_or_create_data(private, tmp_path):
     settings["approval"] = approval("verify/stack")
     assert cli(private, settings, "verify", "--offline", env=env).returncode == 0
     assert not sentinel.exists()
+
+
+@pytest.mark.parametrize(
+    "prefix", ["/p26-othertrial/mlflow/", "/mlflow/", "/p26-trialone/mlflow", None]
+)
+def test_offline_cli_rejects_runtime_prefix_outside_exact_trial(private, prefix):
+    settings = config(private, "create-lab/server")
+    settings["runtime_parameter_prefix"] = prefix
+    result = cli(private, settings, "create-lab", "--phase", "server", "--offline")
+    assert result.returncode == 1
+    assert "runtime_parameter_prefix must be /p26-<trial>/mlflow/" in result.stderr
 
 
 def test_cli_wrong_account_stops_before_mutation(private, tmp_path):
@@ -501,6 +513,59 @@ def test_bundle_pins_destination_digest_and_preserves_existing_settings(private)
     assert opts[infrastructure.LAUNCH, "SecurityGroups"] == EB_SG
     assert opts[infrastructure.LAUNCH, "IamInstanceProfile"] == "LabInstanceProfile"
     assert len([i for i in opts if "application:environment" in i[0]]) == 7
+
+
+@pytest.mark.parametrize("prefix", ["/mlflow/", "/p26-trialone/mlflow/"])
+def test_eb_metadata_and_options_use_the_same_exact_runtime_parameters(
+    private, monkeypatch, prefix
+):
+    settings = config(private)
+    if prefix != "/mlflow/":
+        settings["runtime_parameter_prefix"] = prefix
+    paths = {
+        "MLFLOW_BACKEND_STORE_URI": f"{prefix}backend-store-uri",
+        "MLFLOW_AUTH_DATABASE_URI": f"{prefix}auth-database-uri",
+        "MLFLOW_AUTH_ADMIN_PASSWORD": f"{prefix}auth-admin-password",
+        "MLFLOW_FLASK_SERVER_SECRET_KEY": f"{prefix}flask-secret-key",
+    }
+    metadata = [{"Name": path, "Type": "SecureString"} for path in paths.values()]
+
+    def call(service, action, *args):
+        if (service, action) == ("elasticbeanstalk", "describe-platform-version"):
+            return {
+                "PlatformDescription": {
+                    "PlatformArn": settings["platform_arn"],
+                    "PlatformStatus": "Ready",
+                }
+            }
+        assert (service, action) == ("ssm", "describe-parameters")
+        assert args == (
+            "--parameter-filters",
+            f"Key=Name,Option=BeginsWith,Values={prefix}",
+        )
+        return {"Parameters": metadata}
+
+    stack = Stack(settings, SimpleNamespace(call=call))
+    monkeypatch.setattr(stack, "roles", lambda: None)
+    monkeypatch.setattr(stack, "service_role", lambda *_: None)
+    stack.eb_prerequisites()
+    options = {
+        item["OptionName"]: item["Value"]
+        for item in stack.option_settings()
+        if item["Namespace"] == "aws:elasticbeanstalk:application:environmentsecrets"
+    }
+    assert options == {
+        name: f"arn:aws:ssm:us-east-1:{ACCOUNT}:parameter{path}"
+        for name, path in paths.items()
+    }
+
+    metadata[0]["Type"] = "String"
+    with pytest.raises(Stop, match="missing or have the wrong type"):
+        stack.eb_prerequisites()
+    metadata[0]["Type"] = "SecureString"
+    metadata[0]["Name"] += "-backup"
+    with pytest.raises(Stop, match="missing or have the wrong type"):
+        stack.eb_prerequisites()
 
 
 def test_ecr_image_must_match_pinned_digest_and_platform(private):

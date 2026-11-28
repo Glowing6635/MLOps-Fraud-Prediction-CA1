@@ -3,6 +3,7 @@
   "account": "111111111111",
   "region": "us-east-1",
   "trial": "sampletrial",
+  "runtime_parameter_prefix": "/p26-sampletrial/mlflow/",
   "private_dir": "/path/to/approved/private-lab-directory",
   "quota_and_rate_reviewed": false,
   "private_workspace_reviewed": false,

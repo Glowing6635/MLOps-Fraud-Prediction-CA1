@@ -307,3 +307,23 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   and configuration. SpiralSky still owns approval of the transport and
   trial login. The coordinator owns exact-source handoff and independent
   live evidence.
+
+## D26-03 — Isolate the ordinary deploy trial runtime parameters
+
+- Offline candidate, 2026-11-28. Owner: SpiralSky. Affected PBI: #26.
+- The pinned runner uses four fixed `/mlflow/` names, and all four already
+  exist in the intended account. The candidate binds the same runtime options
+  to `/p26-<trial>/mlflow/` when configured. The metadata check and EB options
+  use the same four exact names. Existing configurations that omit the
+  prefix keep their default. The deploy retains SingleInstance, the existing
+  IAM roles and the established RDS, ECR, S3 and SSM architecture.
+- Alternatives: use the pinned runner in an approved clean account where
+  its four names are unused. This avoids a source revision and requires
+  rechecking account inputs, access, capacity and the window. Reusing or
+  overwriting the occupied names risks connecting the trial to existing
+  resources or breaking their consumers, so preserve those parameters.
+- Decision pending on owner request `agile-mlops-20261128-5` for the route
+  and live window. The tagged trial network approval stands. The scoped route
+  still needs exact-source review, owner-authorized private provisioning and
+  an instance-profile access check for the four fresh names. The offline
+  candidate grants no START authorization.

@@ -35,8 +35,13 @@ for what can be recovered.
   The local lock cannot protect an account against another operator or service.
 
 Copy [the example](lab/config.example.json) into the private directory and
-replace the example values. Each invocation uses an approval record for the
-exact operation and scope. Set `approval.operation` to
+replace the example values. For the scoped trial route, set
+`runtime_parameter_prefix` to `/p26-<trial>/mlflow/` using the exact `trial`
+label and keep it consistent across the trial's stack configs. For an approved
+legacy deployment in a clean account, omit the field to use `/mlflow/`.
+An explicit prefix must match the configured trial, including the trailing
+slash. Each invocation uses an approval record for the exact operation and
+scope. Set `approval.operation` to
 `create-lab/foundation`, `create-lab/image`, `create-lab/server`, `backup-data`,
 `restore-data`, `verify/stack` or `verify/data` as applicable. Use an explicit
 `source_db` and `source_bucket` for backup. Restore and verify-data need
@@ -105,11 +110,15 @@ resources tagged `P26Trial=<trial>`. Reserve an available EB CNAME separately.
    `fraud` tables from [the database runbook](../docs/runbook.md#rds-database)
    and separately authorized source and destination users. For MLflow,
    the owner can attest that the current runtime inputs were provisioned
-   through an authorized process. Match the four SecureString names in
-   [Settings](README.md#settings), replacing source-specific DB hostnames
-   and parameter ARNs for the destination. The tool checks SSM metadata
-   only. It cannot verify the values or grants. Stop if the approved
-   owner cannot provision them without crossing the trial boundary.
+   through an authorized process. For a scoped trial, the owner must confirm
+   the four names are unused before provisioning and use destination-specific
+   values. Append `backend-store-uri`, `auth-database-uri`, `auth-admin-password`
+   and `flask-secret-key` to the selected prefix. The tool checks the exact
+   names and SecureString types via SSM metadata and passes their ARNs to EB
+   for the same four [runtime settings](README.md#settings). The owner checks
+   value correctness and existing instance-profile access, including any
+   required decryption permission, before setting `runtime_inputs_verified`.
+   Stop if provisioning or access would cross the approved trial boundary.
 3. Use `create-lab --phase image`. The Dockerfile base digest, dependencies
    with hashes, CA checksum and startup script are pinned. The tool checks
    source input hashes, creates a minimal Docker context, and publishes
@@ -146,6 +155,7 @@ Enable apply for an individual phase only after its dry-run and scope review.
 
 ```bash
 ./mlflow-server/lab-recreate create-lab --phase image --config "$IMAGE_CONFIG" --dry-run
+./mlflow-server/lab-recreate create-lab --phase server --config "$SERVER_CONFIG" --offline
 ./mlflow-server/lab-recreate create-lab --phase server --config "$SERVER_CONFIG" --dry-run
 ./mlflow-server/lab-recreate verify --config "$VERIFY_STACK_CONFIG"
 ```
@@ -411,9 +421,11 @@ window.
    the owner decide retention, final snapshot and automated backup handling
    and account for their costs. Wait for DB deletion before removing its
    trial parameter group. Preserve pre-existing network groups and rules,
-   subnet groups, roles and parameters. Delete or retain the private
-   artifact files and the exact trial artifact bucket only according to
-   the signed retention scope. Record any retained assets and charges.
+   subnet groups, roles and parameters. After EB termination, the owner
+   handles only the four parameters created for this trial according to the
+   approved cleanup scope. Delete or retain the private artifact files and
+   the exact trial artifact bucket according to the signed retention scope.
+   Record any retained assets and charges.
 5. Re-list the exact trial resources and any dependent IDs from the
    preflight inventory, checking both absence and retained state. Record
    cleanup evidence and any residual account or data action. Never recycle
