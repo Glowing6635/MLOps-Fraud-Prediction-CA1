@@ -310,7 +310,7 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
 
 ## D26-03 — Isolate the ordinary deploy trial runtime parameters
 
-- Offline candidate, 2026-11-28. Owner: SpiralSky. Affected PBI: #26.
+- Decision recorded 2026-11-28. Owner: SpiralSky. Affected PBI: #26.
 - The pinned runner uses four fixed `/mlflow/` names, and all four already
   exist in the intended account. The candidate binds the same runtime options
   to `/p26-<trial>/mlflow/` when configured. The metadata check and EB options
@@ -322,8 +322,20 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   rechecking account inputs, access, capacity and the window. Reusing or
   overwriting the occupied names risks connecting the trial to existing
   resources or breaking their consumers, so preserve those parameters.
-- Decision pending on owner request `agile-mlops-20261128-5` for the route
-  and live window. The tagged trial network approval stands. The scoped route
-  still needs exact-source review, owner-authorized private provisioning and
-  an instance-profile access check for the four fresh names. The offline
-  candidate grants no START authorization.
+- SpiralSky selected fresh trial names in the intended account to preserve
+  the existing parameters and their consumers. Independent source review
+  passed for the scoped name mapping, environment binding, compatibility
+  and documented isolation.
+- The renewed live attempt was held. About 50 minutes remained before the
+  provisioning cutoff, and cold RDS, image and Elastic Beanstalk provisioning
+  could already take that long before network setup, dry-runs, database and
+  parameter bootstrap, and authentication. The observation and teardown
+  window stayed reserved. Live provisioning did not start.
+- Keep #26 open. The manager owns live AC1/2: a clean-checkout deployment
+  using the supplied roles, including instance-profile access to the four
+  fresh parameters and authenticated verification, and evidence of the
+  SingleInstance environment and its stopped-sandbox cost. The next attempt
+  needs a longer authorized window and confirmed bootstrap, verification
+  and cleanup routes. Glowing6635 owns AC3/4: an unaided deployment and
+  quickstart using the runbook, including its service and configuration
+  inventory and architecture diagram.
