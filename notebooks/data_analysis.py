@@ -1855,3 +1855,20 @@ show_report(
 # For the recorded base files, cleaning retains 554,509 customers, 824,898 orders and 824,885 labels, with zero cleaning rejections. It reports 102 unknown mobile-verification cells, 416 unknown first-order dates and 17,009 unknown payment methods. These values are reference results for the recorded input hashes, not assertions for future batches. Raw source hashes remained unchanged.
 #
 # `cleaned_frames[name]` contains cleaned columns and originals in `raw_<column>` columns, with the protected reader's `split_audit` retained. Keep source/batch identity separately; validate cleaned keys before joins and enforce #4's feature policy separately. Numeric fields use nullable `Float64`, the target uses `Int8` and mobile verification uses nullable `boolean` (`True`, `False` or `pd.NA`); IDs stay opaque. Adoption by #13 and #20 is separate integration work.
+
+# %% [markdown]
+# ## 10. Validation comparison with the proxy rule
+#
+# **Validation only.** The model row comes from a fresh fit. An exact registered-artifact row comparison and the final frozen-test result are pending. K = 250 per day is a Product Owner assumption. The rule uses the validation-tuned X = SGD 13.36 proxy.
+#
+# | Comparison | Flags | Fraud orders caught | Fraud exposure identified (SGD) |
+# | --- | ---: | ---: | ---: |
+# | Proxy rule | 132 | 73 | 1,646.24 |
+# | Model, matched to rule flag count | 132 | 102 | 625.36 |
+# | Model at K | 5,250 | 2,893 | 33,650.06 |
+#
+# At the same 132 flags, the model caught 29 more fraud orders and identified SGD 1,020.88 less exposure. This is validation evidence. The final card needs the #23 run and #34 matched and at-K results; it will contain aggregate values only.
+#
+# [Validation evidence at 29a931d](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/29a931d789241581409762dee5febe81f80fd85f/docs/baseline-rule.md).
+#
+# See the [model card’s final evaluation status](../docs/model-card.md#final-evaluation-status) for the evidence required by #23 and #34.
