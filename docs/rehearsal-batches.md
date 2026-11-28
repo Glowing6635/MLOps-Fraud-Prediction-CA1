@@ -85,7 +85,7 @@ On 28 November 2026 at 17:29 UTC, the #2 `load_settings()` from draft head
 `43e274e1` resolved a scoped rehearsal configuration on the authorized host.
 The private database settings selected the `rehearsal` schema. An authenticated
 RDS check at 00:24 UTC had matched the saved endpoint to the authorized
-instance. The loader's default MySQL port matched the 27 November RDS inventory.
+instance. The loader's default MySQL port, `3306`, matched the 27 November RDS inventory.
 
 The saved MLflow configuration selects the team experiment.
 A process-scoped `MLFLOW_EXPERIMENT_NAME=rehearsal` took precedence over
@@ -98,12 +98,31 @@ apply to the selected names.
 | Reader | Redacted evidence from 28 November 2026 |
 | --- | --- |
 | SpiralSky | The 07:34 UTC receipt for draft head `4602406e` records a personal SELECT-only login, visibility of all four rehearsal tables and a successful read from `batches`. Its instance identifier and temporary ingress record tie the read to the authorized database. |
-| Glowing6635 | The 15:01 UTC owner relay records a separate SELECT-only login, a successful `uv run rds-schema check` and SELECT, and visibility of all four tables on the same reported instance identifier and schema. The reported counts were 1 batch and 949,889 orders. The relay gives no source commit or independently bound endpoint and port. |
+| Glowing6635 | The owner relayed a separate SELECT-only login, a successful `uv run rds-schema check` and SELECT, and visibility of all four tables on the reported instance and schema. The reported counts were 1 batch and 949,889 orders. The original relay included the connection endpoint. |
 
-AC1 remains open for the second reader's database binding. Glowing6635 can
-privately confirm the endpoint and port used for the 15:01 UTC receipt, or
-supply its account-scoped RDS resource identity for comparison with the
-authorized instance. The existing SELECT result can be reused.
+The original owner message was received at `2026-11-28T14:58:49.699Z`.
+The prior draft's 15:01 UTC timestamp records processing of the relay. The engineer's
+SQL execution time and source commit were unrecorded. The original message
+was verified against its recorded text SHA-256 in the private evidence, and
+its endpoint was compared locally with the effective #2 host. They matched,
+binding the second reader's `rehearsal` schema to the same approved RDS target
+as the first reader's receipt.
+
+The port is corroborated by the loader's default and the dated RDS inventory.
+The teammate's SQL output did not report a port or an account-scoped immutable
+RDS identity. An earlier attempt to refresh the RDS lookup exited with
+status 254. This correction relies on the dated approved RDS and authenticated
+MLflow records above and reuses the two historical SELECT receipts. It adds
+no fresh AWS or SQL observations. See [decision D24-02](decision-log.md#d24-02-bind-both-rehearsal-readers-to-the-selected-database).
+
+| Criterion | Evidence disposition for draft #160 |
+| --- | --- |
+| AC1 · Configured database, experiment and reader access | Supported by the dated #2 RDS and active MLflow matches above and by both distinct SELECT-only receipts. |
+| AC2 · Guarded rebuild | Supported by the historical rebuild and the draft's offline team-target refusal checks below. |
+| AC3 · Synthetic practice batches | Supported by the historical loads of two regular batches and the edge batch below. |
+| AC4 · Same-session private S3 delivery | Supported by the historical same-session run and private S3 verification below. The later cleanup changes retain their offline coverage. |
+
+Draft #160 still awaits feature review.
 
 ### AC2–AC4 · Reset, synthetic batches and private delivery
 
