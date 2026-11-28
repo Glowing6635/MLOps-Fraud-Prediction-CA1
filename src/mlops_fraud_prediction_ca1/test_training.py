@@ -1,6 +1,8 @@
 """Tests for the training harness on small made-up base files in a temporary folder."""
 
+import json
 import re
+import subprocess
 import sys
 from decimal import Decimal
 
@@ -494,3 +496,39 @@ def test_forest_candidates_log_both_runs_and_rerun(
     assert mlflow.get_run(without_id).data.tags["champion_eligible"] == "True"
     assert mlflow.get_run(with_id).data.tags["champion_eligible"] == "False"
     assert rerun(without_id, data_dir)["reproduced"]
+
+
+def test_packaged_pipeline_replay_uses_an_isolated_registry(data_dir, monkeypatch):
+    configured_tracking = data_dir / "configured-tracking.db"
+    configured_registry = data_dir / "configured-registry.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{configured_tracking}")
+    monkeypatch.setenv("MLFLOW_REGISTRY_URI", f"sqlite:///{configured_registry}")
+    registry = data_dir / "private registry"
+    command = [
+        sys.executable,
+        "-m",
+        "mlops_fraud_prediction_ca1.verify_packaged_pipeline",
+        "--data-dir",
+        str(data_dir),
+        "--registry-dir",
+        str(registry),
+    ]
+
+    run = subprocess.run(command, capture_output=True, text=True, check=True)
+    evidence = json.loads(run.stdout)
+    assert evidence["tracking_uri"] == f"sqlite:///{registry / 'mlflow.db'}"
+    assert evidence["registered_model_uri"] == "models:/packaged-pipeline-reload/1"
+    assert evidence["registered_status"] == "READY"
+    assert evidence["registered_source"].startswith((registry / "artifacts").as_uri())
+    assert evidence["feature_group"] == "order_log"
+    assert evidence["train_rows"] == WINDOWS["train"][1]
+    assert evidence["validation_rows"] == WINDOWS["validation"][1]
+    assert evidence["ordered_validation_inputs_identical"]
+    assert evidence["probabilities_identical"]
+    assert evidence["predictions_identical"]
+    assert evidence["max_probability_abs_delta"] == 0
+    assert not configured_tracking.exists() and not configured_registry.exists()
+
+    retry = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert retry.returncode != 0
+    assert "FileExistsError" in retry.stderr

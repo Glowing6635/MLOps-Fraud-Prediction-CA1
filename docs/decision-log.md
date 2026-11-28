@@ -344,9 +344,32 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 - Settled in the 26 November PR #171 review: Glowing6635 recommended proceeding
   with the elected pair under D15-03. A lighter random forest rerun was the
   alternative and would require a new preview before registration.
-- Open: the acting analyst approves the Comparison ID above, then the registry
-  operator runs `--register` and checks both aliases. The 187 MB random forest
-  remains the registered challenger until that operation succeeds.
+- Status at the time of the rerun: approval and the registry change were
+  pending. See [D15-05](#d15-05--local-rehearsal-requires-the-original-packages)
+  for the subsequent approval and remaining access gate.
+
+## D15-05 — Local rehearsal requires the original packages
+
+- Recorded: 2026-11-28. Accountable engineer: SpiralSky. Affected PBIs: #15, #18.
+- Settled: the acting analyst approved the D15-04 Comparison ID on 27 November.
+  On 28 November the Product Owner approved a fresh private SQLite registry
+  for that exact pair. Preserve original run and model IDs alongside the
+  locally assigned run IDs and verify the artifact bytes before changing aliases.
+- Rationale and alternatives: using a retained byte-for-byte export allows a
+  local rollback rehearsal while the team endpoint is unavailable. A refit
+  creates a different artifact even when it reproduces aggregate validation
+  metrics. The team registry operation remains under the coordinator's separate
+  authorization.
+- Open: the protected team MLflow route needs to provide the two original
+  packages or an authorized export with source lineage and file digests. The
+  retained local stores searched on 28 November did not surface either pinned
+  artifact. The recent authenticated route was gated before login by transport
+  and protected configuration. The coordinator owns source access and the
+  team registry operation.
+- Impact: exact-pair local registration and rollback, the team registry update,
+  and the registered champion check for #18 still require the original
+  packages. The [local alias procedure](champion.md#rehearse-the-approved-pair-in-a-local-registry)
+  defines the verification once the sources are available.
 
 ## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
 
@@ -474,6 +497,30 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   reachable host); run a resampling arm (resampling was deliberately not compared in
   D17-01, and criterion 1 reads "resampling or class weights").
 - Open: none for these two criteria.
+
+## D16-04 — Registered pipeline reload on the frozen validation cohort
+
+- Recorded: 2026-11-28. Accountable engineer: SpiralSky. Affected PBI: #16,
+  criterion 4.
+- Settled: use the existing `order_log` logistic baseline and training harness
+  for one real local fit. The fit used seed 0 and 721,354 frozen training
+  orders. Validation was [2023-03-27, 2023-04-17) with K = 250 per day. The
+  test window stayed locked and final evaluation stayed disabled.
+- Rationale and alternatives: the fixture round trip covers serialization on
+  made-up data. The real run checks the whole packaged pipeline on previously
+  unseen inputs, including the logged-to-registered source binding. This
+  replay makes no new claim about which feature group wins the comparison.
+- Evidence: local run `5bd17fe2ac494ffba350bcd8431741d0` logged
+  `models:/m-6b10f3c7e0c84b898cd68ba4460fddae` using the training code at
+  `29a931d789241581409762dee5febe81f80fd85f`. The local version
+  `models:/packaged-pipeline-reload/1` was `READY` and resolved to that
+  model's local artifact directory. The reread inputs matched all 101,190
+  validation rows in order. Probabilities and classes matched exactly with a
+  maximum probability difference of 0. The fit caught 2,450 fraud orders at K
+  and reached average precision 0.3239542541.
+- Impact: this demonstrates #16 criterion 4 on the local registry. The
+  [replay command](feature-pipeline.md#verify-a-real-local-fit-and-reload)
+  recreates the check in a new store. The #15 pair is governed by D15-05.
 
 ## D17-01 — Training-only class weighting
 
