@@ -30,9 +30,9 @@ from mlops_fraud_prediction_ca1.temporal import parse_date_rows
 _TABLES = ("customers", "orders", "labels")
 
 
-def _clean(data_dir, purpose):
+def _clean(data_dir, purpose, config_path=None):
     customers, orders, labels = load_base_data(
-        data_dir, purpose=purpose, raw_strings=True
+        data_dir, purpose=purpose, config_path=config_path, raw_strings=True
     )
     raw_column_names(customers.columns)
     first_order = customers["first_order_datetime"]
@@ -58,9 +58,20 @@ def training_quantile_grid(data_dir) -> tuple[float, ...]:
     return tuple(sorted(set(grid.tolist())))
 
 
-def validation_inputs(data_dir) -> dict:
-    """Labelled validation orders with account age and loyalty, ready to compare."""
-    train, validation = _clean(data_dir, "train"), _clean(data_dir, "validation")
+def validation_inputs(
+    data_dir, purpose="validation", config_path=None, history_purposes=("train",)
+) -> dict:
+    """Labelled orders of one window with account age and loyalty, ready to compare.
+
+    The default is the validation window with the training window as loyalty history.
+    PBI #23 passes the final window, with every earlier window as history.
+    """
+    history = [_clean(data_dir, p, config_path) for p in history_purposes]
+    validation = _clean(data_dir, purpose, config_path)
+    train = {
+        name: pd.concat([h[name] for h in history], ignore_index=True)
+        for name in _TABLES
+    }
     joined, _ = link_orders_customers(
         validation["orders"], validation["labels"], validation["customers"]
     )
@@ -83,6 +94,7 @@ def validation_inputs(data_dir) -> dict:
         joined[validation["orders"].columns],
         both["labels"],
         both["customers"],
+        config_path=config_path,
     )
     return {
         "orders": joined,

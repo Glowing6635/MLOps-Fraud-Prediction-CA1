@@ -29,6 +29,7 @@ run-batch = "mlops_fraud_prediction_ca1.batch:main"
 retrain-batch = "mlops_fraud_prediction_ca1.retrain:main"
 rule-report = "mlops_fraud_prediction_ca1.rule_report:main"
 champion-scores = "mlops_fraud_prediction_ca1.champion_scores:main"
+final-test = "mlops_fraud_prediction_ca1.final_test:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]
@@ -57,6 +58,7 @@ extend-select = ["I", "B", "UP", "T20"]
 "src/mlops_fraud_prediction_ca1/loading.py" = ["T201"]
 "src/mlops_fraud_prediction_ca1/retrain.py" = ["T201"]
 "src/mlops_fraud_prediction_ca1/champion_scores.py" = ["T201"]
+"src/mlops_fraud_prediction_ca1/final_test.py" = ["T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["src"]
