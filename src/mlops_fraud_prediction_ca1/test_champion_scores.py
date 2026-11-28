@@ -50,9 +50,33 @@ def test_rescore_rows_are_keyed_sorted_and_labelled(fake_window):
     assert set(rows.dataset_sha256_orders) == {"h"}
 
 
-def test_cli_output_is_deterministic(fake_window, tmp_path):
+def test_valid_cli_output_is_deterministic(fake_window, monkeypatch, tmp_path):
+    monkeypatch.setattr(champion_scores, "EXPECTED_FRAUD_CAUGHT", 1)
+    monkeypatch.setattr(champion_scores, "EXPECTED_AVERAGE_PRECISION", 1.0)
     first, second = tmp_path / "a.csv", tmp_path / "b.csv"
     for out in (first, second):
-        with pytest.raises(SystemExit):  # the fake report differs from the champion
-            champion_scores.main(["--out", str(out)])
+        champion_scores.main(["--out", str(out)])
     assert first.read_bytes() == second.read_bytes()
+
+
+def test_mismatched_champion_does_not_create_export(fake_window, tmp_path):
+    out = tmp_path / "new-directory" / "scores.csv"
+    with pytest.raises(SystemExit, match="does not reproduce the champion aggregate"):
+        champion_scores.main(["--out", str(out)])
+    assert not out.parent.exists()
+
+
+def test_mismatched_champion_preserves_previous_export(fake_window, tmp_path):
+    out = tmp_path / "scores.csv"
+    out.write_bytes(b"previous export\n")
+    with pytest.raises(SystemExit, match="does not reproduce the champion aggregate"):
+        champion_scores.main(["--out", str(out)])
+    assert out.read_bytes() == b"previous export\n"
+
+
+def test_custom_seed_allows_exploratory_export(fake_window, tmp_path):
+    out = tmp_path / "scores.csv"
+    champion_scores.main(["--out", str(out), "--seed", "7"])
+    scores = pd.read_csv(out, keep_default_na=False)
+    assert scores["seed"].tolist() == [7, 7]
+    assert scores["artifact_kind"].tolist() == ["re-score", "re-score"]

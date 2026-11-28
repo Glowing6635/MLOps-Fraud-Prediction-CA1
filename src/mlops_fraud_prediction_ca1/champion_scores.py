@@ -62,25 +62,25 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     rows = rescore(args.data_dir, k=args.k, seed=args.seed)
     report = rows.attrs["report"]
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    rows.to_csv(out, index=False, float_format="%.17g", lineterminator="\n")
-    digest = hashlib.sha256(out.read_bytes()).hexdigest()
-    print(f"rows: {len(rows)}  sha256: {digest}  path: {out}")
-    print(
-        f"fraud caught at K={args.k}: {report.at_k.fraud_caught}  "
-        f"AP: {report.average_precision:.4f}"
-    )
     if (
         args.k == K
         and args.seed == 0
         and (
             report.at_k.fraud_caught != EXPECTED_FRAUD_CAUGHT
+            or report.average_precision is None
             or round(report.average_precision, 4) != EXPECTED_AVERAGE_PRECISION
         )
     ):
         raise SystemExit(
             "The re-score does not reproduce the champion aggregate "
             f"({EXPECTED_FRAUD_CAUGHT}, {EXPECTED_AVERAGE_PRECISION}); "
-            "the data or code differs from the champion run."
+            "the data or code differs from the champion run. No CSV was written."
         )
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    rows.to_csv(out, index=False, float_format="%.17g", lineterminator="\n")
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
+    print(f"rows: {len(rows)}  sha256: {digest}  path: {out}")
+    ap = report.average_precision
+    ap_text = "N/A" if ap is None else f"{ap:.4f}"
+    print(f"fraud caught at K={args.k}: {report.at_k.fraud_caught}  AP: {ap_text}")
