@@ -81,28 +81,29 @@ credentials that signed them are, so generate them in the demo session.
 
 ### AC1 · Rehearsal configuration and reader access
 
-The 26 November 2026 reset receipt records `DB_NAME=rehearsal` and
-`MLFLOW_EXPERIMENT_NAME=rehearsal` through #2. A separate authenticated
-MLflow readback at 13:23 UTC identified experiment `rehearsal`, ID `3`,
-on the `sp-buy-mlflow` deployment. It was active and had zero active runs
-(live receipt 4, `60e3df4`). The 27 November cleanup receipt records a
-successful reset under the same database and experiment names, with zero
-runs deleted and no remaining rehearsal buckets (`d81a156`).
+On 28 November 2026 at 17:29 UTC, the #2 `load_settings()` from draft head
+`43e274e1` resolved a scoped rehearsal configuration on the authorized host.
+The private database settings selected the `rehearsal` schema. An authenticated
+RDS check at 00:24 UTC had matched the saved endpoint to the authorized
+instance. The loader's default MySQL port matched the 27 November RDS inventory.
+
+The saved MLflow configuration selects the team experiment.
+A process-scoped `MLFLOW_EXPERIMENT_NAME=rehearsal` took precedence over
+that fallback. The effective tracking service and experiment name matched
+the 17:19 UTC authenticated lookup through the protected AWS Systems Manager
+route. The lookup returned the exact experiment as active. The saved team
+configuration was preserved. The [reset refusal rules](decision-log.md#d24-01-the-rehearsal-reset-refuses-by-name-not-by-a-list-of-team-resources)
+apply to the selected names.
 
 | Reader | Redacted evidence from 28 November 2026 |
 | --- | --- |
-| SpiralSky | The 07:34 UTC receipt for draft head `4602406e` records a personal read-only connection to `rehearsal`, visibility of `batches`, `customers`, `labels` and `orders`, and a successful read from `batches`. |
-| Glowing6635 | In the receipt relayed by SpiralSky at 15:01 UTC, Glowing6635 reported a successful `uv run rds-schema check` and SELECT using a separate read-only account on `rehearsal`. The same four tables were visible. The reported counts were 1 batch and 949,889 orders. The relay gives no source commit, and the check has not been independently rerun. |
+| SpiralSky | The 07:34 UTC receipt for draft head `4602406e` records a personal SELECT-only login, visibility of all four rehearsal tables and a successful read from `batches`. Its instance identifier and temporary ingress record tie the read to the authorized database. |
+| Glowing6635 | The 15:01 UTC owner relay records a separate SELECT-only login, a successful `uv run rds-schema check` and SELECT, and visibility of all four tables on the same reported instance identifier and schema. The reported counts were 1 batch and 949,889 orders. The relay gives no source commit or independently bound endpoint and port. |
 
-The receipts support the two personal database reads. `rds-schema check`
-checks SQL table visibility and permissions. It loads the tracking settings
-without contacting MLflow. The earlier reset and readback establish
-historical tracking selection. Both reader receipts leave the effective
-tracking target unverified. For AC1 review, SpiralSky can supply a dated,
-redacted record that ties the effective #2 settings to an authenticated
-lookup of the rehearsal experiment name and ID. An existing record from
-the authorized rehearsal context can provide this evidence without
-repeating the teammate's SQL check.
+AC1 remains open for the second reader's database binding. Glowing6635 can
+privately confirm the endpoint and port used for the 15:01 UTC receipt, or
+supply its account-scoped RDS resource identity for comparison with the
+authorized instance. The existing SELECT result can be reused.
 
 ### AC2–AC4 · Reset, synthetic batches and private delivery
 
