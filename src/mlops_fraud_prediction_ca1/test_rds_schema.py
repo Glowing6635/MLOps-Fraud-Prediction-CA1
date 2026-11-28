@@ -18,7 +18,7 @@ def tables():
 
 def test_every_statement_is_safe_to_rerun_and_every_table_has_a_batch_id():
     found = tables()
-    assert set(found) == {"batches", "customers", "orders", "labels"}
+    assert set(found) == {"batches", "customers", "orders", "labels", "review_queue"}
     for statement in found.values():
         assert re.search(r"^\s+batch_id VARCHAR", statement, re.MULTILINE)
 

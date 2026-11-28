@@ -93,10 +93,11 @@ def retrain(
         "train_old_rows": len(train_rows) - new_rows,
         "train_new_rows": new_rows,
         "excluded_invalid_label_rows": len(rows) - len(train_rows),
-        "train_orders": len(train_rows),
         "excluded_rows": exclusions["excluded_date_rows"] + len(rows) - len(train_rows),
     }
-    report = RetrainReport(etl_run_id, batch_id, counts)
+    report = RetrainReport(
+        etl_run_id, batch_id, {**counts, "train_orders": len(train_rows)}
+    )
     log(f"etl_run_id={etl_run_id} batch_id={batch_id} {counts}")
     started = time.perf_counter()
     validation_hash = hashlib.sha256(

@@ -3,6 +3,7 @@ import sys
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
+from shutil import which
 from types import ModuleType, SimpleNamespace
 
 import mlflow
@@ -110,14 +111,15 @@ def test_cli_trains_and_logs_real_models_after_candidate_failure(
         return _snapshot()
 
     monkeypatch.setattr(retrain, "read_training_snapshot", read)
-    cli = Path(sys.executable).with_name("retrain-batch")
+    cli = which("retrain-batch", path=str(Path(sys.executable).parent))
+    assert cli is not None, "retrain-batch must be installed in the test environment"
     monkeypatch.setattr(
         sys,
         "argv",
-        [str(cli), "new", "representative_inputs:build", "--etl-run-id", "invocation"],
+        [cli, "new", "representative_inputs:build", "--etl-run-id", "invocation"],
     )
     with pytest.raises(SystemExit) as status:
-        runpy.run_path(str(cli), run_name="__main__")
+        runpy.run_path(cli, run_name="__main__")
     assert status.value.code == 1
     assert snapshots == [engine]
     assert disposed == [True]
@@ -133,14 +135,13 @@ def test_cli_trains_and_logs_real_models_after_candidate_failure(
         params, metrics = run.data.params, run.data.metrics
         assert run.info.status == "FINISHED"
         assert run.data.tags["champion_eligible"] == "False"
-        tags = run.data.tags
         assert params["data_source"] == "labelled_windows"
         assert params["logisticregression__C"] == expected_c
         assert params["logisticregression__random_state"] == "23"
         assert params["k"] == "1"
-        assert tags["etl_run_id"] == "invocation"
-        assert tags["champion_run_id"] == "champion-fixture"
-        assert len(tags["validation_sha256"]) == 64
+        assert run.data.tags["etl_run_id"] == "invocation"
+        assert run.data.tags["champion_run_id"] == "champion-fixture"
+        assert len(run.data.tags["validation_sha256"]) == 64
         assert metrics["train_orders"] == 3
         assert metrics["validation_orders"] == 4
         assert metrics["train_old_rows"] == 1
@@ -169,7 +170,11 @@ def test_shared_harness_stops_oversized_model_before_upload(inputs, tracker):
             max_model_size_bytes=1,
         )
 
-    assert mlflow.search_runs(experiment_names=["retrain-test"]).empty
+    # The size check runs before anything is logged, so no run is left behind.
+    assert (
+        mlflow.search_runs(experiment_names=["retrain-test"], output_format="list")
+        == []
+    )
 
 
 def test_artifact_limit_matches_the_champion_rule_and_rejects_52_4_mb(

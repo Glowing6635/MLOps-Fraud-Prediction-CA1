@@ -32,9 +32,9 @@ def fake_window(monkeypatch):
     )()
     result = type("F", (), {"model": _Model(), "report": report})()
     monkeypatch.setattr(champion_scores, "fit_and_score", lambda *a, **k: result)
-    monkeypatch.setattr(champion_scores, "_load_window", lambda *a: (keys, features))
+    monkeypatch.setattr(champion_scores, "load_window", lambda *a: (keys, features))
     monkeypatch.setattr(
-        champion_scores, "_dataset_hashes", lambda d: {"dataset_sha256_orders": "h"}
+        champion_scores, "dataset_hashes", lambda d: {"dataset_sha256_orders": "h"}
     )
     monkeypatch.setattr(champion_scores, "_git", lambda *a: "abc123")
 

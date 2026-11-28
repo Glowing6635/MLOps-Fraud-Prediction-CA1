@@ -13,7 +13,7 @@ from mlops_fraud_prediction_ca1.training import baseline_model
 pipeline = build_pipeline(baseline_model(), group="order_log")
 ```
 
-PR #152 at `6c1326ca` supplies `models.boosted_trees_model()` with the same DataFrame
+The candidates in `models.py` supply `models.boosted_trees_model()` with the same DataFrame
 input contract. It handles missing numeric values in the classifier and encodes text
 in its own preprocessor. Use the harness's input convention (floats for numbers,
 object columns for text, and NaN for missing values) when scoring outside the harness.
@@ -52,3 +52,27 @@ Set `MODEL_URI` to `runs:/<run-id>/model` or `models:/<registered-name>/<version
 For a serving image, install the project from the same run commit into the
 serving environment. A run tagged `git_dirty=true` may also depend on local
 changes beyond that commit.
+
+## Verify a real local fit and reload
+
+From a locked project checkout, point `APPROVED_DATA_DIR` at the three private
+base CSVs and choose a new path under a private directory for `LOCAL_REGISTRY_DIR`.
+The locked Python environment must be available in the `uv` cache.
+
+```sh
+umask 077
+export MLFLOW_DISABLE_TELEMETRY=true
+uv run --locked --offline python -m mlops_fraud_prediction_ca1.verify_packaged_pipeline \
+  --data-dir "$APPROVED_DATA_DIR" --registry-dir "$LOCAL_REGISTRY_DIR"
+```
+
+The command creates an isolated SQLite registry and local artifact root. It
+fits one `order_log` logistic regression with the training harness, looks up
+the exact logged model from that run, and loads the `READY` registered version.
+It checks that the reread validation keys and model inputs match in order,
+then compares probabilities and predicted classes for every row. The model
+receives the four order inputs before feature engineering. Output includes
+the run, model and version sources and aggregate checks. Keep the registry and
+artifact directory private and in place if another operator needs to load the
+version. See [D16-04](decision-log.md#d16-04--registered-pipeline-reload-on-the-frozen-validation-cohort)
+for the measured run.

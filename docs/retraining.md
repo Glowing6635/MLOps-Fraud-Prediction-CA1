@@ -5,8 +5,9 @@ Configure the database and MLflow connection with the variables in `.env.example
 and use a database account with read access to the loaded tables. The command
 uses the configured MLflow experiment. A pipeline caller can pass
 `--etl-run-id ID` or call `run_evaluation_mode(..., etl_run_id=ID)` with its
-invocation ID. Supply a fresh ID per invocation. The command generates one when
-omitted. Run names have the form `<model>-<batch_id>-<etl_run_id>`.
+invocation ID. The caller is responsible for choosing a fresh ID per invocation.
+Retraining uses a supplied ID as-is and generates a UUID when the ID is omitted.
+Run names have the form `<model>-<batch_id>-<etl_run_id>`.
 
 The trusted, importable input factory returns `EvaluationInputs` with the
 expected engineer roster, the candidate manifest, the frozen #6 validation
@@ -14,8 +15,11 @@ frame, K, and the fitted #15 champion and its run ID.
 Use a fresh estimator factory per manifest entry, such as #14's order-only
 pipeline factories, and pass the stored estimator parameter overrides in
 `ModelSpec.params`. Factory defaults supply the other stored settings. Include
-each logged #22 candidate version as its own entry when available. Both the
-champion and candidates must accept the same four order features. The command
+each logged #22 candidate version as its own entry when available. A version
+fitted with the country input or recency weighting (D22-03) can't be an entry yet,
+because `ModelSpec` has no way to ask `train` for those options. Candidates accept the four
+order features; the champion may also take the order's country, which
+`score_labelled_rows` adds for a model fitted with it. The command
 checks manifest coverage against the supplied roster before reading data.
 
 The #20/#154 reader fetches order records once with the #6 `train` SQL
@@ -27,8 +31,9 @@ omitted from fits. Old and new counts are eligible, valid-label orders from
 other batches and the invocation's batch, respectively. The command prints
 these counts and records them on every successful candidate run.
 
-Every candidate and the champion use the shared harness's order features and
-top-K evaluator on the same validation frame. Each candidate run records its
+Every candidate and the champion use the shared harness's features (the order
+features, plus the country for a model fitted with it) and top-K evaluator on
+the same validation frame. Each candidate run records its
 scores, champion run ID and scores, score deltas, validation digest and
 estimator parameters. The command reports a failed candidate, attempts the
 remaining candidates, and exits 1 if any candidate failed. Evaluation runs
@@ -43,7 +48,7 @@ partial. Release mode depends on #23's [final evaluation](final-test.md) being r
 ## Shared training harness
 
 The command passes the two labelled windows directly to the harness, without
-reading base CSV files. The harness records `data_source=rds_labelled_windows`
-and converts decimal order values to numbers. An omitted seed preserves the
+reading base CSV files. The harness records `data_source=labelled_windows`
+and records the batch details (`batch_id`, `etl_run_id`, `champion_run_id`, `validation_sha256`, `model`, `owner`) as run tags. It converts decimal order values to numbers. An omitted seed preserves the
 estimator's random-state settings. Models that exceed the batch model-size limit
 are reported as candidate failures before artifact upload.
