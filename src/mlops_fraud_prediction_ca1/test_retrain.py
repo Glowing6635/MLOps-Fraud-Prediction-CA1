@@ -284,3 +284,50 @@ def test_training_snapshot_keeps_holdout_rows_in_db(database, write_batch):
         ["new", "new"],
     ]
     assert counts == {"excluded_date_rows": 4, "excluded_late_rows": 3}
+
+
+def test_country_and_recency_spec_forward_through_retrain(inputs, tracker, monkeypatch):
+    champion_model = retrain.boosted_trees_model().fit(
+        training.order_features(
+            inputs.validation_rows,
+            columns=[*training.ORDER_FEATURE_COLUMNS, "country_code"],
+        ),
+        inputs.validation_rows["is_fraud"],
+    )
+    rows, counts = _snapshot()
+    rows = rows.assign(
+        country_code=["MY", "PK", "MY", "BD"],
+        order_date=["2023-01-01", "2023-01-15", "2023-02-01", "2023-02-15"],
+        is_fraud=[0, 1, 0, 1],
+    )
+    validation = inputs.validation_rows.assign(country_code=["MY", "PK", "BD", "MY"])
+    manifest = retrain.team_evaluation_inputs(
+        validation,
+        champion_run_id="champ-v5",
+        champion_model=champion_model,
+        k=1,
+    )
+    report = retrain.retrain(
+        manifest,
+        batch_id="b2",
+        etl_run_id="etl-country",
+        read_rows=lambda: (rows, counts),
+        train_candidate=training.train,
+        score_rows=training.score_labelled_rows,
+        log=lambda _: None,
+    )
+    assert report.exit_code == 0
+    runs = {
+        run.info.run_name: run
+        for run in mlflow.search_runs(
+            experiment_names=["retrain-test"], output_format="list"
+        )
+    }
+    v2_run = runs["boosted-trees-v2-b2-etl-country"]
+    base_run = runs["baseline-logistic-b2-etl-country"]
+    assert v2_run.data.params["country_input"] == "True"
+    assert float(v2_run.data.params["recency_half_life_days"]) == 14.0
+    assert base_run.data.params["country_input"] == "False"
+    assert base_run.data.params["recency_half_life_days"] == "None"
+    assert v2_run.data.tags["champion_eligible"] == "False"
+    assert base_run.data.tags["champion_eligible"] == "False"

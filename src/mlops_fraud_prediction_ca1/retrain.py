@@ -11,8 +11,10 @@ from importlib import import_module
 import pandas as pd
 
 from .champion import SIZE_NOTE_BYTES
+from .models import baseline_model, boosted_trees_model
 from .rds_reads import read_training_snapshot
 from .splitting import split_orders
+from .top_k import K
 
 TRAIN_AND_LOG_SECONDS = 85
 MAX_ARTIFACT_BYTES = SIZE_NOTE_BYTES  # 50,000,000 bytes, as in D15-03
@@ -24,6 +26,37 @@ class ModelSpec:
     owner: str
     build: Callable[[], object]
     params: Mapping[str, object] = field(default_factory=dict)
+    country_input: bool = False
+    recency_half_life_days: float | None = None
+
+
+def team_evaluation_inputs(
+    validation_rows: pd.DataFrame,
+    *,
+    champion_run_id: str,
+    champion_model: object,
+    k: int = K,
+    seed: int | None = 0,
+) -> "EvaluationInputs":
+    """Build the team candidate manifest: Glowing6635 v2 boosted trees and SpiralSky baseline."""
+    return EvaluationInputs(
+        models=(
+            ModelSpec(
+                "boosted-trees-v2",
+                "Glowing6635",
+                boosted_trees_model,
+                country_input=True,
+                recency_half_life_days=14.0,
+            ),
+            ModelSpec("baseline-logistic", "SpiralSky", baseline_model),
+        ),
+        engineers=("Glowing6635", "SpiralSky"),
+        validation_rows=validation_rows,
+        k=k,
+        champion_run_id=champion_run_id,
+        champion_model=champion_model,
+        seed=seed,
+    )
 
 
 @dataclass(frozen=True)
@@ -125,6 +158,13 @@ def retrain(
         name = f"{spec.name}-{batch_id}-{etl_run_id}"
         try:
             estimator = spec.build().set_params(**spec.params)
+            extra_train_kwargs = {}
+            if spec.country_input:
+                extra_train_kwargs["country_input"] = True
+            if spec.recency_half_life_days is not None:
+                extra_train_kwargs["recency_half_life_days"] = (
+                    spec.recency_half_life_days
+                )
             run_id, result = train_candidate(
                 estimator,
                 k=inputs.k,
@@ -142,6 +182,7 @@ def retrain(
                     "champion_run_id": inputs.champion_run_id,
                     "validation_sha256": validation_hash,
                 },
+                **extra_train_kwargs,
             )
             report.results[spec.name] = {
                 **comparison(result),
