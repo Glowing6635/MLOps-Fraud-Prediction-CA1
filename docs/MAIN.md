@@ -27,7 +27,10 @@
   At K = 250 per day and 132 matched flags, the rule caught 73 fraud orders
   and a fresh fit of the #152 boosted-trees candidate caught 102. The earlier
   D18-01 coarse grid selected X = 50 SGD and produced a 5–5 tie with that
-  candidate at 7 matched flags. Criteria 4–6 are evidenced by an offline re-score of the #15
-  champion, `fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`: at the
-  same 132 flags the model caught 102 fraud orders against the rule's 73
-  (D18-06, D18-07).
+  candidate at 7 matched flags. The protected team registry replay of the
+  pinned #15 champion reproduced the 102–73 result and matched every
+  validation score. [D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
+  records the protected replay and the 15:50 UTC authenticated team metadata
+  readback confirming the same historical champion binding on 2026-11-28.
+  The Product Owner accepted the validation-tuned proxy and assumed K in
+  [D18-07](decision-log.md#d18-07--18-outcome-criteria-status-and-score-file-key-check).
