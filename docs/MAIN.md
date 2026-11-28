@@ -8,7 +8,8 @@
   logged or registered pipeline.
 - [MLflow server design](mlflow-design.md) — why the server keeps its data in
   RDS and S3, and the limits of the first setup.
-- [Runbook](runbook.md) — creating and setting up the cloud services.
+- [Runbook](runbook.md) — creating the cloud services, restarting them after the
+  sandbox stops, and the checks to repeat before the demo.
 - [Data dictionary](data-dictionary.md) — every table and column in the team
   database.
 - [Training harness](training.md) — how to train and re-run a model, and what

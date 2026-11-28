@@ -3,6 +3,7 @@ import sys
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
+from shutil import which
 from types import ModuleType, SimpleNamespace
 
 import mlflow
@@ -14,7 +15,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-from . import config, retrain, training
+from . import champion, config, retrain, training
 from .loading import load_files
 from .retrain import EvaluationInputs, ModelSpec, validate_manifest
 from .test_rds_reads import customer, order
@@ -110,14 +111,15 @@ def test_cli_trains_and_logs_real_models_after_candidate_failure(
         return _snapshot()
 
     monkeypatch.setattr(retrain, "read_training_snapshot", read)
-    cli = Path(sys.executable).with_name("retrain-batch")
+    cli = which("retrain-batch", path=str(Path(sys.executable).parent))
+    assert cli is not None, "retrain-batch must be installed in the test environment"
     monkeypatch.setattr(
         sys,
         "argv",
-        [str(cli), "new", "representative_inputs:build", "--etl-run-id", "invocation"],
+        [cli, "new", "representative_inputs:build", "--etl-run-id", "invocation"],
     )
     with pytest.raises(SystemExit) as status:
-        runpy.run_path(str(cli), run_name="__main__")
+        runpy.run_path(cli, run_name="__main__")
     assert status.value.code == 1
     assert snapshots == [engine]
     assert disposed == [True]
@@ -133,13 +135,13 @@ def test_cli_trains_and_logs_real_models_after_candidate_failure(
         params, metrics = run.data.params, run.data.metrics
         assert run.info.status == "FINISHED"
         assert run.data.tags["champion_eligible"] == "False"
-        assert params["data_source"] == "rds_labelled_windows"
+        assert params["data_source"] == "labelled_windows"
         assert params["logisticregression__C"] == expected_c
         assert params["logisticregression__random_state"] == "23"
         assert params["k"] == "1"
-        assert params["etl_run_id"] == "invocation"
-        assert params["champion_run_id"] == "champion-fixture"
-        assert len(params["validation_sha256"]) == 64
+        assert run.data.tags["etl_run_id"] == "invocation"
+        assert run.data.tags["champion_run_id"] == "champion-fixture"
+        assert len(run.data.tags["validation_sha256"]) == 64
         assert metrics["train_orders"] == 3
         assert metrics["validation_orders"] == 4
         assert metrics["train_old_rows"] == 1
@@ -159,7 +161,7 @@ def test_cli_trains_and_logs_real_models_after_candidate_failure(
 
 def test_shared_harness_stops_oversized_model_before_upload(inputs, tracker):
     rows, _ = _snapshot()
-    with pytest.raises(ValueError, match="Saved model has"):
+    with pytest.raises(ValueError, match="over the limit"):
         training.train(
             _candidate(),
             k=1,
@@ -168,11 +170,36 @@ def test_shared_harness_stops_oversized_model_before_upload(inputs, tracker):
             max_model_size_bytes=1,
         )
 
-    [run] = mlflow.search_runs(experiment_names=["retrain-test"], output_format="list")
-    assert run.info.status == "FAILED"
-    assert run.data.params["logisticregression__random_state"] == "42"
-    assert run.data.metrics["model_size_bytes"] > 1
-    assert mlflow.search_logged_models(experiment_ids=[run.info.experiment_id]).empty
+    # The size check runs before anything is logged, so no run is left behind.
+    assert (
+        mlflow.search_runs(experiment_names=["retrain-test"], output_format="list")
+        == []
+    )
+
+
+def test_artifact_limit_matches_the_champion_rule_and_rejects_52_4_mb(
+    inputs, tracker, monkeypatch
+):
+    assert retrain.MAX_ARTIFACT_BYTES == champion.SIZE_NOTE_BYTES == 50_000_000
+    rows, _ = _snapshot()
+    original = Path.stat
+
+    class _Stat:
+        st_size = 52_400_000
+        st_mode = original(Path(".")).st_mode
+
+    monkeypatch.setattr(
+        training.Path, "is_file", lambda self: self.name == "model.skops"
+    )
+    monkeypatch.setattr(training.Path, "stat", lambda self, **kwargs: _Stat())
+    with pytest.raises(ValueError, match="over the limit"):
+        training.train(
+            _candidate(),
+            k=1,
+            seed=42,
+            labelled_windows=(rows.dropna(subset=["is_fraud"]), inputs.validation_rows),
+            max_model_size_bytes=retrain.MAX_ARTIFACT_BYTES,
+        )
 
 
 def _score(caught, ap):
@@ -191,7 +218,7 @@ def test_candidate_size_failures_and_unique_ids(inputs, monkeypatch):
     monkeypatch.setattr(retrain, "read_training_snapshot", lambda engine: _snapshot())
 
     def reject_oversize(estimator, *, max_model_size_bytes, **kwargs):
-        assert max_model_size_bytes == 52_428_800
+        assert max_model_size_bytes == 50_000_000
         raise ValueError("model exceeds size limit")
 
     def run():

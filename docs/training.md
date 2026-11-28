@@ -70,9 +70,12 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 
 ## Comparing training class weights
 
-Both commands default to the estimator's unweighted fit. Add
-`--weighting balanced` to opt in, or pass `class_weight="balanced"` to
-`baseline_model()` or `boosted_trees_model()` before calling `train()`.
+The five fitting subcommands default to the estimator's unweighted fit:
+`baseline`, `boosted-trees`, `random-forest`, `extra-trees` and
+`compare-feature-groups`. Each accepts `--weighting balanced`. In Python,
+pass `class_weight="balanced"` to
+`baseline_model()`, `boosted_trees_model()`, `random_forest_model()` or
+`extra_trees_model()` before calling `train()`.
 For `train compare-feature-groups`, the option applies to both feature groups.
 To compare the two methods without exploratory customer columns, call `train()`
 with each candidate twice, omitting `class_weight` on the first call and setting
@@ -82,21 +85,23 @@ for both calls.
 The classifier derives weights from training labels during fit. The validation
 report uses the original orders and fraud rate. MLflow records the final
 classifier's `class_weight` parameter, and rerun restores it from the logged
-model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
+model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting) for
+the measured validation results, including Random Forest and Extra Trees.
 
 ## What each run records
 
 | Kind | Recorded |
 | --- | --- |
-| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `country_input`, `recency_half_life_days`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels` |
+| Parameters | The model's simple parameters and class name, `k`, `seed`, `exploratory`, `country_input`, `recency_half_life_days`, `label_delay_days`, `cleaning_policy_version`, the four cut-off dates from `config/time_split.toml`, and `dataset_sha256_customers`, `dataset_sha256_orders` and `dataset_sha256_labels`, or `data_source` set to `labelled_windows` for a run on rows passed in |
 | Metrics at K and 2K | Fraud caught, fraud catchable, orders selected, total fraud, precision and recall |
-| Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders` |
-| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives |
+| Other metrics | Average precision, `validation_customer_overlap`, `fit_seconds`, `model_size_bytes`, `train_orders` and `validation_orders`, and any metrics from `extra_metrics` |
+| Tags | `git_commit`, `git_dirty` and `author`, which is git's `user.name`, or `unknown` when none is set, and any `tags` the caller gives (the git tags win if a caller uses the same names); the tag `mlflow.runName` sets the run name |
 | Diagnostics | Tables under `diagnostics/` (PBI #22, [model-v2-run.md](model-v2-run.md)): `precision_recall_curve.json` (thinned to 500 points), `confusion_matrix_at_k<K>.json`, and `errors_by_country.json`, `errors_by_payment_method.json`, `errors_by_order_value_band.json`; the tag `order_value_bands` states the bands |
 | Model | The fitted model, under the name `model` |
 
-CSV runs record a SHA-256 for each input file. [Per-batch retraining](retraining.md)
-uses the labelled database snapshot and logs the batch ID and validation digest.
+The dataset version is the SHA-256 of each input file. A run on rows passed in has no
+files to hash, so its caller tags it with where the rows came from, such as the batch ID.
+[Per-batch retraining](retraining.md) logs the batch ID and validation digest the same way.
 
 `validation_customer_overlap` is the share of validation orders whose customer also
 has an order in the training window. A high share means the validation score partly
@@ -158,11 +163,51 @@ model that was fitted with it, so per-batch retraining can score version 2 as th
 Training version 2 there as a candidate needs `retrain.py` to pass `country_input=True` and
 `recency_half_life_days` for it, which `ModelSpec` can't ask for yet.
 
+## Training on rows passed in
+
+A caller that has already read labelled orders, such as per-batch retraining from the
+team database (issue #25), passes them in instead of a data folder:
+
+```python
+from mlops_fraud_prediction_ca1.training import score_labelled_rows, train
+
+run_id, result = train(
+    my_pipeline,
+    k=K,
+    seed=None,
+    labelled_windows=(train_rows, validation_rows),
+    tags={
+        "mlflow.runName": "<model>-<batch ID>-<ETL run ID>",
+        "batch_id": "<batch ID>",
+    },
+    extra_metrics=lambda result: {"fraud_caught_at_k_delta": ...},
+    max_model_size_bytes=50 * 1024 * 1024,
+)
+report = score_labelled_rows(champion_model, validation_rows, k=K)
+```
+
+Each row is one order with a valid label, with the columns `order_date`,
+`country_code`, `order_id`, `customer_id` and `is_fraud` and the four order feature
+columns, as `rds_reads.read_labelled_orders` returns them. Other columns are ignored.
+That reader also returns orders whose `is_fraud` is None, meaning the source label was
+not 0 or 1, so drop those first. Money that the database returns as `Decimal` is
+converted to numbers. A run on rows passed in can't be exploratory, because the
+customer date checks need the base files.
+
+`seed=None` keeps the model's own `random_state`, such as a stored candidate's.
+`extra_metrics` turns the result into more metrics for the run, such as the difference
+from the champion. `train` raises `ValueError` before anything is logged if one of
+those metrics has a harness metric's name, such as `train_orders`, or if the saved
+model folder is over `max_model_size_bytes`.
+`score_labelled_rows` scores a model fitted elsewhere, such as the champion, on the
+same features, and returns its top-K report.
+
 ## Re-running a run
 
 `uv run train rerun <run ID>` builds an unfitted copy of the logged model, with the same
 parameters, and fits it again with the logged seed, K and column choice. It stops if an
-input file's SHA-256 differs from the logged one. It prints both results and
+input file's SHA-256 differs from the logged one, and can't re-run a run on rows
+passed in. It prints both results and
 `reproduced: True` when fraud caught at K is within 1% of the logged count and average
 precision within 0.005. `same_commit` shows whether the code is at the logged commit.
 
@@ -170,7 +215,9 @@ precision within 0.005. `same_commit` shows whether the code is at the logged co
 
 - Data is read only through the protected reader in `data.load_base_data`, once for
   the training window and once for the validation window, and each table is cleaned
-  with `cleaning.clean_frame`. The test window is never loaded.
+  with `cleaning.clean_frame`. The test window is never loaded. Rows passed in skip
+  this reader, so the caller reads them the same safe way: `rds_reads` applies the same
+  holdout setting in the database.
 - Labels join orders by country and order ID. Orders without a valid label are left
   out of both fitting and scoring.
 - The features are the four order columns that `leakage.select_feature_inputs` allows

@@ -10,11 +10,12 @@ from importlib import import_module
 
 import pandas as pd
 
+from .champion import SIZE_NOTE_BYTES
 from .rds_reads import read_training_snapshot
 from .splitting import split_orders
 
 TRAIN_AND_LOG_SECONDS = 85
-MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
+MAX_ARTIFACT_BYTES = SIZE_NOTE_BYTES  # 50,000,000 bytes, as in D15-03
 
 
 @dataclass(frozen=True)
@@ -92,10 +93,11 @@ def retrain(
         "train_old_rows": len(train_rows) - new_rows,
         "train_new_rows": new_rows,
         "excluded_invalid_label_rows": len(rows) - len(train_rows),
-        "train_orders": len(train_rows),
         "excluded_rows": exclusions["excluded_date_rows"] + len(rows) - len(train_rows),
     }
-    report = RetrainReport(etl_run_id, batch_id, counts)
+    report = RetrainReport(
+        etl_run_id, batch_id, {**counts, "train_orders": len(train_rows)}
+    )
     log(f"etl_run_id={etl_run_id} batch_id={batch_id} {counts}")
     started = time.perf_counter()
     validation_hash = hashlib.sha256(
@@ -128,11 +130,11 @@ def retrain(
                 k=inputs.k,
                 seed=inputs.seed,
                 labelled_windows=(train_rows, validation),
-                run_name=name,
                 max_model_size_bytes=MAX_ARTIFACT_BYTES,
                 extra_metrics=comparison,
-                tags={"champion_eligible": "False"},
-                extra_params={
+                tags={
+                    "mlflow.runName": name,
+                    "champion_eligible": "False",
                     "model": spec.name,
                     "owner": spec.owner,
                     "etl_run_id": etl_run_id,

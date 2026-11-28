@@ -409,7 +409,10 @@ def _register_approved(
         )
         if version is None:
             version = client.create_model_version(
-                model_name, source.location, run_id=cand.run_id
+                model_name,
+                source.location,
+                run_id=cand.run_id,
+                model_id=source.logged_id,
             )
             if not _matches_artifact(client, model_name, version, cand, source):
                 raise ValueError(

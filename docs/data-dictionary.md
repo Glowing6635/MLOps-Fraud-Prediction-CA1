@@ -1,6 +1,6 @@
 # Data dictionary
 
-The team database in RDS MySQL holds the three source files, one row per source row, plus a table of loaded batches. `src/mlops_fraud_prediction_ca1/schema.sql` creates it, and `docs/runbook.md` gives the steps.
+The team database in RDS MySQL holds the three source files, one row per source row, plus a table of loaded batches and the daily review queue (issue #33). `src/mlops_fraud_prediction_ca1/schema.sql` creates it, and `docs/runbook.md` gives the steps.
 
 ## Diagram
 
@@ -11,6 +11,8 @@ erDiagram
     batches ||--o{ labels : "loaded in"
     orders ||--o| labels : "labelled by"
     customers ||--o{ labels : "placed (customer_id)"
+    batches ||--o{ review_queue : "ranked from"
+    orders ||--o{ review_queue : "queued as"
 
     batches {
         varchar batch_id PK
@@ -39,6 +41,12 @@ erDiagram
         varchar batch_id FK
         varchar customer_id
         tinyint is_fraud
+    }
+    review_queue {
+        varchar batch_id PK, FK
+        int model_version PK
+        char country_code PK, FK
+        varchar order_id PK, FK
     }
 ```
 
@@ -160,6 +168,19 @@ One row per labelled order. Every label's order must already be in `orders`.
 | `customer_id` | text | The customer who placed the order. |
 | `is_fraud` | 0 or 1 | 1 if the order was fraud. Empty when the source value is not 0 or 1. |
 | `raw_country_code`, `raw_is_fraud` | text | The original values. |
+
+### review_queue
+
+One row per order in a batch's daily review queue: each day's riskiest orders, as one version of the champion model ranked them. `uv run review-queue` adds the rows, once per batch and model version (`docs/runbook.md`, "Daily review queue").
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `batch_id` | text, key | The batch whose orders were ranked. |
+| `model_version` | number, key | The version of the registered model `fraud-candidate` that scored the orders: the one its alias `champion` named then. |
+| `country_code` | 2 letters, key | The order's country. |
+| `order_id` | text, key | The order. Its row in `orders` holds the rest of the order. |
+| `order_date` | date | The day the order was placed. Each day's orders are ranked separately. |
+| `score` | number | The model's fraud score, from 0 to 1. Higher means riskier. |
 
 ## Who can read and add rows
 

@@ -91,6 +91,47 @@ destination and reason, then read both aliases and the previous version tag.
 If a registration retry reports a changed comparison, pause for review of the
 new comparison and inspect the current alias pair before another move.
 
+## Rehearse the approved pair in a local registry
+
+Use an empty private directory for the SQLite tracking and registry database
+and a separate local artifact folder inside it. Set both the tracking and
+registry URIs to that database before creating any runs or versions. Keep the
+folders available in place while versions reference their file URIs.
+
+1. Obtain the two retained model directories from an authorized reader of
+   `laneA-live`, experiment 2. Match both original run IDs and logged-model
+   URIs to the [approved comparison](evidence/15-champion-pick-k250.md).
+   Require the `MLmodel` manifest and the complete artifact inventory. Verify
+   the export against the reader's SHA-256 inventory of relative paths and
+   bytes. The Comparison ID binds the ranking and artifact references.
+2. In the local tracking store, create a distinct local run for each package
+   and copy its files byte-for-byte with `MlflowClient.log_artifacts` under
+   `model`. Keep the original run ID, original logged-model URI, Comparison
+   ID and source inventory digest in local run and version tags. Use the new
+   local run ID in the registry version's `run_id` and the corresponding local
+   artifact directory as its source. The copied manifest retains its original
+   identity.
+3. Register the two packages under local `fraud-candidate`. Verify that each
+   version is `READY`, its download URI resolves to the intended local
+   artifact directory, the local file inventory and SHA-256 values match the
+   export, and `mlflow.sklearn.load_model("models:/fraud-candidate/<version>")`
+   loads the original package. Use the approved source revision and locked
+   dependencies when loading. Then set `champion` to histogram gradient
+   boosting and `challenger` to Extra Trees.
+4. Record the starting alias pair. Call `move_champion` as above with the
+   verified Extra Trees version. Read both aliases through
+   `get_model_version_by_alias`. Check that they swapped and that the new
+   champion's `previous_champion_version` matches the starting champion.
+   Pass that tag to the same entry point to restore the original champion.
+   Verify both aliases and the restored champion's new
+   `previous_champion_version` tag, which must identify Extra Trees.
+
+If the authorized export is unavailable, stop before registration and record
+which source could not be read. The [packaged-pipeline replay](feature-pipeline.md#verify-a-real-local-fit-and-reload)
+uses a separate model name and a fresh fit. See
+[D15-05](decision-log.md#d15-05--local-rehearsal-requires-the-original-packages)
+for the scope and access decision.
+
 ## Team registry record
 
 The Product Owner requested setting the alias and exercising rollback.
@@ -114,10 +155,51 @@ ready versions and source runs after each move. The destination version recorded
 the previous champion version on each move.
 
 See the [acting-analyst sign-off](model-review.md#4-criterion-3-acting-analyst-sign-off).
-Historical version 2 (random forest, 187 MB) is above 50 MB, so it no longer
-qualifies as challenger. Re-registering needs a live registry operation.
-The exact bytes of historical version 2 remain unverified. Size measurements for
-separate PR #164 fits cannot establish that version's size. The historical
-sign-off applies to the recorded pair. New team registry changes remain on hold
-pending exact artifact and integration evidence. Integration also depends on
-[PR #165](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/165).
+Historical version 2 (random forest, `9a40f8f5e35a48ddb39a97f9f052dcad`) is
+`187,236,750` bytes in the harness (`> 50 MB`), so it no longer qualifies as
+challenger. Re-registering needs a live registry operation. The historical
+sign-off applies to the recorded pair.
+[PR #165](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/165)
+is merged, and the live read-only `uv run champion-pick --k 250` rerun against
+`laneA-live` (experiment ID `2`) was completed on `2026-11-26` (see
+[15-champion-pick-k250.md](evidence/15-champion-pick-k250.md), Comparison ID
+`81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`):
+
+- Rank 1 (`HistGradientBoostingClassifier`, `9c3a59771cf8499d92972f5c7873e280`):
+  `1,032,734` bytes (harness) / `1,032,894` bytes (artifact) — under 50,000,000
+  bytes, elected `champion`.
+- Rank 2 (`RandomForestClassifier`, `9a40f8f5e35a48ddb39a97f9f052dcad`):
+  `187,236,750` bytes (harness, `> 50 MB`) — passed over under D15-03.
+- Rank 3 (`ExtraTreesClassifier`, `8af9db9f95e543cfbfebdef82545322c`):
+  `23,109,033` bytes (harness) / `23,109,193` bytes (artifact) — under
+  50,000,000 bytes, elected `challenger` under D15-03.
+
+Under [D15-03](decision-log.md#d15-03--register-the-best-two-ranked-models-within-50-mb),
+the two elected candidates (`champion` rank 1 and `challenger` rank 3) are both
+strictly under 50,000,000 bytes; by raw validation rank, the top two do not both
+satisfy `< 50 MB`.
+
+**Registration is a separate, analyst-approved step.** Neither candidate choice
+changes the live aliases by itself. Training a lighter `< 50 MB` random forest in
+`laneA-live`, or training any run, only adds a run to the experiment; it does not
+create a `fraud-candidate` version or move the `champion`/`challenger` aliases.
+The read-only `uv run champion-pick --k 250` rerun above printed the comparison
+and its Comparison ID but wrote nothing to the registry. The last verified
+team pair was `champion` v1 (`9c3a5977…`) and `challenger` v2
+(`9a40f8f5…`, `187,236,750` bytes). The acting analyst approved the new
+comparison on 27 November. The authorized team operator can run the following
+once the protected route is available:
+
+```bash
+uv run champion-pick --k 250 --register fraud-candidate \
+  --approve-comparison APPROVED_ID
+```
+
+That command creates or reuses the `fraud-candidate` versions for the elected
+pair and sets both aliases; with D15-03's current ranking it promotes rank 3
+(`ExtraTreesClassifier`, `8af9db9f…`) to `challenger`. If instead a lighter
+random forest is trained and measured under 50,000,000 bytes, it re-enters by
+rank, so the preview (and therefore the Comparison ID) must be taken again
+before registering. Either path ends in the same approved `--register`
+operation; without it, version 2 (`187,236,750` bytes) remains the registered
+`challenger` and does not qualify.

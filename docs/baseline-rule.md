@@ -305,6 +305,11 @@ Candidate X values tested on validation: 13.36 (132 flags, 73 fraud), 17.72
 | Champion, matched to the rule's count | 132 | 102 | 625.36 | 30 | 6 |
 | Champion at K (250 a day) | 5,250 | 2,893 | 33,650.06 | 2,357 | 663 |
 
+A later offline replay reproduced all 15 comparison values on the same
+101,190 labelled validation orders. It used the D18-06 re-score with
+`--k 250 --threshold 13.36 --threshold-source 'D18-04 validation-tuned proxy (frozen)'`.
+Registered artifact parity for the accepted target binding remains open.
+
 Population: 101,190 labelled validation orders; account-age status `valid`
 101,109, `unusable_first_order` 71, `negative` 10; rule status `flagged` 132,
 `not_flagged` 100,977, `unusable_age` 81; loyalty `not_loyal` 74,686, `loyal`

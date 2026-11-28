@@ -77,3 +77,19 @@ CREATE TABLE IF NOT EXISTS labels (
     CONSTRAINT labels_order FOREIGN KEY (country_code, order_id)
         REFERENCES orders (country_code, order_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- The daily review queue (issue #33): each batch's riskiest orders per day, as ranked
+-- by one registered version of the champion model.
+CREATE TABLE IF NOT EXISTS review_queue (
+    batch_id VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
+    model_version INT UNSIGNED NOT NULL,
+    country_code CHAR(2) NOT NULL,
+    order_id VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
+    order_date DATE NOT NULL,
+    score DOUBLE NOT NULL,
+    PRIMARY KEY (batch_id, model_version, country_code, order_id),
+    KEY review_queue_order (country_code, order_id),
+    CONSTRAINT review_queue_batch FOREIGN KEY (batch_id) REFERENCES batches (batch_id),
+    CONSTRAINT review_queue_order FOREIGN KEY (country_code, order_id)
+        REFERENCES orders (country_code, order_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

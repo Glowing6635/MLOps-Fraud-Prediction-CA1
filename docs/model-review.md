@@ -7,8 +7,9 @@ Product Owner assumption with no source (D5-01, D18-04).
 
 ## 1. Candidates on the table (validation window, K = 250, seed 0)
 
-From the `laneA-live` experiment on the team MLflow server (runs of commit
-`77837c6`; these are rehearsal runs, not the team experiment):
+The first review used rehearsal runs from commit `77837c6` in the
+`laneA-live` experiment on the team MLflow server. The registration column
+records the versions created for that review.
 
 | Rank | Run | Fraud caught at K | Average precision | Registered |
 |---|---|---|---|---|
@@ -16,7 +17,7 @@ From the `laneA-live` experiment on the team MLflow server (runs of commit
 | 2 | RandomForestClassifier: customer columns compared (9a40f8f5e35a48ddb39a97f9f052dcad) | 2811 | 0.3495 | yes |
 | 3 | ExtraTreesClassifier: customer columns compared (8af9db9f95e543cfbfebdef82545322c) | 2695 | 0.3434 | no |
 
-Champion: HistGradientBoostingClassifier: customer columns compared (9c3a59771cf8499d92972f5c7873e280): more fraud caught at K.
+First-review champion: HistGradientBoostingClassifier: customer columns compared (9c3a59771cf8499d92972f5c7873e280): more fraud caught at K.
 
 Exploratory (with-customer-columns) runs are not eligible. Differences with and
 without those columns: boosted trees +161, random forest +14, extra trees -81 fraud
@@ -52,13 +53,25 @@ defaults:
    v2 (RandomForestClassifier, run `9a40f8f5e35a48ddb39a97f9f052dcad`, 2,811
    caught, AP 0.3495) as challenger.
 
+On 2026-11-27, SpiralSky, acting as the Trust & Safety analyst, approved
+[comparison `81dbb7f3`](evidence/15-champion-pick-k250.md). Under D15-03, the
+elected pair is HistGradientBoostingClassifier (`9c3a5977`) as champion and
+ExtraTreesClassifier (`8af9db9f`, 23,109,193 artifact bytes) as challenger.
+The historical Random Forest v2 measured 187,236,750 bytes in the harness and
+exceeds the 50,000,000-byte limit for this election.
+
 ## 5. Team registry status
 
-At the Product Owner's request, the top two runs above were registered as
-`fraud-candidate` versions 1 and 2 on the team server. Version 1 is the
-`champion` after the rollback check. The exact artifact size of version 2
-remains unverified, and the recorded 187 MB forest exceeds the 50 MB
-registry limit of D15-03, so the challenger is to be replaced by the next ranked
-model within the limit. See the
-[team registry record](champion.md#team-registry-record) for the run IDs and
-rollback evidence.
+The [historical team registry record](champion.md#team-registry-record) documents
+`fraud-candidate` champion v1, challenger v2 and the verified rollback with
+previous-champion tags 2/1. At 03:58 UTC on 2026-11-28, SpiralSky gave a
+shared-trial instruction to preserve those aliases and tags and permit one
+attempt before 04:15 UTC to register Extra Trees as an unaliased candidate.
+That direction was limited to the trial. In the 12:42 UTC PR #171 review,
+Glowing6635 reiterated the recommendation to register Extra Trees under D15-03.
+
+A READY Extra Trees version on the team registry and verified alias and rollback
+evidence for the elected pair remain outstanding. The team MLflow custodian
+controls source access. SpiralSky coordinates the authorized operation and its
+verification. See [D15-05](decision-log.md#d15-05--local-rehearsal-requires-the-original-packages)
+for the remaining access and operator checks.
