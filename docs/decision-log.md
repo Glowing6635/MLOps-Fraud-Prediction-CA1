@@ -255,8 +255,8 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 
 ## D15-02 — Rank for review and qualify retraining separately
 
-- Settled 2026-11-25. Decision owner: SpiralSky (Product Owner), response to
-  `agile-mlops-20261124-15`. Affected PBIs: #15 and #25.
+- Settled 2026-11-25. Decision owner: SpiralSky (Product Owner).
+  Affected PBIs: #15 and #25.
 - Decision: #15 ranks every otherwise eligible validation candidate by #5
   fraud caught at K, then average precision, then ascending run ID for exact
   ties. Keep #14 exploratory runs out. Annotate measured sizes above 50 MB
@@ -366,7 +366,8 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   shared trial retain its historical HistGB v1 and Random Forest v2 aliases and
   rollback tags 2/1. The trial permitted one attempt before 04:15 UTC to
   register Extra Trees without moving aliases. The 27 November sign-off
-  governs the elected challenger.
+  governs the elected challenger. Glowing6635 recommended Extra Trees for the
+  team registry. The trial retention direction came from SpiralSky.
 - Rationale and alternatives: SQLite provides a local rehearsal method for
   registration and rollback using byte-for-byte copies of the original
   packages. Record the original run and model IDs alongside the local run IDs
@@ -463,8 +464,8 @@ not met.
   check.
 - Open: SpiralSky owns the clean sandbox deployment and stopped-session billing
   evidence and will arrange the unaided teammate deployment and quickstart.
-  The live evidence for #26 AC1–4 is tracked in owner request
-  `agile-mlops-20261124-10`.
+  These live checks are outstanding for [#26](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/26)
+  criteria 1–4.
 
 ## D16-01 — Skew and outlier handling for scoring inputs
 
@@ -806,8 +807,9 @@ local result. Still open as listed above: the team-server log, the #15 review an
 
 ## D18-04 — The proxy rule is final: no deployed threshold or capacity source exists
 
-- Recorded: 2026-11-24. Accountable engineer: SpiralSky; owner correction relayed
-  by the coordinator. Affected PBIs: #18 (criterion 1), #5/D5-01 (K).
+- Recorded: 2026-11-24. Accountable engineer: SpiralSky. The Product Owner
+  clarified the source of the threshold and capacity. Affected PBIs: #18
+  (criterion 1), #5/D5-01 (K).
 - Settled: Trust & Safety is a persona in the course brief, not a team that can be
   asked, so the deployed X and the real review capacity cannot be obtained. The
   active #18 rule uses the D18-03 validation-tuned proxy X = 13.36 SGD. At
@@ -840,9 +842,9 @@ local result. Still open as listed above: the team-server log, the #15 review an
   champion, `fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`,
   before reporting the criterion 4–6 outcome. The recorded #152 candidate
   results document the proxy comparison and cannot establish the champion
-  outcome. The #5 owner owns the public selector change. The coordinator
-  owns #157 delivery routing after #165, with `user/spiralsky` reserved for
-  #99 until that delivery clears.
+  outcome. The #5 owner owns the public selector change. The recorded delivery
+  order was to route #157 after #165 and reserve `user/spiralsky` for #99 until
+  that delivery cleared. SpiralSky is responsible for routing #157.
 
 ## D18-06 — Champion validation scores are an offline re-score
 
@@ -868,10 +870,10 @@ local result. Still open as listed above: the team-server log, the #15 review an
 - Alternatives: keep AC4–6 pending until the registered model or its original
   scores are pulled from the team server; reproduction of the aggregate was
   judged sufficient to trace the scores, with the limit stated here.
-- Open: the exact registered artifact has not been compared row by row. The
-  #15 owner or coordinator can confirm by scoring the registered `champion`
-  alias with the same data, which needs team-server access. Frozen settings
-  (X = 13.36, K = 250) are unchanged.
+- Open at the time of the re-score: a row-by-row check against the registered
+  artifact. The #15 owner is responsible for verifying parity with the team
+  registry operator, who needs team-server access. Frozen settings
+  (X = 13.36, K = 250) are unchanged. See the 28 November follow-up in D18-07.
 
 ## D18-07 — #18 outcome, criteria status and score-file key check
 
@@ -889,8 +891,14 @@ local result. Still open as listed above: the team-server log, the #15 review an
   ambiguous score being picked silently.
 - Alternatives not taken: dropping duplicate keys (hides an input defect);
   claiming the exposure result as a model win.
-- Open: (1) the re-score is not compared row by row with the registered
-  artifact (deciding owner: #15 owner or coordinator, needs team-server access;
-  D18-06). (2) The PR closes #18 only if the reviewer accepts the proxy X and
+- Follow-up (2026-11-28, [PR #171](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/171)):
+  an authenticated registry read resolved historical
+  champion v1 (run `9c3a59771cf8499d92972f5c7873e280`) to logged artifact
+  `m-34712ed5add845fe838835bd2107ec47`. All 101,190 ordered scores matched
+  the re-score with a maximum delta of 0, and all 15 comparison aggregates
+  matched. A later shared-trial lookup could not resolve the required binding.
+- Open: (1) The #15 owner still needs to verify row-level parity for the
+  accepted team binding with the team registry operator (D15-05).
+  (2) The PR closes #18 only if the reviewer accepts the proxy X and
   the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
   Owner). The deployed X and capacity are unobtainable (D18-04).
