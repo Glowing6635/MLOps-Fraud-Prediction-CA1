@@ -154,6 +154,8 @@ def _stub_path(tmp_path, bucket_exists, tagged):
         'case "$*" in\n'
         f"  *head-bucket*) exit {0 if bucket_exists else 1};;\n"
         f"  *get-bucket-tagging*) echo {'rehearsal-live' if tagged else 'other'};;\n"
+        "  *authorize-security-group-ingress*) echo sgr-0123;;\n"
+        "  *revoke-security-group-ingress*) echo True;;\n"
         "esac\n"
     )
     curl = bin_dir / "curl"
@@ -163,8 +165,7 @@ def _stub_path(tmp_path, bucket_exists, tagged):
     for tool in (aws, curl, uv):
         tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
     return {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "PATH": f"{bin_dir}:{os.defpath}",
         "CALLS": str(calls),
     }, calls
 
@@ -224,10 +225,11 @@ def test_live_cleanup_keeps_the_schema_unless_keep_schema_is_zero(tmp_path):
         sub = tmp_path / ("drop" if dropped else "keep")
         sub.mkdir()
         env, calls = _stub_path(sub, bucket_exists=True, tagged=False)
-        subprocess.run(  # noqa: PLW1510
+        result = subprocess.run(  # noqa: PLW1510
             ["bash", str(script), "cleanup"],
             env={**env, **keep},
             capture_output=True,
             text=True,
         )
+        assert result.returncode == 0, result.stderr
         assert ("DROP DATABASE" in calls.read_text()) is dropped

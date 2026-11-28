@@ -63,8 +63,18 @@ bucket (tagged `created-by=rehearsal-live`) and prints presigned links with thei
 It removes only the security-group rule it added itself, names any cleanup step that failed and exits non-zero in that case. `BUCKET` must start with `rehearsal`. On success the bucket, objects and schema
 stay so the links keep working; on failure it deletes only what that run created. After
 the rehearsal, `scripts/rehearsal-live.sh cleanup` deletes the bucket only if it carries
-the tag (never a bucket someone else made) and drops the `rehearsal` schema only when
-`KEEP_SCHEMA=0` is set (default keeps it so readers can check it; `cleanup` also opens and closes its own `/32` rule). It refuses to start if the bucket already exists.
+the tag. An absent bucket, an absent tag set, or a different owner tag is a successful
+skip. Other tag lookup errors report the bucket and AWS error without deleting any
+bucket objects. Standalone cleanup exits 1 if a cleanup step fails. If cleanup fails
+after a failed `run`, the script also reports the cleanup failure and preserves the
+original exit status. Default cleanup uses only S3. Set `KEEP_SCHEMA=0` to also
+drop the `rehearsal` schema, or run
+`KEEP_BUCKET=1 KEEP_SCHEMA=0 scripts/rehearsal-live.sh cleanup` for schema-only
+cleanup. Schema cleanup requires authorized temporary ingress and revokes the
+rule by its returned ID. A denied authorization or failed revocation makes
+cleanup fail even if the bucket was removed. Bucket cleanup errors also leave
+the requested schema cleanup enabled. The `run` command refuses to start if
+the bucket already exists.
 `--expires` / `PRESIGN_EXPIRES` sets the link lifetime in seconds (default 3600, enough for
 a 3-minute batch run; use more for a longer demo). Links are valid only while the session
 credentials that signed them are, so generate them in the demo session.
