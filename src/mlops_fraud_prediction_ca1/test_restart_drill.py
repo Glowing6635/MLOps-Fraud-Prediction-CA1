@@ -54,13 +54,16 @@ def test_minutes():
     assert minutes(600) == "10:00"
 
 
-def test_the_logged_run_is_tagged_so_model_queries_can_skip_it(tmp_path):
-    previous = mlflow.get_tracking_uri()
-    mlflow.set_tracking_uri(f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}")
-    try:
-        run = mlflow.get_run(log_times({"rds": 47.0}))
-    finally:
-        mlflow.set_tracking_uri(previous)
+def test_the_logged_run_is_tagged_so_model_queries_can_skip_it(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "MLFLOW_TRACKING_URI", f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}"
+    )
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_ID", raising=False)
+    monkeypatch.setattr(mlflow.tracking._tracking_service.utils, "_tracking_uri", None)
+    monkeypatch.setattr(mlflow.tracking.fluent, "_active_experiment_id", None)
+    mlflow.set_experiment("restart-drill-test")
+    run = mlflow.get_run(log_times({"rds": 47.0}))
     assert (run.info.run_name, run.data.tags["purpose"], run.data.metrics) == (
         "restart-drill",
         "restart-drill",
