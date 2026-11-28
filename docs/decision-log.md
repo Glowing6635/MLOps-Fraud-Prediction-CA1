@@ -602,6 +602,124 @@ Balancing reduced fraud caught at K and average precision for both forest
 families. Extra trees caught 74 more fraud orders at 2K. These results support
 keeping the unweighted default while production weighting remains open.
 
+## D34-01 — Criterion for reading the model-versus-rule result
+
+- Recorded: 2026-11-23, before any #34 comparison or formal test-window
+  scoring. Accountable engineer: SpiralSky. Affected PBIs: #34 (first
+  checklist item), #18, #23, #5, #30. Status: **decided as a pre-result reading
+  rule, not a finding.** It claims no result and picks no champion.
+- Chronology: this is not an untouched holdout. The notebook's full-extract EDA
+  predates the test lock and covered the whole extract, so test-window rows were
+  seen at that stage ([D6-01](#d6-01--frozen-retrospective-windows-and-protected-exposure),
+  [time-split.md](time-split.md#evidence-and-notebook-provenance)). The
+  claim here is narrower: no model or rule has been formally scored on the test
+  window for #34. Whether any earlier comparison exists is not asserted in this
+  entry; the run records must establish the prior comparisons, and the report
+  states their number from those records.
+- Scope: this entry fixes how the #34 numbers will be read. It is separate from
+  the #23 commit that freezes K, X and the loyal definition, and from #23's
+  record of whether the champion is trained or refit. Neither is decided here.
+  Comparison method, K and the loyal definition come from #18, #5 and #23.
+- Measures read: the two model-minus-rule differences in #34, each taken at a
+  matched number of flags per #5 selection group (the rule's count where the rule
+  flags fewer than K, K otherwise, as #18 defines).
+  1. **Fraud exposure identified, in SGD**: the sum of `order_value` over flagged
+     fraud orders. It is not savings or prevented loss.
+  2. **Distinct loyal customers wrongly flagged**: customers, not orders. One
+     customer counts once within one bootstrap draw however many orders were
+     flagged (see Intervals for repeated draws).
+  The number of fraud orders in the window is reported beside them as context.
+  It is not a third difference.
+- Favourable direction: the model is favourable when exposure identified is
+  higher and loyal customers wrongly flagged is lower, so the differences are
+  read as positive and negative respectively. The two are never added up or
+  converted into one another.
+- Intervals: each difference gets a 95% interval from 1,000 customer-level
+  bootstrap resamples, with the seed logged in the run record as #34 requires.
+  The interval is the 2.5th to 97.5th percentile of the resampled differences
+  (an assumption; the issue does not name the interval type). Resampling is over
+  customers, with the flagged selection held fixed, so orders from one customer
+  stay together. A customer drawn m times in a resample keeps that multiplicity
+  on both measures: their exposure is counted m times, and, if they are a loyal
+  customer flagged by the policy, they count once per draw, so m times in all.
+  Each resample is drawn once and applied to the rule and the model alike, so
+  both policies and both differences are computed on identical draws.
+  Worked example (hand-calculated, illustrative numbers only, not data): four
+  customers A, B, C, D. Rule: A has 2 flagged orders, fraud exposure SGD 100,
+  loyal and flagged; B is loyal and flagged, exposure 0. Model: A is loyal and
+  flagged, exposure 0; B has exposure SGD 50, not a loyal customer flagged.
+  C and D are never flagged. Draw A, A, B, B: rule exposure 200, model 100,
+  difference -100; rule loyal flagged 2+2 = 4, model 2, difference -2. Counting
+  distinct customers over the whole resample would give 2 and 1, difference -1,
+  which is not used. An interval that includes 0 is reported as "no difference was
+  shown on that measure". It is not reported as "equal" or "no effect".
+- Mock-stage interval assumption (2026-11-24, before final scoring): linked
+  customers are keyed by country code and customer ID. Flagged fraud without
+  a linked customer still contributes its full order value to exposure. Its
+  contribution is shown separately and held fixed in the resamples because
+  its customer clustering is unknown. The interval is conditional on that
+  contribution; it does not measure uncertainty from unlinked orders. Do not
+  count unlinked orders as distinct loyal customers. If no linked customers
+  are available, report the point estimates but no customer bootstrap interval.
+  Confirm this treatment with the #34 reviewer before using it for the final
+  report. Synthetic checks are not final comparison runs.
+- Reading the outcomes:
+  - Both differences favourable, both intervals exclude 0: the model is shown to
+    be better on both measures in this window.
+  - One favourable with its interval excluding 0, the other including 0: report
+    a gain on one measure and no difference shown on the other. Do not describe
+    this as an overall improvement.
+  - Any interval that excludes 0 in the unfavourable direction: report it as a
+    cost of the model on that measure, whatever the other measure shows.
+  - Both intervals include 0: no difference was shown on either measure.
+  - One favourable, one unfavourable, both excluding 0: a trade-off. The report
+    states both and gives no combined verdict. No SGD value is put on a loyal
+    customer or on a review.
+- Context kept out of the decision: the model at K (shown where the rule flags
+  fewer than K) is displayed beside the matched comparison. It informs, and no
+  verdict is drawn from it. The capacity chart (fraud caught by count and SGD
+  exposure across capacities) is also context. Only the matched differences above
+  are read against this criterion.
+- Reason: a reading rule written before the result stops the interpretation
+  being chosen to suit it. Reporting two measures separately matches the
+  analyst's question (money and loyal customers) without inventing a financial
+  exchange rate that nobody has supplied. Treating an interval that includes 0 as
+  "no difference shown" follows #34 and avoids claiming equivalence.
+- Alternatives considered: (a) a single combined SGD score, rejected because the
+  cost of a wrongly flagged loyal customer is not supplied; (b) a minimum
+  worthwhile difference, rejected for the same reason, so no margin is set;
+  (c) adjusting the two intervals for testing two measures, not applied because
+  #34 asks for each 95% interval as stated, and the report will note that two
+  measures are read; (d) recommending a switch from the result, rejected: the
+  decision stays with the Trust & Safety analyst, and this report only informs it.
+- Implications: the result cannot be read as savings, as a count of orders in
+  place of customers, or as a champion choice. The report also states the #30
+  label meaning, completeness and delay assumptions, that review costs are
+  excluded, and the number of test-window comparisons made before the final one, taken from the
+  run records.
+  Those statements belong to the report, not to this entry.
+- Reproduction convention (recorded before final scoring): seed 34,
+  predeclared from the PBI number, with 1,000 paired customer-level draws.
+  The report and receipt log it. Retain both with the authorized run record.
+- Score export contract: the SGD measure requires verified finite order
+  amounts. The #34 producer preflight and CSV consumer check all aligned
+  orders, since review capacities can select different orders. A genuine zero
+  is valid. If an amount is unusable, stop before the #23 window claim to
+  preserve the cohort and avoid reporting unknown exposure as zero. The
+  [integration instructions](impact-report.md#amount-check-before-the-23-claim)
+  record the #23 producer dependency.
+- Open question: whether the rule or loyal definition changes (owner: Trust
+  & Safety for X; PO for assumptions). A change reopens #23's freeze and
+  #18's comparison, and this criterion is reread then.
+- Sources: [#34](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/34),
+  [#18](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/18),
+  [#23](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/23),
+  [#5](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/5),
+  [#30](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/30),
+  [D6-01](#d6-01--frozen-retrospective-windows-and-protected-exposure),
+  [time-split.md](time-split.md), checked 2026-11-23. No code is added or run;
+  no test-window data was read for this entry.
+
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 
 - Recorded: 2026-11-23. Accountable engineer: SpiralSky. Affected PBIs: #18

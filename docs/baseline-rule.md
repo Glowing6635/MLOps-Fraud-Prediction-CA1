@@ -269,7 +269,11 @@ Safety figure).
   model to the rule's count per group, and also reports the model at K. It gives
   flags, fraud caught, fraud exposure (sum of `order_value` of flagged fraud),
   false flags and false flags on loyal orders, the rule status counts, the
-  loyalty counts and whether the model caught strictly more fraud.
+  loyalty counts and whether the model caught strictly more fraud. A model
+  flag can count a fraud order whose cleaned amount is missing. That amount
+  contributes nothing to the validation exposure sum, so a zero sum can include
+  unknown exposure. The [#34 scored export contract](impact-report.md#amount-check-before-the-23-claim)
+  checks every aligned order for a finite amount before the #23 claim.
 - Account age comes from `account_age_days` and loyalty from `loyalty_status`.
   The report prints the uncertainty in `first_order_datetime`, the loyalty
   history left-censoring, and the candidate table for a fitted threshold.
