@@ -246,12 +246,14 @@ flags. The rule flagged zero orders at X = 100 SGD or higher.
 **Acceptance status.** The Product Owner accepted the validation-tuned proxy
 X = 13.36 SGD and assumed K = 250 per day for criteria 1 and 4 in
 [D18-07](decision-log.md#d18-07--18-outcome-criteria-status-and-score-file-key-check).
-The protected team registry replay for criteria 4–6 used the pinned
-[#15 champion](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/161),
-`fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`. The rule caught
-73 fraud orders in 132 flags, and the model caught 102 at the same flag count
-and 2,893 at K. Parity for the approved trial registry remains pending. See
-[D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18).
+The approved trial registry replay provides scoped evidence for criteria 4–6
+using READY `fraud-candidate` v1 from the pinned
+[#15 champion](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/161)
+source run `9c3a59771cf8499d92972f5c7873e280`. The draft candidate remains
+partial. The full post-score source and package check is open, and the
+comparison uses the criterion 3 loyalty definition documented above. See
+[D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
+for the evidence and the conditions for rechecking it.
 
 ## Comparison with a model (criteria 4 to 6)
 
@@ -301,6 +303,13 @@ Run on 2026-11-26 with `uv run champion-scores` output
 Candidate X values tested on validation: 13.36 (132 flags, 73 fraud), 17.72
 (64, 34), 31.14 (19, 11), 38.78 (11, 7), 61.32 (2, 2), 119.41 (0, 0).
 
+On 2026-11-28 at 05:03:37Z, the downloaded trial-registry v1 package matched
+all 101,190 ordered D18-06 validation keys and scores exactly (maximum
+absolute delta 0). The fixed-X report completed with the frozen X = 13.36 SGD
+and K = 250 per day across all countries. It applied each day's rule flag
+count to the matched model selection and reported the model at K separately.
+The table below is the trial report, which reproduced all 15 earlier values.
+
 | Flags | Count | Fraud caught | Fraud exposure (SGD) | False flags | False flags, loyal |
 |---|---:|---:|---:|---:|---:|
 | Rule | 132 | 73 | 1,646.24 | 59 | 0 |
@@ -308,10 +317,9 @@ Candidate X values tested on validation: 13.36 (132 flags, 73 fraud), 17.72
 | Champion at K (250 a day) | 5,250 | 2,893 | 33,650.06 | 2,357 | 663 |
 
 A later offline fixed-X replay reproduced all 15 comparison values on the
-same 101,190 labelled validation orders. The private Steward receipt is
-`evidence/agile-mlops/p18-fixed-x-replay-1128/receipt.md` (SHA-256 prefix
-`d0a1f8d5`). That replay used the D18-06 re-score. Registered artifact parity
-for the accepted target binding is a separate evidence requirement.
+same 101,190 labelled validation orders using the D18-06 re-score.
+[D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
+records its evidence digest and the subsequent registered package checks.
 
 Population: 101,190 labelled validation orders; account-age status `valid`
 101,109, `unusable_first_order` 71, `negative` 10; rule status `flagged` 132,
@@ -328,8 +336,16 @@ X was selected on the same validation window, which favours the rule.
 
 The protected team registry replay on 2026-11-28 matched every ordered key
 and score on the 101,190 frozen validation orders and reproduced all 15 values
-using the saved champion at the same proxy threshold and K. The trial registry
-still needs its own alias and artifact binding check and fixed-X replay.
+using the saved champion at the same proxy threshold and K.
+
+For the trial replay, the separate 05:04:21Z metadata read confirmed
+`champion` on READY v1 and `challenger` on READY v2, with `previous` tag
+targets 2 and 1 respectively. The trailing full source and package recheck
+received a connection refusal after the report as the tunnel closed. The
+authorized reader can complete that recheck if needed. A change to the loyalty
+definition in criterion 3 requires regenerating the report for the revised
+definition, and a change to the champion binding requires fresh score parity
+and report evidence.
 
 ## Verify the exact registered champion's validation scores
 

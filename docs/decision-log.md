@@ -786,12 +786,30 @@ keeping the unweighted default while production weighting remains open.
   `b9974cb122aff2024eff4d4fdcad82e66278b886fe79892c09726d1a6df8ed41`.
   The locked registered-score replay at SGD 13.36 and K = 250 reproduced all
   15 D18-07 comparison values on the frozen validation window.
-- Decision limits: this result applies to the pinned team registry champion
-  and frozen validation window at the proxy X and assumed K accepted in
+- Approved trial registry replay on 2026-11-28 at 05:03:37Z: registration
+  recorded READY `fraud-candidate` v1 as `champion` from source run
+  `9c3a59771cf8499d92972f5c7873e280`. Scoring the downloaded numeric v1
+  package matched all 101,190 finite probabilities exactly on the same
+  ordered literal keys (maximum absolute delta 0). The registered-score
+  export had the same SHA-256 as the protected replay above. The fixed-X
+  report finished and reproduced all 15 values in the
+  [comparison table](baseline-rule.md#result-rule-versus-the-15-champion-re-score-validation-window).
+  Raw parity log SHA-256:
+  `96d929050f6977d038162b95159293f066fe5e959095e2c706b739e1cc59126c`.
+- Post-score trial metadata at 05:04:21Z: a separate read confirmed
+  `champion` READY v1 and `challenger` READY v2 with `previous` tags 2 and 1
+  respectively. Metadata log SHA-256:
+  `b19a794996f5d554cd1b2a4f0f6af1a095fb3e71afbd3bfefd621a2bd4d44f33`.
+  The earlier replay command's trailing full source and package rebind
+  failed with a connection refusal after the fixed-X report completed as
+  the tunnel closed. The metadata read confirms the aliases and tags.
+- Decision limits: the draft candidate is partial. The score and report
+  evidence supports criteria 4–6 for the pinned champion, the frozen
+  validation window, the recorded criterion 3 loyalty definition and the
+  proxy X and assumed K accepted in
   [D18-07](#d18-07--18-outcome-criteria-status-and-score-file-key-check).
-  The holdout stayed locked.
-- Open: parity for the approved trial registry requires the original champion
-  package and a verified READY version and alias binding. After #15 establishes
-  that binding, the authorized reader must compare every validation score and
-  replay the fixed-X report on the trial artifact. Repeat these checks after
-  any change to the champion binding.
+  The holdout stayed locked. The coordinator's authorized reader can
+  complete the open source and package recheck if needed, particularly
+  when verifying a revised criterion 3 report. Regenerate that report if
+  the loyalty definition changes, and repeat parity and the report if the
+  champion binding changes.
