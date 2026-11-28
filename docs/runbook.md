@@ -71,3 +71,13 @@ Load `base` first, then each batch in the order it arrived, because the database
 It then prints the rows added, already stored and rejected per table. Loading the same batch again is safe and adds nothing. Run one load at a time: while a long load runs, a second load stops with MySQL's "Lock wait timeout exceeded" error, or with a duplicate-key error if both add the same row, and changes nothing, so run it again after the first finishes. For the base files, the counts should match the kickoff data analysis (issue #3): 901,312 customers, 949,889 orders and 949,872 labels added, with 444 labels rejected for "no matching order" and 2 for "no matching customer". On a laptop the first load took about 11 minutes, and a rerun about 2. "Loading rules" in `docs/data-dictionary.md` lists what is rejected and why.
 
 `docs/data-dictionary.md` explains every table and column. The schema is frozen before data loading (issue #20) starts: after that, any change to `schema.sql` needs the team's agreement first.
+
+## Champion alias move and rollback
+
+To move the `champion` alias to another registered version, or to roll it back, use `champion.move_champion(client, "fraud-candidate", "<version>", "reason")`. Every move records `previous_champion_version` and the reason on the new champion and gives the old champion the `challenger` alias. To roll back, read the `previous_champion_version` tag on the current champion and pass that version to the same call. Run one registry operation at a time, then read both aliases and the tag to confirm. The full steps, including a failed write, are in `docs/champion.md` under "Move the alias and roll back".
+
+For an isolated local rehearsal, follow the
+[approved-pair import and alias readback steps](champion.md#rehearse-the-approved-pair-in-a-local-registry).
+They require verified originals of both approved artifacts. To exercise the
+separate packaged-pipeline reload on frozen data, use the
+[local reload command](feature-pipeline.md#verify-a-real-local-fit-and-reload).
