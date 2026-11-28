@@ -100,8 +100,8 @@ The command first prints the target database host, database name and MLflow expe
 
 1. Fetch and validate: downloads and checks the three files, then prints the batch ID and the rows in each file, which is the batch size for timing.
 2. Clean and load: cleans the batch and loads it as `uv run load-batch` does ("Loading a batch" above).
-3. Read training data: reads the labelled training and validation windows from the database.
-4. Train and log: trains the baseline model on them and logs the run to MLflow. Per-batch retraining of every candidate (#25) replaces this once it reaches `dev`.
+3. Read training data: reads the labelled training snapshot (`read_training_snapshot`) and validation window from the database.
+4. Train and log: retrains each team candidate in `retrain.team_evaluation_inputs` against `fraud-candidate@champion` (#25) and logs them to MLflow.
 5. Report: prints each table's rows before and after, the number of MLflow runs logged with this `etl_run_id`, and a link that lists them on the MLflow server.
 
 It ends with the total time against the 180-second limit. That total starts after the settings are read, so it leaves out start-up. A failed stage prints `failed after` with its time against its budget, the total follows, and the command exits with status 1. A failure before the load ends leaves the database as it was. Running the command again for a loaded batch adds no rows and logs new runs.

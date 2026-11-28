@@ -8,9 +8,10 @@ docs/decision-log.md:
 
 1. Fetch and validate: `batch_files.read_batch`.
 2. Clean and load: count each table's rows, then `loading.load_batch`.
-3. Read training data: the labelled training and validation windows, through
-   `rds_reads.read_labelled_orders`.
-4. Train and log: the baseline model, through the shared harness (`training.train`).
+3. Read training data: the labelled training snapshot and validation window,
+   through `rds_reads.read_training_snapshot` and `rds_reads.read_labelled_orders`.
+4. Train and log: every candidate in `retrain.team_evaluation_inputs`, evaluated against
+   the registered `fraud-candidate@champion` through `retrain.retrain` and `training.train`.
 5. Report: each table's rows before and after, the MLflow runs logged with this
    `etl_run_id`, and a link that lists them on the MLflow server.
 
@@ -29,7 +30,9 @@ from contextlib import contextmanager
 from urllib.parse import quote, urlsplit
 
 import mlflow
+import mlflow.sklearn
 import pandas as pd
+from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -37,10 +40,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from .batch_files import BatchError, read_batch
 from .config import SettingError, Settings, create_db_engine, load_settings
 from .loading import load_batch
-from .models import baseline_model
-from .rds_reads import read_labelled_orders
+from .rds_reads import read_labelled_orders, read_training_snapshot
+from .retrain import retrain, team_evaluation_inputs
 from .top_k import K
-from .training import train
+from .training import score_labelled_rows, train
 
 # Each stage's wall-clock budget in seconds, from D27-01 of docs/decision-log.md.
 # Change them only together with that entry.
@@ -130,26 +133,29 @@ def _run(
         before = _count_rows(engine)
         load_batch(engine, batch)
     with _stage("Read training data"):
-        windows = tuple(
-            _labelled_orders(engine, purpose) for purpose in ("train", "validation")
-        )
+        train_snapshot = read_training_snapshot(engine)
+        validation_rows = _labelled_orders(engine, "validation")
     with _stage("Train and log"):
-        # TODO(#25): run the per-batch retraining of every candidate instead, once it
-        # reaches this branch; until then the baseline stands in for the candidates.
-        # Keep the etl_run_id tag on every run: the report counts and links runs by it.
-        train(
-            baseline_model(),
+        champion_run_id, champion_model = _load_champion(settings)
+        inputs = team_evaluation_inputs(
+            validation_rows,
+            champion_run_id=champion_run_id,
+            champion_model=champion_model,
             k=K,
-            seed=0,
-            labelled_windows=windows,
-            tags={
-                "mlflow.runName": f"baseline-{batch.batch_id}-{etl_run_id}",
-                "etl_run_id": etl_run_id,
-                "batch_id": batch.batch_id,
-                # A per-batch run is an evaluation, never a champion candidate (#25).
-                "champion_eligible": "False",
-            },
         )
+        # Keep the etl_run_id tag on every run: the report counts and links runs by it.
+        report = retrain(
+            inputs,
+            batch_id=batch.batch_id,
+            etl_run_id=etl_run_id,
+            read_rows=lambda: train_snapshot,
+            train_candidate=train,
+            score_rows=score_labelled_rows,
+            log=lambda message: sys.stdout.write(f"{message}\n"),
+        )
+        if report.exit_code:
+            failed = ", ".join(sorted(report.failures))
+            raise ValueError(f"Candidate retraining failed: {failed}")
     with _stage("Report"):
         after = _count_rows(engine)
         experiment = mlflow.get_experiment_by_name(settings.mlflow_experiment_name)
@@ -189,6 +195,16 @@ def _count_rows(engine: Engine) -> dict[str, int]:
             table: connection.exec_driver_sql(f"SELECT COUNT(*) FROM {table}").scalar()
             for table in _TABLES
         }
+
+
+def _load_champion(settings: Settings) -> tuple[str, object]:
+    """Load `fraud-candidate@champion` and its source run ID from the configured server."""
+    mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+    mlflow.set_registry_uri(settings.mlflow_tracking_uri)
+    mlflow.set_experiment(settings.mlflow_experiment_name)
+    version = MlflowClient().get_model_version_by_alias("fraud-candidate", "champion")
+    model = mlflow.sklearn.load_model(f"models:/fraud-candidate/{version.version}")
+    return version.run_id or f"fraud-candidate-v{version.version}", model
 
 
 def _labelled_orders(engine: Engine, purpose: str) -> pd.DataFrame:
