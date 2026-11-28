@@ -573,9 +573,13 @@ local result. Still open as listed above: the team-server log, the #15 review an
 - Scoring: `training.score_labelled_rows` gives `country_code` to any model fitted with it,
   so per-batch retraining (#25) can score v2 as the champion. Recency weights apply during
   training only, so scoring needs no extra inputs or date logic.
-- Open: (1) logging the three ablation runs to the team server; (2) training v2 as a #25
-  candidate needs `ModelSpec` fields for `country_input` and `recency_half_life_days` and
-  `retrain.py` passing them to `train`; (3) the #27 timed run and the #15 second review.
+- Logged evidence (commit `7311e9c4a372b3663148899a4225ad7db3adafa6`, `git_dirty=False`, team MLflow `fraud-prediction` experiment):
+  - Parent run: `40595dfd5d4c464288338d95ec2312cf`
+  - `v1 order columns`: `6df17fe9a7264709a77dcf8e9bafe09a` (`2,893` caught at K, `4,370` at 2K, AP `0.3716`, `1,034,178` bytes)
+  - `v2 country input`: `12211efba1a9439894aba6b331ac7bae` (`3,272` caught at K, `5,476` at 2K, AP `0.4663`, `8.39` s fit, `1,045,485` bytes)
+  - `v2 country input + 14d recency`: `b2bd3d5fa09c40eb8a0dc25494615377` (`3,403` caught at K, `5,550` at 2K, AP `0.4899`, `7.59` s fit, `1,046,058` bytes)
+  - All three children have `champion_eligible=True` and all five `diagnostics/` tables uploaded. `uv run train rerun b2bd3d5fa09c40eb8a0dc25494615377 --data-dir data` passed (`fraud_caught_at_k=3403`, `average_precision=0.48989026476714387`, `same_commit=True`, `reproduced=True`).
+- Open: (1) training v2 as a #25 candidate needs `ModelSpec` fields for `country_input` and `recency_half_life_days` and `retrain.py` passing them to `train`; (2) the #27 timed run and the #15 second review.
 
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 
