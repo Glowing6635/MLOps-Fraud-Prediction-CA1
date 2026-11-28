@@ -169,10 +169,12 @@ Each machine that will run the drill, which is each engineer's laptop and the de
    time aws rds wait db-instance-available --db-instance-identifier fraud-db
    ```
 
-   The MLflow server gives up if RDS isn't ready within about 15 minutes of its start, and may then stay down. If the MLflow URL still fails once RDS is `available`, restart the server, which starts it again and waits for RDS again:
+   The MLflow server gives up if RDS isn't ready within about 15 minutes of its start, and may then stay down. After a sandbox expiry, Elastic Beanstalk's init script can also back off up to 34 minutes (`sleep 2048`) if the replacement EC2 instance booted before the sandbox was renewed. If the MLflow URL still fails once RDS is `available`, restart the server, or reboot its EC2 instance if `describe-environment-health` shows `NoData` (on 28 Nov, rebooting the replacement `<mlflow-instance-id>` brought `/health` back to 200 OK in 1:35):
 
    ```
    aws elasticbeanstalk restart-app-server --environment-name mlflow
+   # If EB health stays Warning/NoData after sandbox expiry, reboot the running mlflow EC2 instance instead:
+   aws ec2 reboot-instances --instance-ids <mlflow-instance-id>
    ```
 3. Straight away, run `uv run restart-drill`. It waits until RDS answers, then MLflow, then checks that the recorded model loads and reproduces its predictions, and logs a run named `restart-drill` with the times, tagged `purpose=restart-drill` so queries for model runs can skip it. It prints the time from its own start to each step, and gives up after 30 minutes.
 4. Add a row to "Drill results" below, with the RDS start-up wait from step 2 as its own stage, not added to the other times.
@@ -184,10 +186,12 @@ Times are minutes and seconds from the start of `uv run restart-drill`, so 1:04 
 | Date | RDS stopped for | RDS start-up wait | RDS answers | MLflow answers | Model check passes | Total | MLflow run |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 17 Nov 2026 | Not stopped | None | 0:06 | 0:47 | 0:58 | 1:04 | `39e1099e1d374b048c8a1d8ee4bafec9` |
+| 26 Nov 2026 | 2:06 (16:34 to 18:40 SGT) | 6:13 | Failed (port 3306 blocked for changed laptop IP) | 200 OK before drill | — | Timed out at 29:58 | None |
+| 28 Nov 2026 | Auto-started on sandbox renewal | None (already `available`; EB reboot 1:35) | 0:06 | 0:07 | 0:28 | 0:34 | `0309c936027a46b9af6af8a9fc40f027` |
 
-On 17 Nov, ending the session terminated the MLflow server's Beanstalk instance, and Beanstalk launched a new one about a minute before the drill. That minute isn't in the times. The drill ran from Richard Go's laptop, and the network wasn't recorded.
+On 17 Nov, ending the session terminated the MLflow server's Beanstalk instance, and Beanstalk launched a new one about a minute before the drill. That minute isn't in the times. The drill ran from Richard Go's laptop, and the network wasn't recorded. On 26 Nov, `fraud-db` had been stopped for 2:06 and took 6:13 to become `available`; the drill then timed out because the laptop's public IP had changed (fixed by adding that `/32` rule to the RDS security group). On 28 Nov, after sandbox expiry and renewal, rebooting the replacement MLflow EC2 instance recovered `/health` in 1:35, and `uv run restart-drill` from Richard Go's laptop (network not recorded) finished in 0:34.
 
-Demo-day start time: TO RECORD, from the slowest total of a drill after RDS was stopped, plus its RDS start-up wait, plus a margin of TO RECORD minutes.
+Demo-day start time: **at least 30 minutes before the demo** (slowest measured cold start: `6:13` RDS start-up wait + `1:35` MLflow EC2 reboot if stuck in post-expiry backoff + `1:04` slowest drill total = `8:52`, plus a **21-minute safety margin** for updating the demo network's port 3306 rule and re-running the pre-demo checklist; start 60 minutes early when possible, as "Demo day" below recommends).
 
 ## Demo day
 
