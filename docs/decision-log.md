@@ -692,11 +692,10 @@ keeping the unweighted default while production weighting remains open.
   loyalty rules, D5-01 Product Owner K and both frozen grids stay in force.
   The standalone report identifies the predeclared D18-01 grid and the
   post-hoc D18-03 grid adopted in D18-04.
-- Open: SpiralSky owns tracing validation scores to the registered #15
-  champion, `fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`,
-  before reporting the criterion 4–6 outcome. The recorded #152 candidate
-  results document the proxy comparison and cannot establish the champion
-  outcome. The #5 owner owns the public selector change. The coordinator
+- Follow-up: [D18-08](#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
+  traces validation scores to the pinned champion in the protected team
+  registry for criteria 4–6.
+- Open: the #5 owner owns the public selector change. The coordinator
   owns #157 delivery routing after #165, with `user/spiralsky` reserved for
   #99 until that delivery clears.
 
@@ -712,7 +711,9 @@ keeping the unweighted default while production weighting remains open.
   the original artifact**: each row carries `artifact_kind = re-score`, the
   champion run ID, `fraud-candidate` v1, the three dataset hashes, and the code
   commit. It reproduces the champion record exactly: 2893 fraud caught at K, AP
-  0.3716, over 101190 validation orders. A second run is byte-identical.
+  0.3716, over 101190 validation orders. A second run is byte-identical. The
+  default seed and K must reproduce the recorded aggregate before the command
+  creates or replaces the CSV. Exploratory exports retain the re-score label.
 - Evidence: artifact `output/champion-validation-scores.csv` (untracked,
   data-derived), sha256
   `caa580e6638b1ed76fd8a06aed1e54d7f70feebd3ca4510761494a4c33d2c095`, generated at
@@ -724,10 +725,9 @@ keeping the unweighted default while production weighting remains open.
 - Alternatives: keep AC4–6 pending until the registered model or its original
   scores are pulled from the team server; reproduction of the aggregate was
   judged sufficient to trace the scores, with the limit stated here.
-- Open: the exact registered artifact has not been compared row by row. The
-  #15 owner or coordinator can confirm by scoring the registered `champion`
-  alias with the same data, which needs team-server access. Frozen settings
-  (X = 13.36, K = 250) are unchanged.
+- Follow-up: [D18-08](#d18-08--verify-the-registered-score-pairs-before-finalizing-18)
+  records the comparison with the pinned team registry artifact at
+  X = 13.36 and K = 250.
 
 ## D18-07 — #18 outcome, criteria status and score-file key check
 
@@ -736,8 +736,9 @@ keeping the unweighted default while production weighting remains open.
   [baseline-rule.md](baseline-rule.md#result-rule-versus-the-15-champion-re-score-validation-window):
   matched 132 flags, model 102 fraud caught against the rule's 73, so the target
   of criterion 6 is met; the report also states the rule identified more fraud
-  exposure (1,646.24 against 625.36 SGD) and the model flagged 6 loyal customers
-  against 0. The per-criterion evidence map is in [baseline-rule.md](baseline-rule.md).
+  exposure (1,646.24 against 625.36 SGD) and the model had 6 false flags on
+  loyal orders against 0 for the rule. The per-criterion evidence map is in
+  [baseline-rule.md](baseline-rule.md).
   `rule-report` now stops with a clear message when the scores file repeats a
   `(country_code, order_id)` key, instead of a pandas merge error.
 - Rationale: reporting exposure and loyal flags next to the win keeps the
@@ -745,8 +746,52 @@ keeping the unweighted default while production weighting remains open.
   ambiguous score being picked silently.
 - Alternatives not taken: dropping duplicate keys (hides an input defect);
   claiming the exposure result as a model win.
-- Open: (1) the re-score is not compared row by row with the registered
-  artifact (deciding owner: #15 owner or coordinator, needs team-server access;
-  D18-06). (2) The PR closes #18 only if the reviewer accepts the proxy X and
-  the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
-  Owner). The deployed X and capacity are unobtainable (D18-04).
+- Accepted on 2026-11-28 by the Product Owner (request `agile-mlops-20261128-6`):
+  use the explicitly validation-tuned proxy X = 13.36 SGD and assumed daily
+  K = 250 for criteria 1 and 4. The deployed threshold and capacity were
+  unavailable (D18-04). The registered evidence and remaining check are in
+  [D18-08](#d18-08--verify-the-registered-score-pairs-before-finalizing-18).
+
+## D18-08 — Verify the registered score pairs before finalizing #18
+
+- Recorded: 2026-11-27. Accountable engineer: SpiralSky. Affected PBI: #18
+  (criteria 4–6).
+- Settled: compare the original D18-06 re-score against validation scores from
+  the exact registered artifact using the literal `(country_code, order_id)`
+  keys, the same export order and the absolute tolerance already used for
+  probability checks (`atol=1e-12`, `rtol=0`). The
+  [read-only recipe](baseline-rule.md#verify-the-exact-registered-champions-validation-scores)
+  records file digests, counts and the result without publishing rows.
+- Rationale and alternatives: matching aggregate metrics can mask changed keys
+  or scores. Comparing raw CSV bytes alone would also reject a different
+  number format or provenance column. Loading the saved champion without
+  refitting binds the comparison to the deployed model parameters. A fresh fit
+  would establish recipe reproducibility only. Keyed scores plus a replay of
+  the fixed-X report test both the scorer and the result at the selection cutoff.
+- Evidence on 2026-11-28: the fixed-X replay at reviewed commit `d75f998`
+  reproduced all 15 D18-07 values (aggregate evidence SHA-256
+  `d0a1f8d553dbd16ab4c40744af98c95ef62979bafed3db4b6ed2be5fe2e1ebf1`).
+  The frozen snapshot and D18-06 digests matched. The original re-score covered
+  exactly 101,190 unique validation keys in export order with finite scores.
+- Protected registry replay on 2026-11-28 at 02:55–02:57 UTC: the authorized
+  read-only team registry proxy resolved READY `fraud-candidate` v1
+  (`champion`) via `runs:/9c3a59771cf8499d92972f5c7873e280/model` to its sole
+  logged model `m-34712ed5add845fe838835bd2107ec47` in experiment `2`.
+  The worker downloaded the pinned bundle and scored locally without a refit.
+  The source-run parameters, frozen input
+  digests, artifact manifest, and alias recheck passed. The locked verifier
+  passed for all 101,190 unique literal keys in original order, with exactly
+  equal probabilities on every row (maximum absolute difference 0).
+  Registered-score CSV SHA-256:
+  `b9974cb122aff2024eff4d4fdcad82e66278b886fe79892c09726d1a6df8ed41`.
+  The locked registered-score replay at SGD 13.36 and K = 250 reproduced all
+  15 D18-07 comparison values on the frozen validation window.
+- Decision limits: this result applies to the pinned team registry champion
+  and frozen validation window at the proxy X and assumed K accepted in
+  [D18-07](#d18-07--18-outcome-criteria-status-and-score-file-key-check).
+  The holdout stayed locked.
+- Open: parity for the approved trial registry requires the original champion
+  package and a verified READY version and alias binding. After #15 establishes
+  that binding, the authorized reader must compare every validation score and
+  replay the fixed-X report on the trial artifact. Repeat these checks after
+  any change to the champion binding.

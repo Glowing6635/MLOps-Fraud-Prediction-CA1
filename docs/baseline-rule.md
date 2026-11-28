@@ -243,13 +243,15 @@ evaluation was run for #18.
 The rule and the same #152 candidate each caught 5 fraud orders at 7 matched
 flags. The rule flagged zero orders at X = 100 SGD or higher.
 
-**Acceptance status.** Criteria 4–6 are evidenced by an offline re-score of the
+**Acceptance status.** The Product Owner accepted the validation-tuned proxy
+X = 13.36 SGD and assumed K = 250 per day for criteria 1 and 4 in
+[D18-07](decision-log.md#d18-07--18-outcome-criteria-status-and-score-file-key-check).
+The protected team registry replay for criteria 4–6 used the pinned
 [#15 champion](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/161),
-`fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280` (D18-06, D18-07):
-the rule caught 73 fraud orders in 132 flags, the model caught 102 at the same
-132 flags and 2,893 at K. The re-score is not row-compared with the registered
-champion artifact, which needs team-server access; see the comparison section
-below.
+`fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280`. The rule caught
+73 fraud orders in 132 flags, and the model caught 102 at the same flag count
+and 2,893 at K. Parity for the approved trial registry remains pending. See
+[D18-08](decision-log.md#d18-08--verify-the-registered-score-pairs-before-finalizing-18).
 
 ## Comparison with a model (criteria 4 to 6)
 
@@ -321,7 +323,102 @@ flags (102 against 73). Two limits matter. First, on **fraud exposure** the rule
 identified more value (1,646.24 against 625.36 SGD): the rule targets large new
 accounts, the model catches more but smaller orders, so the model's win is on
 count, which is the #18 target, not on value. Second, the model's matched flags
-include 6 loyal customers where the rule's include none. The scores are an
-offline re-score of the registered champion (D18-06), not its original
-artifact, and X is fitted on the same validation window, which favours the
-rule.
+include 6 false flags on loyal orders, compared with 0 for the rule.
+X was selected on the same validation window, which favours the rule.
+
+The protected team registry replay on 2026-11-28 matched every ordered key
+and score on the 101,190 frozen validation orders and reproduced all 15 values
+using the saved champion at the same proxy threshold and K. The trial registry
+still needs its own alias and artifact binding check and fixed-X replay.
+
+## Verify the exact registered champion's validation scores
+
+Use the authorized team registry read route with redirects disabled. The
+champion alias must be READY `fraud-candidate` v1 from
+`9c3a59771cf8499d92972f5c7873e280`. During the protected replay the alias source
+and version download URI both returned
+`runs:/9c3a59771cf8499d92972f5c7873e280/model`. For that run-relative form,
+verify that the run's `model` artifact directory has no legacy files, the
+run lists the pinned model as its sole model output, and a paginated logged
+model search for name `model` and that source run yields exactly
+`m-34712ed5add845fe838835bd2107ec47`. The logged artifact itself must be READY
+and point back to that run. Stop the pinned replay if the alias has moved,
+the run-relative source is ambiguous, or the artifact is incompatible.
+If #15 moves the alias, pin the new run and artifact and recheck its scores
+and fixed-X report before using it in the champion comparison.
+
+Check that the source run belongs to experiment `2` at commit
+`77837c6f1d3dc73b55b24c50479c0065b97511eb` and records K = 250, seed 0,
+`exploratory=False`, the current cleaning policy, matching base CSV digests,
+validation from 2023-03-27 to 2023-04-17 exclusive, and 101,190 validation
+orders. Download only the pinned artifact from the authorized proxy, with
+redirects disabled, into a private directory. Verify the `MLmodel` manifest's
+run and model identifiers against the pinned values and recheck the alias.
+
+Set `D18_MODEL_DIR` to that private model bundle, `APPROVED_DATA_DIR` to the
+approved frozen snapshot, and `D18_REFERENCE_CSV` to the original private
+D18-06 score export. Run from the checkout containing the verifier with
+dependencies installed via `uv sync --locked`. The commands score locally
+through the guarded validation loader and remove the temporary score CSV.
+
+```bash
+(
+  set -eu
+  umask 077
+  score_dir=$(mktemp -d)
+  export REGISTERED_SCORES="$score_dir/registered.csv"
+  trap 'if [ -f "$REGISTERED_SCORES" ]; then rm -- "$REGISTERED_SCORES"; fi; rmdir -- "$score_dir"' EXIT
+  uv run --locked --offline python - <<'PY'
+import os
+from hashlib import sha256
+from pathlib import Path
+
+import mlflow.sklearn
+
+from mlops_fraud_prediction_ca1.training import _load_window
+
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit(message)
+
+
+reference = Path(os.environ["D18_REFERENCE_CSV"])
+require(
+    sha256(reference.read_bytes()).hexdigest()
+    == "caa580e6638b1ed76fd8a06aed1e54d7f70feebd3ca4510761494a4c33d2c095",
+    "Reference SHA-256 differs from D18-06.",
+)
+keys, features = _load_window(os.environ["APPROVED_DATA_DIR"], "validation", False)
+require(len(keys) == 101190, "Validation row count differs from D18-06.")
+model = mlflow.sklearn.load_model(os.environ["D18_MODEL_DIR"])
+require(list(model.classes_) == [0, 1], "Unexpected probability class order.")
+rows = keys[["country_code", "order_id"]].astype(str)
+rows["score"] = model.predict_proba(features)[:, 1]
+rows.sort_values(["country_code", "order_id"], kind="stable").to_csv(
+    os.environ["REGISTERED_SCORES"], index=False, float_format="%.17g", lineterminator="\n"
+)
+PY
+
+  date -u +%Y-%m-%dT%H:%M:%SZ
+  uv run --locked --offline python -m mlops_fraud_prediction_ca1.verify_registered_scores \
+    "$D18_REFERENCE_CSV" "$REGISTERED_SCORES"
+
+  uv run --locked --offline rule-report --data-dir "$APPROVED_DATA_DIR" \
+    --scores "$REGISTERED_SCORES" --k 250 --threshold 13.36 \
+    --threshold-source 'D18-04 validation-tuned proxy (frozen)'
+)
+```
+
+Publish only the UTC verification time, artifact identity, key columns, both
+score-file SHA-256 digests and counts, and the match result or aggregate failure
+reason. If provenance cannot be established or the artifact cannot be read,
+the current attempt leaves parity unverified for that target. Do not publish CSVs, individual
+keys or scores, local paths, or credentials. The verifier compares the literal
+`(country_code, order_id)` keys in their exported order and requires finite
+scores within absolute tolerance `1e-12` and zero relative tolerance. A match
+at that tolerance can still change a tie at a selection cutoff. Confirm the
+unchanged comparison with the aggregate `rule-report` output before treating
+criteria 4–6 as evidenced for the exact registered artifact. If the score check
+fails, retain the earlier result as provisional and route the aggregate failure
+to the coordinator through request `agile-mlops-20261126-1`.
