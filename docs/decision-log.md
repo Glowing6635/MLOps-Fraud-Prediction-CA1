@@ -565,6 +565,13 @@ its logged fraud caught at K and average precision.
 - Reproduction convention (recorded before final scoring): seed 34,
   predeclared from the PBI number, with 1,000 paired customer-level draws.
   The report and receipt log it. Retain both with the authorized run record.
+- Score export contract: the SGD measure requires verified finite order
+  amounts. The #34 producer preflight and CSV consumer check all aligned
+  orders, since review capacities can select different orders. A genuine zero
+  is valid. If an amount is unusable, stop before the #23 window claim to
+  preserve the cohort and avoid reporting unknown exposure as zero. The
+  [integration instructions](impact-report.md#amount-check-before-the-23-claim)
+  record the #23 producer dependency.
 - Open question: whether the rule or loyal definition changes (owner: Trust
   & Safety for X; PO for assumptions). A change reopens #23's freeze and
   #18's comparison, and this criterion is reread then.

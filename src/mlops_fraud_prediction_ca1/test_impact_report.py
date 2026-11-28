@@ -2,9 +2,15 @@ import json
 import subprocess
 import sys
 
+import pandas as pd
 import pytest
 
-from mlops_fraud_prediction_ca1.impact_report import _fixture, _parse_export
+from mlops_fraud_prediction_ca1.impact_report import (
+    _fixture,
+    _parse_export,
+    preflight_order_amounts,
+)
+from mlops_fraud_prediction_ca1.rule_comparison import compare
 
 
 def _command(output, *args):
@@ -85,6 +91,71 @@ def test_export_rejects_invalid_values(column, bad, message):
     rows.loc[0, column] = bad
     with pytest.raises(ValueError, match=message):
         _parse_export(rows.to_csv(index=False).encode())
+
+
+def test_preflight_rejects_missing_amount_that_rule_comparison_accepts(tmp_path):
+    rows = _fixture().iloc[:2].copy()
+    rows["order_value"] = pd.array([100, pd.NA], dtype="Float64")
+    rows["is_fraud"] = [0, 1]
+    rows["score"] = [0.1, 0.9]
+    rows["rule_flag"] = [True, False]
+    rows["loyal"] = False
+
+    result = compare(
+        rows, rows["score"], pd.Series([0, 0]), ["not_loyal"] * 2, 1, 50, "synthetic"
+    )
+    assert result["model_matched"]["fraud_caught"] == 1
+    assert result["model_matched"]["fraud_exposure"] == 0
+
+    pattern = r"1 of 2 aligned orders have a missing, invalid or infinite SGD amount"
+    with pytest.raises(ValueError, match=pattern) as preflight:
+        preflight_order_amounts(rows)
+    export = tmp_path / "fixture.csv"
+    rows.to_csv(export, index=False)
+    with pytest.raises(ValueError, match=pattern) as consumer:
+        _parse_export(export.read_bytes())
+    assert str(preflight.value) == str(consumer.value)
+
+    output = tmp_path / "report"
+    report = _command(
+        output,
+        "--scored-csv",
+        str(export),
+        "--evaluation-run-id",
+        "a" * 32,
+        "--freeze-commit",
+        "b" * 40,
+        "--prior-comparisons",
+        "0",
+        "--k",
+        "1",
+        "--capacities",
+        "1",
+        "2",
+    )
+    assert report.returncode != 0
+    assert str(preflight.value) in report.stderr
+    assert not output.exists()
+
+
+def test_amount_contract_accepts_zero_and_checks_every_order():
+    rows = _fixture().iloc[:4].copy()
+    rows["order_value"] = [0, "invalid", float("inf"), float("-inf")]
+    rows["rule_flag"] = False
+    rows["is_fraud"] = 0
+    with pytest.raises(ValueError, match="3 of 4 aligned orders"):
+        preflight_order_amounts(rows)
+    with pytest.raises(ValueError, match="3 of 4 aligned orders"):
+        _parse_export(rows.to_csv(index=False).encode())
+    with pytest.raises(ValueError, match="Missing order_value column"):
+        preflight_order_amounts(rows.drop(columns="order_value"))
+
+    valid = rows.iloc[:1].copy()
+    preflight_order_amounts(valid)
+    pd.testing.assert_frame_equal(valid, rows.iloc[:1])
+    assert _parse_export(valid.to_csv(index=False).encode())[
+        "order_value"
+    ].tolist() == [0]
 
 
 def test_export_mode_records_supplied_provenance_with_synthetic_csv(tmp_path):

@@ -42,6 +42,33 @@ def _fixture() -> pd.DataFrame:
     return pd.DataFrame(rows, columns=COLUMNS)
 
 
+def _validated_order_amounts(orders: pd.DataFrame) -> pd.Series:
+    if "order_value" not in orders.columns:
+        raise ValueError(
+            "Missing order_value column; supply aligned cleaned SGD amounts."
+        )
+    # Validate the same numeric text that will appear in the CSV.
+    values = pd.to_numeric(orders["order_value"].astype(str), errors="coerce")
+    invalid = np.count_nonzero(
+        ~np.isfinite(values.to_numpy(dtype=float, na_value=np.nan))
+    )
+    if invalid:
+        raise ValueError(
+            "order_value must be finite and numeric for every order. "
+            f"{invalid} of {len(orders)} aligned orders have a missing, invalid or "
+            "infinite SGD amount. Check the source amounts and cleaning before proceeding."
+        )
+    return values
+
+
+def preflight_order_amounts(orders: pd.DataFrame) -> None:
+    """Check aligned cleaned orders before a scoring claim, without mutating them.
+
+    This is an amount check only. Failure reports aggregate counts, never row data.
+    """
+    _validated_order_amounts(orders)
+
+
 def _parse_export(raw: bytes) -> pd.DataFrame:
     # Start from strings to avoid losing leading zeros or mapping ID "NA" to null.
     rows = pd.read_csv(io.BytesIO(raw), dtype=str, keep_default_na=False)
@@ -67,11 +94,11 @@ def _parse_export(raw: bytes) -> pd.DataFrame:
     if not rows["is_fraud"].isin(("0", "1")).all():
         raise ValueError("is_fraud must be 0 or 1; unknown labels cannot be scored.")
     rows["is_fraud"] = rows["is_fraud"].astype(int)
-    for col in ("score", "order_value"):
-        values = pd.to_numeric(rows[col], errors="coerce")
-        if not np.isfinite(values.to_numpy(dtype=float, na_value=np.nan)).all():
-            raise ValueError(f"{col} must be finite and numeric for every order.")
-        rows[col] = values
+    scores = pd.to_numeric(rows["score"], errors="coerce")
+    if not np.isfinite(scores.to_numpy(dtype=float, na_value=np.nan)).all():
+        raise ValueError("score must be finite and numeric for every order.")
+    rows["score"] = scores
+    rows["order_value"] = _validated_order_amounts(rows)
     return rows
 
 

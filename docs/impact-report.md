@@ -25,6 +25,42 @@ freeze and may run the command in their authorized environment. It must come
 from the recorded final champion and the frozen #18 policy. Keep the export
 out of Git and do not share it with reviewers.
 
+### Amount check before the #23 claim
+
+The #18 baseline leaves unusable amounts unflagged, while model selection can
+still catch fraud on those orders. An unknown amount contributes nothing to
+the #18 validation sum, so a zero sum can hide incomplete exposure. #34
+requires a finite numeric SGD amount for every aligned order, including
+currently unflagged orders that could be selected at another review capacity.
+A recorded zero passes.
+
+After the freeze and mode checks, the #23 producer must prepare the authorized
+cleaned orders, verify that their unique `(country_code, order_id)` keys
+match the scoring cohort one-to-one, and run the amount check **before claiming
+the window, fitting, or predicting**. Call it on the same aligned cleaned
+frame that will be used for the comparison and export.
+
+```python
+from mlops_fraud_prediction_ca1.impact_report import preflight_order_amounts
+
+preflight_order_amounts(orders)
+```
+
+On `ValueError`, stop before the claim and use the aggregate diagnostic to
+check source amounts and cleaning. Keep the cohort intact and use verified
+source amounts when resolving a failure. The check does not validate
+alignment, authorization or ledger state. The claim must still check under
+its lock that the window is unused.
+
+The #23 draft loads its inputs after claiming the window. The #23 owner must
+establish authorized pre-claim input access, wire and rehearse the check, and
+retain the same private scored export with durable run provenance and digest
+so report retries can use those scores. Until those steps are verified, the
+consumer still rejects an invalid export, potentially after the one-shot
+window has been claimed.
+
+### CSV and report
+
 Required CSV columns (one row per uniquely keyed order):
 
 - `order_date`, `country_code`, `order_id`: #5 selection date and order key.
