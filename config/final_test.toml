@@ -1,7 +1,7 @@
 # Issue #23: the settings for the one final test-window scoring (docs/final-test.md).
 # Commit these, then turn on final_evaluation_enabled in time_split.toml, before scoring.
 model_name = "fraud-candidate"
-model_version = "1"
+model_version = "5"
 # "as_trained" scores the model as it was trained, on rows before the validation
 # window. "refit" first refits it, with its stored hyperparameters and seed, on the
 # training and validation rows.

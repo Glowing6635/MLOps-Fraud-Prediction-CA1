@@ -16,12 +16,14 @@ used up, even if it fails. A second attempt stops before reading anything.
 """
 
 import argparse
+import hashlib
 import sys
 import tomllib
 from pathlib import Path
 
 import mlflow
 import mlflow.sklearn
+import numpy as np
 import pandas as pd
 import skops.io
 from mlflow.entities import ViewType
@@ -36,14 +38,17 @@ from mlops_fraud_prediction_ca1.rule_report import (
     labelled_orders,
     window_inputs,
 )
+from mlops_fraud_prediction_ca1.rules import baseline_rule_flags
 from mlops_fraud_prediction_ca1.splitting import load_policy
 from mlops_fraud_prediction_ca1.top_k import K, evaluate_top_k, format_report
 from mlops_fraud_prediction_ca1.training import (
-    _dataset_hashes,
+    _fit_kwargs,
     _git,
     _model_inputs,
+    _recency_weights,
     _use_experiment,
     check_feature_columns,
+    dataset_hashes,
 )
 
 FREEZE_PATH = Path(__file__).resolve().parents[2] / "config/final_test.toml"
@@ -63,15 +68,19 @@ def score_final_test(
     *,
     freeze_path: str | Path = FREEZE_PATH,
     config_path: str | Path | None = None,
+    export_scores: str | Path | None = None,
 ) -> tuple[str, str]:
     """Score the frozen model and rule on the test window; return the run ID and the
     report logged as `final_test.txt`.
 
-    `config_path` is the time-split configuration, as in `data.load_base_data`. Raises,
-    with no run created, when a check fails, the model version can't be loaded, or the
-    test window was already scored in this MLflow store.
+    `config_path` is the time-split configuration, as in `data.load_base_data`. When
+    `export_scores` is given, writes the nine-column scored CSV outside the git
+    repository for #34 without logging row data to MLflow. Raises, with no run
+    created, when a check fails, the model version can't be loaded, or the test
+    window was already scored in this MLflow store.
     """
     settings = _frozen_settings(Path(freeze_path))
+    export_path = _validate_export_path(export_scores)
     policy = load_policy(config_path)
     if not policy.final_evaluation_enabled:
         raise ValueError(
@@ -112,11 +121,22 @@ def score_final_test(
     # Stops on a missing or forbidden model column before any test row is read.
     _features(labelled_orders(history[1]), columns)
     refit_orders = None
+    refit_half_life = None
     if settings["mode"] == "refit":
         # clone keeps every hyperparameter, random_state (the training seed) included.
         model = clone(model)
         rows = pd.concat(map(labelled_orders, history), ignore_index=True)
-        model.fit(_features(rows, columns), rows["is_fraud"])
+        refit_half_life = _refit_half_life(client, version)
+        sample_weight = (
+            _recency_weights(rows["order_date"], refit_half_life)
+            if refit_half_life is not None
+            else None
+        )
+        model.fit(
+            _features(rows, columns),
+            rows["is_fraud"],
+            **_fit_kwargs(model, sample_weight),
+        )
         refit_orders = len(rows)
 
     with mlflow.start_run(
@@ -145,16 +165,17 @@ def score_final_test(
             settings["threshold_x"],
             "frozen in config/final_test.toml",
         )
-        mlflow.log_params(
-            {
-                "k": settings["k"],
-                "threshold_x": settings["threshold_x"],
-                "loyal_min_prior_orders": settings["loyal_min_prior_orders"],
-                "test_start": policy.test_start.isoformat(),
-                "test_end_exclusive": policy.test_end_exclusive.isoformat(),
-                **_dataset_hashes(data_dir),
-            }
-        )
+        params = {
+            "k": settings["k"],
+            "threshold_x": settings["threshold_x"],
+            "loyal_min_prior_orders": settings["loyal_min_prior_orders"],
+            "test_start": policy.test_start.isoformat(),
+            "test_end_exclusive": policy.test_end_exclusive.isoformat(),
+            **dataset_hashes(data_dir),
+        }
+        if refit_half_life is not None:
+            params["recency_half_life_days"] = refit_half_life
+        mlflow.log_params(params)
         mlflow.log_metrics(
             {
                 name: value
@@ -164,10 +185,23 @@ def score_final_test(
                 if value is not None
             }
         )
+        export_line = ""
+        if export_path is not None:
+            csv_bytes = _build_export_csv(
+                orders,
+                inputs["age"],
+                inputs["loyalty"],
+                scores,
+                settings["threshold_x"],
+            )
+            export_sha256 = hashlib.sha256(csv_bytes).hexdigest()
+            export_path.write_bytes(csv_bytes)
+            mlflow.set_tag("export_sha256", export_sha256)
+            export_line = f"\nExported scores SHA-256: {export_sha256}\n"
         text = (
             f"Model {settings['model_name']} version {settings['model_version']},"
             f" scored {settings['mode']}.\n\n{format_report(report)}\n\n"
-            f"{format_comparison(result)}\n"
+            f"{format_comparison(result)}{export_line}\n"
         )
         mlflow.log_text(text, "final_test.txt")
         if refit_orders is not None:
@@ -180,6 +214,75 @@ def score_final_test(
                 ),
             )
     return run.info.run_id, text
+
+
+def _validate_export_path(export_scores: str | Path | None) -> Path | None:
+    if export_scores is None:
+        return None
+    export_path = Path(export_scores).resolve()
+    roots = [FREEZE_PATH.resolve().parent.parent]
+    try:
+        top = Path(_git("rev-parse", "--show-toplevel"))
+        if top.exists():
+            roots.append(top.resolve())
+    except (OSError, RuntimeError):
+        pass
+    if any(export_path.is_relative_to(root) for root in roots):
+        raise ValueError("Export scores path must stay outside the git repository.")
+    if not export_path.parent.is_dir():
+        raise ValueError(
+            f"Export scores directory does not exist: {export_path.parent}"
+        )
+    if export_path.exists():
+        raise ValueError(f"Export scores file already exists: {export_path}")
+    return export_path
+
+
+def _refit_half_life(client: MlflowClient, version) -> float | None:
+    if not version.run_id:
+        return None
+    source_run = client.get_run(version.run_id)
+    raw = source_run.data.params.get("recency_half_life_days")
+    if raw in (None, "", "None"):
+        return None
+    return float(raw)
+
+
+def _build_export_csv(
+    orders: pd.DataFrame,
+    age: pd.Series,
+    loyalty,
+    scores: np.ndarray,
+    threshold_x: float,
+) -> bytes:
+    values = pd.to_numeric(orders["order_value"].astype(str), errors="coerce")
+    invalid = int((~np.isfinite(values.to_numpy(dtype=float, na_value=np.nan))).sum())
+    if invalid:
+        raise ValueError(
+            f"order_value must be finite and numeric for every order; {invalid} invalid."
+        )
+    numeric_scores = np.asarray(scores, dtype=float)
+    if not np.isfinite(numeric_scores).all():
+        raise ValueError("Every model score must be finite.")
+    rule_flag = baseline_rule_flags(orders["order_value"], age, threshold_x)[
+        "rule_flag"
+    ].to_numpy(dtype=bool)
+    frame = pd.DataFrame(
+        {
+            "order_date": pd.to_datetime(orders["order_date"]).dt.strftime("%Y-%m-%d"),
+            "country_code": orders["country_code"].astype(str),
+            "order_id": orders["order_id"].astype(str),
+            "customer_id": orders["customer_id"].fillna("").astype(str),
+            "order_value": values,
+            "is_fraud": orders["is_fraud"].astype(int),
+            "loyal": pd.Series(loyalty, index=orders.index)
+            .eq("loyal")
+            .to_numpy(dtype=bool),
+            "score": numeric_scores,
+            "rule_flag": rule_flag,
+        }
+    )
+    return frame.to_csv(index=False, lineterminator="\n").encode("utf-8")
 
 
 def _frozen_settings(path: Path) -> dict:
@@ -252,11 +355,15 @@ def main(argv=None) -> None:
     parser.add_argument(
         "--data-dir", default="data", help="Folder with the three base CSV files."
     )
+    parser.add_argument(
+        "--export-scores",
+        help="Optional private path outside git to write the nine-column scored CSV for #34.",
+    )
     args = parser.parse_args(argv)
     # MLflow prints an emoji when a run ends, which Windows cannot encode when piped.
     sys.stdout.reconfigure(errors="replace")
     try:
-        run_id, text = score_final_test(args.data_dir)
+        run_id, text = score_final_test(args.data_dir, export_scores=args.export_scores)
     except (ValueError, RuntimeError, MlflowException) as error:
         sys.exit(str(error))
     print(f"{text}Logged run {run_id}.")  # noqa: T201

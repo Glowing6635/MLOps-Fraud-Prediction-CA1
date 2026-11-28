@@ -13,8 +13,9 @@ the [decision log](decision-log.md) records the design.
    - `mode`: `as_trained` scores the model as it was trained, on rows before
      the validation window. `refit` first fits a fresh copy, with the same
      hyperparameters, including the seed its training run set as
-     `random_state`, on the training and validation rows. The test window is
-     read only after the refit.
+     `random_state`, and any logged `recency_half_life_days` exponential decay
+     weights, on the training and validation rows. The test window is read only
+     after the refit.
    - `k` and `loyal_min_prior_orders`: must equal the code's K (D5-01) and loyal
      count (D18-01), or the command stops.
    - `threshold_x`: the rule's threshold X in SGD (D18-04).
@@ -23,7 +24,8 @@ the [decision log](decision-log.md) records the design.
 3. Commit both files. This commit freezes K, X, the loyal count and the mode.
 4. One named person, agreed beforehand, so that two people can't start it at
    once, runs this with `.env` pointing at the team's MLflow server, and nowhere
-   else:
+   else (pass `--export-scores <private-path>` outside the repository if handing
+   row-level scores to #34):
 
        uv run final-test --data-dir data
 
@@ -66,8 +68,8 @@ One MLflow run named `final test` in the `MLFLOW_EXPERIMENT_NAME` experiment:
 
 | Kind | Recorded |
 | --- | --- |
-| Tags | `final_test`, `mode`, `model_name`, `model_version`, `source_run_id` (the model's training run), `git_commit`, `freeze_commit` (the last commit of the settings file) |
-| Parameters | `k`, `threshold_x`, `loyal_min_prior_orders`, `test_start`, `test_end_exclusive`, and the SHA-256 of each base file |
+| Tags | `final_test`, `mode`, `model_name`, `model_version`, `source_run_id` (the model's training run), `git_commit`, `freeze_commit` (the last commit of the settings file), and `export_sha256` when `--export-scores` writes a private file |
+| Parameters | `k`, `threshold_x`, `loyal_min_prior_orders`, `test_start`, `test_end_exclusive`, `recency_half_life_days` (when a refit source run sets it), and the SHA-256 of each base file |
 | Model metrics | The primary measure `fraud_caught_at_k`, with `precision_at_k` and `recall_at_k`, the same at 2K, `fraud_catchable_at_k`, `selected_at_k`, `total_fraud_at_k` and `average_precision` |
 | Rule metrics | `rule_selected_at_k`, `rule_fraud_caught_at_k`, `rule_precision_at_k` and `rule_recall_at_k`: the rule's flags, cut to each day's K orders of highest value, as in [the comparison](baseline-rule.md#comparison-with-a-model-criteria-4-to-6) |
 | Other metrics | `model_fraud_caught_at_rule_flags` and `beats_rule` (the model at the rule's count), `test_orders`, and `refit_train_orders` for a refit |

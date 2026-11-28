@@ -1,16 +1,20 @@
 """Tests for the final test-window scoring on small made-up base files and a local MLflow
 store in a temporary folder."""
 
+import hashlib
+
 import mlflow
 import mlflow.sklearn
+import numpy as np
 import pandas as pd
 import pytest
 import skops.io
 from mlflow.exceptions import MlflowException
+from mlflow.tracking import MlflowClient
 
 from mlops_fraud_prediction_ca1 import final_test
 from mlops_fraud_prediction_ca1.final_test import score_final_test
-from mlops_fraud_prediction_ca1.models import baseline_model
+from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
 from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import fit_and_score
 
@@ -209,3 +213,98 @@ def test_a_failed_check_leaves_no_final_run(files, monkeypatch, change, error, m
     with pytest.raises(error, match=message):
         _score(files, **(change if isinstance(change, dict) else {}))
     assert _final_runs() == []
+
+
+def test_refit_applies_source_recency_half_life(files, monkeypatch):
+    folder, config = files
+    model = fit_and_score(
+        boosted_trees_model(),
+        folder,
+        k=K,
+        seed=0,
+        country_input=True,
+        recency_half_life_days=14.0,
+    ).model
+    mlflow.set_experiment("final-test")
+    with mlflow.start_run():
+        mlflow.log_params({"seed": 0, "recency_half_life_days": "14.0"})
+        mlflow.sklearn.log_model(
+            model,
+            name="model",
+            registered_model_name="fraud-candidate",
+            skops_trusted_types=skops.io.get_untrusted_types(
+                data=skops.io.dumps(model)
+            ),
+        )
+
+    seen_weights = []
+    real_fit_kwargs = final_test._fit_kwargs
+
+    def spy_fit_kwargs(estimator, sample_weight):
+        seen_weights.append(sample_weight)
+        return real_fit_kwargs(estimator, sample_weight)
+
+    monkeypatch.setattr(final_test, "_fit_kwargs", spy_fit_kwargs)
+    _score((folder, config), mode='"refit"')
+
+    assert len(seen_weights) == 1
+    weights = seen_weights[0]
+    assert weights is not None and len(weights) == TRAIN_AND_VALIDATION_ORDERS
+    assert np.isclose(weights.max(), 1.0)
+    assert weights.min() < 1.0
+    [run] = _final_runs()
+    assert run.data.params["recency_half_life_days"] == "14.0"
+
+
+def test_export_scores_writes_nine_columns_and_blocks_bad_paths(store, monkeypatch):
+    folder, config = store
+    freeze = folder / "final_test.toml"
+    freeze.write_text(_settings(), encoding="utf-8", newline="\n")
+
+    existing = folder / "already.csv"
+    existing.write_text("x\n", encoding="utf-8", newline="\n")
+    inside_repo = final_test.FREEZE_PATH.parent / "leaked-scores.csv"
+    bad_paths = [
+        (existing, "already exists"),
+        (folder / "missing-dir" / "scores.csv", "does not exist"),
+        (inside_repo, "outside the git repository"),
+    ]
+    for bad_path, message in bad_paths:
+        with pytest.raises(ValueError, match=message):
+            score_final_test(
+                folder, freeze_path=freeze, config_path=config, export_scores=bad_path
+            )
+    assert _final_runs() == []
+
+    export_dir = folder / "private-export"
+    export_dir.mkdir()
+    export_path = export_dir / "scores.csv"
+    run_id, text = score_final_test(
+        folder, freeze_path=freeze, config_path=config, export_scores=export_path
+    )
+
+    raw_bytes = export_path.read_bytes()
+    expected_sha = hashlib.sha256(raw_bytes).hexdigest()
+    [run] = _final_runs()
+    assert run.info.run_id == run_id
+    assert run.data.tags["export_sha256"] == expected_sha
+    assert expected_sha in text
+    assert [a.path for a in MlflowClient().list_artifacts(run_id)] == ["final_test.txt"]
+
+    exported = pd.read_csv(export_path, dtype=str, keep_default_na=False)
+    assert list(exported.columns) == [
+        "order_date",
+        "country_code",
+        "order_id",
+        "customer_id",
+        "order_value",
+        "is_fraud",
+        "loyal",
+        "score",
+        "rule_flag",
+    ]
+    assert len(exported) == len(TEST_DAY) * 2
+    assert set(exported["loyal"]) <= {"True", "False"}
+    assert set(exported["rule_flag"]) <= {"True", "False"}
+    # Pre-cut rule flags: both (100, True) and (50, True) exceed X = 13.36 per day -> 4 total.
+    assert int(exported["rule_flag"].eq("True").sum()) == 4
