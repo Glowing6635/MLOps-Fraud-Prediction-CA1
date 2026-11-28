@@ -6,14 +6,18 @@ pipeline fills or encodes missing values itself, from the training window only.
 """
 
 from sklearn.compose import make_column_selector, make_column_transformer
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
-def baseline_model():
+def baseline_model(*, class_weight: str | None = None):
     """Logistic regression on the numeric columns and the one-hot-encoded text columns.
 
     Missing values are filled from the training window only. Date columns are dropped.
@@ -29,14 +33,14 @@ def baseline_model():
                     SimpleImputer(strategy="constant", fill_value="missing"),
                     OneHotEncoder(handle_unknown="ignore"),
                 ),
-                make_column_selector(dtype_include=object),
+                make_column_selector(dtype_include=["object", "string"]),
             ),
         ),
-        LogisticRegression(max_iter=1000),
+        LogisticRegression(max_iter=1000, class_weight=class_weight),
     )
 
 
-def boosted_trees_model():
+def boosted_trees_model(*, class_weight: str | None = None):
     """Histogram gradient-boosted trees on the numeric and one-hot-encoded text columns.
 
     The trees handle missing numbers themselves; missing text becomes its own category.
@@ -51,8 +55,58 @@ def boosted_trees_model():
                     SimpleImputer(strategy="constant", fill_value="missing"),
                     OneHotEncoder(handle_unknown="ignore", sparse_output=False),
                 ),
+                make_column_selector(dtype_include=["object", "string"]),
+            ),
+        ),
+        HistGradientBoostingClassifier(early_stopping=False, class_weight=class_weight),
+    )
+
+
+def _forest_model(classifier):
+    return make_pipeline(
+        make_column_transformer(
+            (
+                SimpleImputer(strategy="median"),
+                make_column_selector(dtype_include="number"),
+            ),
+            (
+                make_pipeline(
+                    SimpleImputer(strategy="constant", fill_value="missing"),
+                    OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                ),
                 make_column_selector(dtype_include=object),
             ),
         ),
-        HistGradientBoostingClassifier(early_stopping=False),
+        classifier,
+    )
+
+
+def random_forest_model(*, class_weight: str | None = None):
+    """Random forest on the numeric and one-hot-encoded text columns.
+
+    Missing numbers are filled with the training-window median. Limit the number of
+    trees and leaves per tree to keep the fitted model within the retraining size budget.
+    """
+    return _forest_model(
+        RandomForestClassifier(
+            n_estimators=100,
+            max_leaf_nodes=2400,
+            min_samples_leaf=50,
+            n_jobs=-1,
+            random_state=0,
+            class_weight=class_weight,
+        )
+    )
+
+
+def extra_trees_model(*, class_weight: str | None = None):
+    """Extremely randomised trees on the same inputs as `random_forest_model`."""
+    return _forest_model(
+        ExtraTreesClassifier(
+            n_estimators=200,
+            min_samples_leaf=50,
+            n_jobs=-1,
+            random_state=0,
+            class_weight=class_weight,
+        )
     )

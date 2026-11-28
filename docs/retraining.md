@@ -1,0 +1,50 @@
+# Per-batch retraining (PBI #25)
+
+After #20 commits the batch, run `uv run retrain-batch BATCH_ID package.module:build_inputs`.
+Configure the database and MLflow connection with the variables in `.env.example`
+and use a database account with read access to the loaded tables. The command
+uses the configured MLflow experiment. A pipeline caller can pass
+`--etl-run-id ID` or call `run_evaluation_mode(..., etl_run_id=ID)` with its
+invocation ID. The caller is responsible for choosing a fresh ID per invocation.
+Retraining uses a supplied ID as-is and generates a UUID when the ID is omitted.
+Run names have the form `<model>-<batch_id>-<etl_run_id>`.
+
+The trusted, importable input factory returns `EvaluationInputs` with the
+expected engineer roster, the candidate manifest, the frozen #6 validation
+frame, K, and the fitted #15 champion and its run ID.
+Use a fresh estimator factory per manifest entry, such as #14's order-only
+pipeline factories, and pass the stored estimator parameter overrides in
+`ModelSpec.params`. Factory defaults supply the other stored settings. Include
+each logged #22 candidate version as its own entry when available. Both the
+champion and candidates must accept the same four order features. The command
+checks manifest coverage against the supplied roster before reading data.
+
+The #20/#154 reader fetches order records once with the #6 `train` SQL
+predicate. An aggregate query in the same repeatable-read transaction counts
+rows withheld by date, including a separate count for rows on or after
+`validation_start`. The audit population is orders with a matching label
+record. Invalid labels within the train window are counted separately and
+omitted from fits. Old and new counts are eligible, valid-label orders from
+other batches and the invocation's batch, respectively. The command prints
+these counts and records them on every successful candidate run.
+
+Every candidate and the champion use the shared harness's order features and
+top-K evaluator on the same validation frame. Each candidate run records its
+scores, champion run ID and scores, score deltas, validation digest and
+estimator parameters. The command reports a failed candidate, attempts the
+remaining candidates, and exits 1 if any candidate failed. Evaluation runs
+are tagged `champion_eligible=False` for #161's automatic candidate discovery.
+
+The shared [D27-01 train-and-log target](decision-log.md#d27-01-wall-clock-budget-for-a-practice-batch)
+is **85 seconds** across all candidates, including scoring, serialization, and
+MLflow artifact uploads. The command reports the stage's elapsed wall time.
+The real input factory, live #24 rehearsal and demo-machine timing remain
+partial. Release mode depends on #23's final evaluation.
+
+## Shared training harness
+
+The command passes the two labelled windows directly to the harness, without
+reading base CSV files. The harness records `data_source=labelled_windows`
+and records the batch details (`batch_id`, `etl_run_id`, `champion_run_id`, `validation_sha256`, `model`, `owner`) as run tags. It converts decimal order values to numbers. An omitted seed preserves the
+estimator's random-state settings. Models that exceed the batch model-size limit
+are reported as candidate failures before artifact upload.

@@ -1,6 +1,8 @@
 """Tests for the training harness on small made-up base files in a temporary folder."""
 
+import json
 import re
+import subprocess
 import sys
 from decimal import Decimal
 
@@ -9,15 +11,23 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.utils.class_weight import compute_class_weight
 
-from mlops_fraud_prediction_ca1.models import baseline_model, boosted_trees_model
+from mlops_fraud_prediction_ca1 import training
+from mlops_fraud_prediction_ca1.models import (
+    baseline_model,
+    boosted_trees_model,
+    extra_trees_model,
+    random_forest_model,
+)
 from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import (
-    _load_window,
     check_feature_columns,
     check_label_history,
     compare_customer_columns,
+    compare_groups,
     fit_and_score,
+    load_window,
     main,
     rerun,
     score_labelled_rows,
@@ -106,7 +116,7 @@ class _Recorder(ClassifierMixin, BaseEstimator):
 @pytest.mark.parametrize("exploratory", [False, True])
 def test_no_test_window_row_reaches_training_or_validation(data_dir, exploratory):
     for purpose in ("train", "validation"):
-        keys, _ = _load_window(data_dir, purpose, exploratory)
+        keys, _ = load_window(data_dir, purpose, exploratory)
         assert not keys.order_id.str.startswith("test").any()
         assert keys.order_id.str.startswith(purpose).all()
     model = _Recorder()
@@ -151,15 +161,15 @@ def test_labelled_rows_from_the_database_score_like_the_base_files(data_dir):
 
 
 def test_exploratory_runs_add_customer_columns_only_on_request(data_dir):
-    _, order_only = _load_window(data_dir, "train", exploratory=False)
-    _, with_customers = _load_window(data_dir, "train", exploratory=True)
+    _, order_only = load_window(data_dir, "train", exploratory=False)
+    _, with_customers = load_window(data_dir, "train", exploratory=True)
     assert list(order_only) == [
         "collect_type",
         "payment_method",
         "order_value",
         "num_items_ordered",
     ]
-    keys, _ = _load_window(data_dir, "train", exploratory=True)
+    keys, _ = load_window(data_dir, "train", exploratory=True)
     withheld = keys.customer_id.eq("c0").to_numpy()
     assert withheld.any()
     assert with_customers.loc[withheld, "mobile_verified"].isna().all()
@@ -362,11 +372,183 @@ def test_the_train_command_uses_the_decided_k_and_its_status_by_default(
     assert run.data.tags["k_status"] == f"D5-01: product owner assumption, K = {K}"
 
 
+def test_candidate_cli_tags_cannot_replace_dirty_git_provenance(
+    data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "provenance-test")
+    actual_commit = "a" * 40
+    git_results = {
+        "rev-parse": actual_commit,
+        "status": " M training.py",
+        "config": "Fixture Author",
+    }
+    monkeypatch.setattr(training, "_git", lambda command, *args: git_results[command])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train",
+            "boosted-trees",
+            "--data-dir",
+            str(data_dir),
+            "--tag",
+            "git_dirty=False",
+            "--tag",
+            "git_commit=overridden",
+            "--tag",
+            "author=overridden",
+            "--tag",
+            "pr=164",
+        ],
+    )
+    with pytest.warns(UserWarning, match="working tree has uncommitted changes"):
+        main()
+
+    runs = mlflow.search_runs(
+        experiment_names=["provenance-test"], output_format="list"
+    )
+    assert len(runs) == 3
+    for run in runs:
+        tags = run.data.tags
+        assert tags["git_dirty"] == "True"
+        assert tags["git_commit"] == actual_commit
+        assert tags["author"] == "Fixture Author"
+        assert tags["pr"] == "164"
+    assert sum(run.data.tags.get("champion_eligible") == "True" for run in runs) == 1
+
+
 def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["train", "boosted-trees", "--k", "100"])
     with pytest.raises(SystemExit):
         main()
     assert "--k-status" in capsys.readouterr().err
+
+
+def test_balanced_fit_matches_explicit_weights_computed_from_training_labels(data_dir):
+    train_rows, validation_rows = _database_rows(data_dir)
+    train_rows = train_rows.assign(
+        is_fraud=lambda rows: (rows.index % 5 == 0).astype(int)
+    )
+    validation_rows = validation_rows.assign(
+        is_fraud=lambda rows: (rows.index % 5 != 0).astype(int)
+    )
+    classes = np.array([0, 1])
+    train_weights = compute_class_weight(
+        "balanced", classes=classes, y=train_rows.is_fraud
+    )
+    pooled_weights = compute_class_weight(
+        "balanced",
+        classes=classes,
+        y=pd.concat([train_rows.is_fraud, validation_rows.is_fraud]),
+    )
+    assert train_weights == pytest.approx([0.625, 2.5])
+
+    # Fit the references directly so a regression in the harness cannot change them.
+    train_keys, train_x = training._labelled_inputs(train_rows)
+    _, validation_x = training._labelled_inputs(validation_rows)
+    train_only = baseline_model(
+        class_weight=dict(zip(classes, train_weights, strict=True))
+    ).fit(train_x, train_keys.is_fraud)
+    pooled = baseline_model(
+        class_weight=dict(zip(classes, pooled_weights, strict=True))
+    ).fit(train_x, train_keys.is_fraud)
+    result = fit_and_score(
+        baseline_model(class_weight="balanced"),
+        k=K,
+        seed=0,
+        labelled_windows=(train_rows, validation_rows),
+    )
+    assert result.validation_orders == len(validation_rows)
+    expected = train_only.predict_proba(validation_x)
+    assert not np.allclose(expected, pooled.predict_proba(validation_x))
+    np.testing.assert_allclose(result.model.predict_proba(validation_x), expected)
+
+
+def test_compare_groups_imputes_from_training_with_validation_present(
+    data_dir, monkeypatch
+):
+    orders_path = data_dir / "orders_base.csv"
+    orders = pd.read_csv(orders_path)
+    train_mask = orders.order_id.str.startswith("train")
+    validation_mask = orders.order_id.str.startswith("validation")
+    orders.loc[train_mask, "order_value"] = np.tile([10, 20, 30], train_mask.sum() // 3)
+    orders.loc[validation_mask, "order_value"] = 1000
+    orders.loc[orders.order_id.isin(["train0", "validation0"]), "order_value"] = np.nan
+    orders.to_csv(orders_path, index=False)
+    assert orders.loc[train_mask, "order_value"].median() == 20
+    assert orders.loc[train_mask | validation_mask, "order_value"].median() == 30
+
+    def fit_without_logging(estimator, data_dir, *, k, seed):
+        result = fit_and_score(estimator, data_dir, k=k, seed=seed)
+        assert result.train_orders == train_mask.sum()
+        assert result.validation_orders == validation_mask.sum()
+        preprocessor = result.model.named_steps["model"].named_steps[
+            "columntransformer"
+        ]
+        _, numeric_steps, numeric_columns = preprocessor.transformers_[0]
+        medians = dict(
+            zip(
+                numeric_columns, numeric_steps["simpleimputer"].statistics_, strict=True
+            )
+        )
+        assert medians["order_value"] == 20
+        group = result.model.named_steps["features"].group
+        if group == "order_log":
+            assert medians["order_value_log1p"] == pytest.approx(np.log1p(20))
+        return group, result
+
+    monkeypatch.setattr(training, "train", fit_without_logging)
+    assert set(compare_groups(data_dir, k=K).group) == {"order_raw", "order_log"}
+
+
+def test_balanced_weighting_leaves_the_validation_fraud_rate_natural(data_dir):
+    # Criterion 2 of #17: weights change the fit only; the scored window is untouched.
+    results = {
+        weighting: fit_and_score(
+            baseline_model(class_weight=weighting), data_dir, k=K, seed=0
+        )
+        for weighting in (None, "balanced")
+    }
+    validation = pd.read_csv(data_dir / "labels_base.csv")
+    validation = validation[validation.order_id.str.startswith("validation")]
+    natural = validation.is_fraud.mean()
+    assert 0 < natural < 0.5  # imbalanced, so a rebalanced window would differ
+    for result in results.values():
+        assert result.validation_orders == len(validation)
+        assert result.report.at_k.total_fraud / result.validation_orders == natural
+    assert (
+        results[None].report.at_k.total_fraud
+        == results["balanced"].report.at_k.total_fraud
+    )
+
+
+@pytest.mark.parametrize("weighting", [None, "balanced"])
+def test_feature_group_cli_logs_weighting_for_both_runs(
+    weighting, data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "feature-weights-test")
+    argv = ["train", "compare-feature-groups", "--data-dir", str(data_dir)]
+    if weighting is not None:
+        argv.extend(["--weighting", weighting])
+    monkeypatch.setattr(sys, "argv", argv)
+    main()
+
+    runs = mlflow.search_runs(
+        experiment_names=["feature-weights-test"], output_format="list"
+    )
+    assert len(runs) == 2
+    assert {run.data.params["features__group"] for run in runs} == {
+        "order_raw",
+        "order_log",
+    }
+    for run in runs:
+        assert run.data.params["model__logisticregression__class_weight"] == str(
+            weighting
+        )
 
 
 def test_rerun_without_mlflow_settings_says_what_to_set(
@@ -378,3 +560,66 @@ def test_rerun_without_mlflow_settings_says_what_to_set(
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "")
     with pytest.raises(RuntimeError, match="MLFLOW_TRACKING_URI"):
         rerun("0" * 32, data_dir)
+
+
+@pytest.mark.parametrize("build", [random_forest_model, extra_trees_model])
+def test_forest_candidates_log_both_runs_and_rerun(
+    build, data_dir, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "forest-test")
+    _, (without_id, _), (with_id, _) = compare_customer_columns(
+        build(), data_dir, k=5, seed=3, tags={"k_status": "provisional"}
+    )
+    assert mlflow.get_run(without_id).data.tags["champion_eligible"] == "True"
+    assert mlflow.get_run(with_id).data.tags["champion_eligible"] == "False"
+    assert rerun(without_id, data_dir)["reproduced"]
+
+
+def test_packaged_pipeline_replay_uses_an_isolated_registry(data_dir, monkeypatch):
+    # Keep optional MLflow agent diagnostics out of the CLI stderr assertion.
+    monkeypatch.setenv("MLFLOW_DISABLE_AGENT_HINT", "1")
+    configured_tracking = data_dir / "configured-tracking.db"
+    configured_registry = data_dir / "configured-registry.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{configured_tracking}")
+    monkeypatch.setenv("MLFLOW_REGISTRY_URI", f"sqlite:///{configured_registry}")
+    registry = data_dir / "private registry"
+    command = [
+        sys.executable,
+        "-m",
+        "mlops_fraud_prediction_ca1.verify_packaged_pipeline",
+        "--data-dir",
+        str(data_dir),
+        "--registry-dir",
+        str(registry),
+    ]
+
+    resolved_registry = registry.resolve()
+    run = subprocess.run(
+        command, capture_output=True, text=True, check=True, timeout=120
+    )
+    evidence = json.loads(run.stdout)
+    assert evidence["tracking_uri"] == f"sqlite:///{resolved_registry / 'mlflow.db'}"
+    assert evidence["registered_model_uri"] == "models:/packaged-pipeline-reload/1"
+    assert evidence["registered_status"] == "READY"
+    assert evidence["registered_source"].startswith(
+        (resolved_registry / "artifacts").as_uri()
+    )
+    assert evidence["feature_group"] == "order_log"
+    assert evidence["train_rows"] == WINDOWS["train"][1]
+    assert evidence["validation_rows"] == WINDOWS["validation"][1]
+    assert evidence["ordered_validation_inputs_identical"]
+    assert evidence["probabilities_identical"]
+    assert evidence["predictions_identical"]
+    assert evidence["max_probability_abs_delta"] == 0
+    assert not configured_tracking.exists() and not configured_registry.exists()
+
+    retry = subprocess.run(
+        command, capture_output=True, text=True, check=False, timeout=120
+    )
+    assert retry.returncode == 1
+    assert retry.stdout == ""
+    assert retry.stderr.splitlines() == [
+        f"verify_packaged_pipeline.py: Registry directory already exists: {registry}"
+    ]

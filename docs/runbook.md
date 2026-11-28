@@ -218,3 +218,13 @@ At every sprint review, open the sandbox's start page, note the budget used and 
 | Sprint review | Used | Remaining |
 | --- | --- | --- |
 | Sprint 2, 24 Nov 2026 | $15 of $50 | About $35 |
+
+## Champion alias move and rollback
+
+To move the `champion` alias to another registered version, or to roll it back, use `champion.move_champion(client, "fraud-candidate", "<version>", "reason")`. Every move records `previous_champion_version` and the reason on the new champion and gives the old champion the `challenger` alias. To roll back, read the `previous_champion_version` tag on the current champion and pass that version to the same call. Run one registry operation at a time, then read both aliases and the tag to confirm. The full steps, including a failed write, are in `docs/champion.md` under "Move the alias and roll back".
+
+For an isolated local rehearsal, follow the
+[approved-pair import and alias readback steps](champion.md#rehearse-the-approved-pair-in-a-local-registry).
+They require verified originals of both approved artifacts. To exercise the
+separate packaged-pipeline reload on frozen data, use the
+[local reload command](feature-pipeline.md#verify-a-real-local-fit-and-reload).
