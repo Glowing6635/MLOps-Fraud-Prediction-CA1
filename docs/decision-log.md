@@ -335,19 +335,25 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   authenticated checks passed after refreshing the two scoped SQL URI
   parameters. See the [deployment record][d26-deploy-record] for the exact
   checks, incident sequence and raw-log SHA-256.
-- Keep #26 open. This is partial AC1 deployment evidence. AC2 records the
-  verified SingleInstance configuration, with actual stopped-sandbox charges
-  pending the independently tracked attributable-window measurement. The
-  fresh-operator AC3 evidence and remaining AC4 handoff are tracked in
-  [D26-04](#d26-04--bind-the-fresh-operator-witness-and-fix-the-runbook).
+- In the later 13:28Z readback, the retained environment was SingleInstance
+  Ready/Yellow with a replacement instance and the same supplied role and
+  profile. RDS was available and private, with the exact temporary host rule
+  absent and the approved EB peer still present. The audit corroborated
+  successful scoped SSM reads and KMS decrypts. At 15:43Z both the retained
+  deployment and the separate AC3a trial were Ready/Green with private RDS.
+  Filtered IAM event-history searches found no matching mutations in the
+  deployment window. AC1 remains partial pending independent coverage of the
+  deployed IAM scope. See the [retained audit][d26-retained-audit] for the
+  bounds and provenance.
 
 [d26-deploy-record]: ../mlflow-server/LAB-RECREATE.md#verified-trial-on-2026-11-28
+[d26-retained-audit]: ../mlflow-server/LAB-RECREATE.md#retained-deployment-and-cost-audit-on-2026-11-28
 
 ## D26-04 — Bind the fresh-operator witness and fix the runbook
 
 - Decision recorded 2026-11-28. Owner: SpiralSky. Affected PBI: #26.
 - SpiralSky accepted the fresh context-free session as the practical AC3
-  witness. The coordinator performed only the designated SQL/SSM owner
+  witness with coordinator assistance for the designated SQL/SSM owner
   handoff. Record the exact source pin, raw-report digest, UTC, stack status
   and successful synthetic artifact check in the [AC3 witness record][d26-ac3].
 - Repair the nine gaps in the operator instructions. The changes cover
@@ -357,11 +363,23 @@ the demo machine and network, each starting from a rebuilt rehearsal database.
   the witnessed source pin. The revised instructions have offline checks.
 - An unchanged runbook would leave the same manual interventions for the
   next operator. A new deployment would test the revised instructions but
-  require a new scoped window and resources. A human AC3 repeat remains a
-  separate marker decision for SpiralSky.
-- SpiralSky owns arranging independent AC1 IAM evidence. The coordinator
-  owns the AC2 attributable stopped-window cost observation. A distinct
-  teammate owns AC4 runbook and Quickstart verification, with approved
-  access from the coordinator. #26 stays open.
+  require a new scoped window and resources. Literal unaided AC3 remains
+  open pending the marker's disposition or a separate unaided witness,
+  owned by SpiralSky.
+- Keep the measured stopped-window cost requirement for AC2. The
+  [retained audit][d26-retained-audit] found three EC2 replacement transitions
+  but no confirmed stopped-stack interval. The estimated account month-to-date
+  total covers shared account usage, and hourly and resource-level Cost
+  Explorer queries were denied because payer opt-ins were required. Neither
+  the replacement bounds nor the account total can assign charges to
+  stopped resources. The coordinator owns obtaining authoritative AWS or lab
+  state records for the exact stack and UTC stop and resume times, then
+  matching those times to posted resource-level usage and cost supplied by
+  an authorized payer observer.
+- SpiralSky owns arranging independent AC1 IAM evidence. Glowing6635 owns
+  the separate AC4 [teammate Quickstart][d26-teammate] on `ac3a-synthetic`.
+  The coordinator supplies scoped access, and Glowing6635 returns a distinct
+  private run and artifact receipt. That receipt is pending. #26 stays open.
 
+[d26-teammate]: ../mlflow-server/LAB-RECREATE.md#teammate-quickstart-handoff
 [d26-ac3]: ../mlflow-server/LAB-RECREATE.md#ac3-fresh-operator-witness-on-2026-11-28

@@ -411,17 +411,80 @@ Steward holds the sanitized foundation trace in
 SHA-256 `d521f4492dc68bb23f57480812af7e3a6a9e3b0826818d6cc39080f8f0170425`)
 and the bootstrap evidence reference in
 `evidence/agile-mlops/p26-server-public-bootstrap/receipt-reference.md`.
-The trial's actual stopped-sandbox charges remain open for the independently
-tracked attributable-window billing measurement. Account-wide Cost Explorer
-readings and preflight estimates cannot establish that charge.
+
+## Retained deployment and cost audit on 2026-11-28
+
+The read-only audit used the retained trial in `us-east-1`. The auditor
+reproduced the deployed Elastic Beanstalk version label from the pinned
+bundle inputs and image digest and matched it to the live environment.
+At 13:28Z EB was Ready/Yellow and still used SingleInstance with the
+supplied `LabRole` and `LabInstanceProfile`. EB and Auto Scaling identified
+a replacement instance in the existing deployment.
+
+The retained RDS instance was available and private. The temporary host
+ingress rule from the bootstrap was absent. The approved EB peer still
+allowed TCP/3306 to RDS. The audit confirmed the exposure revert and found
+no further exposure remediation needed.
+
+At 15:43Z the coordinator's scoped readback found both the retained trial
+and the separate AC3a witness trial Ready/Green. Each had its own available,
+private RDS instance and an Online Systems Manager instance. Both returned
+HTTP 200 for anonymous health and HTTP 401 for anonymous API discovery.
+The coordinator holds the exact bindings and route checks in the private
+Steward directory `evidence/agile-mlops/manager-1542/`.
+
+CloudTrail recorded successful SSM `GetParameter` with decryption and KMS
+`Decrypt` activity for the retained parameter scope in EB instance sessions
+using `LabRole`, including the current replacement. The supplied role and
+profile and the observed RDS and Auto Scaling service-linked roles predated
+deployment. The 02:30–03:50Z CloudTrail resource-name and IAM-source searches,
+including a filter tied to the deployment actor, returned no matching IAM
+mutations. That result covers the queried event history and filters. AC1
+still needs independent evidence covering IAM creation across the deployed
+scope, including service-mediated calls.
+
+The audit observed three UTC EC2 stop/replacement transition bounds.
+
+| Stop request | Replacement-related event |
+| --- | --- |
+| 04:12:54Z | 04:14:34Z, Auto Scaling terminated the prior instance |
+| 08:32:16Z | 08:34:04Z, Auto Scaling terminated the prior instance |
+| 13:12:05Z | 13:13:46Z, Auto Scaling terminated the prior instance and began launching the replacement |
+
+The stop requests recorded instances entering `stopping`. The later
+termination or launch events show Auto Scaling replacing instances.
+These events give neither the full stack's stop and resume times nor the
+billing state of RDS, storage, and other retained resources. The audit
+confirmed no stopped-stack interval.
+
+At 15:43Z Cost Explorer showed **USD 17.119804569** in estimated
+month-to-date account unblended cost against the inclusive USD 35 cap.
+During the earlier audit, hourly and resource-level requests returned `AccessDeniedException` with payer opt-in
+messages. An account total includes other usage and lacks the time and
+resource attribution needed for AC2. Actual stopped-window cost remains
+unmeasured. The coordinator needs authoritative AWS or lab UTC records of
+the exact stack entering and leaving the stopped state, plus posted usage
+and cost line items from an authorized payer observer. The line items need
+resource identifiers, usage times, currency and coverage for those bounds,
+including retained resources that can accrue charges during the stop.
+
+In Steward, see `results/agile-mlops/p26-retained-audit-fresh-1325.json`
+and the scoped logs in `evidence/agile-mlops/p26-retained-audit-fresh-1325/`.
+From that evidence directory, reproduce the aggregate SHA-256
+`621a7528c5b4137fb8abb8899b1b7bbff3809e7f9c5906aec43ae569ba794b87`.
+
+```bash
+export LC_ALL=C
+sha256sum -- *.log | sha256sum
+```
 
 ## AC3 fresh-operator witness on 2026-11-28
 
-SpiralSky accepted a fresh, context-free agent session as the practical
-non-author operator for AC3. The operator used only the clean pinned
-checkout, this runbook as it stood in that checkout, and ordinary trial
-inputs. The coordinator acted solely as the designated owner for SQL
-and SSM preparation. The witnessed source remains pinned at commit
+SpiralSky accepted a fresh, context-free agent session as a practical,
+assisted non-author witness for AC3 on the separate AC3a trial. The operator
+used the clean pinned checkout, its runbook and ordinary trial inputs. The
+coordinator supplied the designated SQL and SSM preparation. The witnessed
+source remains pinned at commit
 `1c22d2c0abb635081daaae2c7b70d0bb9e3cde9b`, tree
 `0b72f92b01f15645fe694cdecd0ad111d412c625`.
 
@@ -437,22 +500,44 @@ and SSM preparation. The witnessed source remains pinned at commit
 The witness applies to the pinned source. The follow-up instructions have
 local checks only. The report shows runtime startup and artifact access.
 A direct decrypted read under `LabInstanceProfile` was outside the
-witness. SpiralSky owns any later marker decision about the need for a
-human repeat.
+witness. The literal unaided-deployment criterion remains open. SpiralSky
+owns obtaining the marker's disposition or arranging an unaided witness.
 
 | Open criterion | Remaining evidence and owner |
 | --- | --- |
-| AC1 | SpiralSky arranges an independent IAM audit for the deployed scope to establish that no IAM resources were created. |
-| AC2 | The designated billing observer (coordinator) records measured, attributable stopped-window cost for the retained SingleInstance trial. |
-| AC4 | A distinct teammate follows the runbook and Quickstart and returns their own results. The coordinator supplies the approved stack access. |
+| AC1 | SpiralSky arranges independent evidence covering IAM creation across the deployed scope, including service-mediated calls. |
+| AC2 | The coordinator obtains authoritative stopped-state bounds and payer-posted usage and cost for the retained SingleInstance trial. See the [retained audit](#retained-deployment-and-cost-audit-on-2026-11-28). |
+| AC3 | SpiralSky obtains the marker's disposition on the assisted witness or arranges an unaided deployment witness. |
+| AC4 | Glowing6635 independently follows the [teammate Quickstart handoff](#teammate-quickstart-handoff) and supplies a distinct private run and artifact receipt. |
 
 See [decision D26-04](../docs/decision-log.md#d26-04--bind-the-fresh-operator-witness-and-fix-the-runbook).
 
+## Teammate Quickstart handoff
+
+Glowing6635 is authorized to follow the [Quickstart](#quickstart) on the
+separate AC3a witness trial, using only the `ac3a-synthetic` experiment and
+the coordinator's approved tracking URI, secure transport and scoped login.
+Confirm the AC3a target and the active access window with the coordinator
+before starting. The current overnight authority expires at 00:00Z on
+2026-11-29. The retained deployment is reserved for its own evidence.
+
+Use a clean checkout of this runbook's revision with the locked environment.
+After the check, return a private receipt to the coordinator with the
+checkout pin, UTC time, trial and experiment binding, new run ID, metric
+verification, downloaded artifact verification and any assistance received.
+The earlier operator run remains AC3 evidence. The teammate run and its
+distinct receipt are pending.
+
+Preserve both trial stacks and their evidence while the external teardown
+dependencies are open. The coordinator owns retention, spend monitoring
+under the inclusive USD 35 cap, and cleanup authorization. The Quickstart
+handoff covers the synthetic check on AC3a.
+
 ## Quickstart
 
-Run this authenticated check from the repository root after
-[creating the replacement lab](#create-a-replacement-lab) and passing stack
-verification. Use the approved transport, exact trial tracking URI, and
+Run this authenticated check from the repository root after stack
+verification. For a deployment trial, first [create the replacement lab](#create-a-replacement-lab).
+For the teammate handoff, use the existing AC3a trial. Use the approved transport, exact trial tracking URI, and
 an existing trial login authorized to create runs and read artifacts in the
 approved synthetic experiment. Confirm the target and secure transport with
 the owner before entering credentials. Stop if either is unavailable. Use a
