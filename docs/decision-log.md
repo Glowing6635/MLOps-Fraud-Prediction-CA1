@@ -602,6 +602,36 @@ Balancing reduced fraud caught at K and average precision for both forest
 families. Extra trees caught 74 more fraud orders at 2K. These results support
 keeping the unweighted default while production weighting remains open.
 
+## D24-01: The rehearsal reset refuses by name, not by a list of team resources
+
+- Recorded: 2026-11-24. Owner: SpiralSky. Affected PBIs: #24 (criterion 2).
+- Decision: `rehearsal-reset` runs only when the database name and MLflow experiment name (#2 settings) both start with `rehearsal` and differ from `TEAM_DB_NAME` / `TEAM_MLFLOW_EXPERIMENT_NAME` when those are set.
+- Reason: a required prefix fails safe if the team variable is forgotten, and the team-name check catches a rehearsal-named copy of team resources.
+
+## D24-02: Bind both rehearsal readers to the selected database
+
+- Recorded 2026-11-28. Owner SpiralSky. Affects #24 AC1 on draft #160.
+- Settled. Keep the scoped #2 selection of the approved RDS target and
+  `rehearsal` schema, together with the process-selected `rehearsal` MLflow
+  experiment. Preserve the saved team MLflow selection. Use the two existing
+  personal SELECT-only receipts as evidence for that database.
+- Provenance. The earlier draft at `c6427a3` established the dated effective
+  configuration but held the second receipt's endpoint binding open. The
+  verified original owner relay supplied the endpoint and matched that #2
+  host in a local comparison. The 00:24 UTC RDS match, 27 November port
+  inventory and 17:19 UTC authenticated active-experiment lookup still
+  supply the infrastructure evidence. The
+  [AC1 evidence map](rehearsal-batches.md#ac1--rehearsal-configuration-and-reader-access)
+  records the receipt and processing times separately.
+- Alternatives and impact. Asking the teammate to confirm the endpoint again
+  or repeat the SELECT would duplicate evidence for this target. Waiting for
+  a fresh RDS lookup would delay the correction after the prior attempt
+  exited 254. The dated evidence supports the recorded target and historical
+  reader access. A change to that target would require binding both readers
+  to the newly selected database.
+- Owner decision. No new target or credential choice is pending. Feature
+  review is still due on the draft.
+
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 
 - Recorded: 2026-11-23. Accountable engineer: SpiralSky. Affected PBIs: #18
