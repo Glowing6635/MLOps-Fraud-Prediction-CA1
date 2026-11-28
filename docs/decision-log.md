@@ -289,7 +289,7 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 
 - Recorded 2026-11-25 for [PBI #15](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/issues/15)
   after teammate review of PR #161. Accountable engineer: SpiralSky.
-  **Needs the Product Owner's one-line confirmation.**
+  SpiralSky approved its application to the D15-04 comparison on 2026-11-27.
 - Decision: keep D15-02's ranking of every eligible validation candidate, with
   size notes. The team registry gets the best two ranked candidates whose
   model size is not known to exceed 50,000,000 bytes (exact artifact size when
@@ -319,7 +319,8 @@ training. Preserve existing final-evaluation artifacts when policy changes.
   operation with analyst approval, which this read-only rerun did not perform.
   The review recommends registering the elected pair. See
   [D15-04](#d15-04--read-only-champion-rerun-and-pending-registration) for the
-  rerun evidence and the outstanding analyst approval.
+  rerun evidence and [D15-05](#d15-05--local-rehearsal-requires-the-original-packages)
+  for the subsequent sign-off and open registration checks.
 
 ## D15-04 — Read-only champion rerun and pending registration
 
@@ -351,25 +352,38 @@ training. Preserve existing final-evaluation artifacts when policy changes.
 ## D15-05 — Local rehearsal requires the original packages
 
 - Recorded: 2026-11-28. Accountable engineer: SpiralSky. Affected PBIs: #15, #18.
-- Settled: the acting analyst approved the D15-04 Comparison ID on 27 November.
-  On 28 November the Product Owner approved a fresh private SQLite registry
-  for that exact pair. Preserve original run and model IDs alongside the
-  locally assigned run IDs and verify the artifact bytes before changing aliases.
-- Rationale and alternatives: using a retained byte-for-byte export allows a
-  local rollback rehearsal while the team endpoint is unavailable. A refit
-  creates a different artifact even when it reproduces aggregate validation
-  metrics. The team registry operation remains under the coordinator's separate
-  authorization.
-- Open: the protected team MLflow route needs to provide the two original
-  packages or an authorized export with source lineage and file digests. The
-  retained local stores searched on 28 November did not surface either pinned
-  artifact. The recent authenticated route was gated before login by transport
-  and protected configuration. The coordinator owns source access and the
-  team registry operation.
-- Impact: exact-pair local registration and rollback, the team registry update,
-  and the registered champion check for #18 still require the original
-  packages. The [local alias procedure](champion.md#rehearse-the-approved-pair-in-a-local-registry)
-  defines the verification once the sources are available.
+- Settled: on 2026-11-27, SpiralSky, acting as the Trust & Safety analyst,
+  approved [comparison `81dbb7f3`](evidence/15-champion-pick-k250.md):
+  histogram gradient boosting (`9c3a5977`) as champion and Extra Trees
+  (`8af9db9f`) as challenger. Both are within the D15-03 size limit. In the
+  12:42 UTC PR #171 review on 28 November, Glowing6635 reiterated the
+  recommendation to register Extra Trees because the 187 MB Random Forest
+  exceeds that limit.
+- Trial scope: at 03:58 UTC on 28 November, SpiralSky directed that the
+  shared trial retain its historical HistGB v1 and Random Forest v2 aliases and
+  rollback tags 2/1. The trial permitted one attempt before 04:15 UTC to
+  register Extra Trees without moving aliases. The 27 November sign-off
+  governs the elected challenger.
+- Rationale and alternatives: SQLite provides a local rehearsal method for
+  registration and rollback using byte-for-byte copies of the original
+  packages. Record the original run and model IDs alongside the local run IDs
+  and verify the file digests. Team registry approval and evidence apply to
+  the team MLflow service. A refit produces a different artifact even if its
+  aggregate validation metrics match. A smaller Random Forest could qualify
+  after measurement, a new comparison and analyst sign-off.
+- Open: the team MLflow custodian controls access to the original packages or
+  an authorized export with source lineage and digests. The 28 November
+  search did not find the packages in retained local stores, and the attempted
+  team route stopped before login at transport and protected configuration.
+  SpiralSky owns coordinating the authorized team registry operation and its
+  proof. The operator and usable authenticated route remain unverified.
+- Impact: READY registration of Extra Trees and team alias and rollback
+  verification for the elected pair remain outstanding. Recheck the
+  Comparison ID before writing and capture both aliases before and after,
+  the READY versions and their sources, `previous_champion_version` and
+  rollback instructions. The [local alias procedure](champion.md#rehearse-the-approved-pair-in-a-local-registry)
+  can exercise rollback once the originals are available. The #18 registered
+  champion parity check still requires proof for the accepted team binding.
 
 ## D25-01: Evaluation-mode retraining uses the protected reader and frozen validation
 
@@ -564,6 +578,13 @@ regression and boosted-tree runs, artifact loading and replay exactly matched
 the logged fraud caught at K and average precision. The random forest and extra
 trees runs from 26 November used a throwaway local MLflow store and were not
 replayed.
+
+For #17 criterion 2, weighting changes only the fit on training labels.
+Validation keeps its original labels and natural fraud rate. The D6-01
+access boundary and separate final-evaluation gate preserve the test split.
+The [historical pre-lock test aggregate](time-split.md#frozen-windows-and-country-mix)
+is descriptive: 15,584 fraud labels across 124,989 labelled orders (12.4683%).
+The current protected test fraud rate remains unmeasured.
 
 | Candidate | Class weight | Fraud caught at K | Fraud caught at 2K | Average precision |
 | --- | --- | ---: | ---: | ---: |

@@ -15,7 +15,7 @@ from .feature_pipeline import FeatureGroup, build_pipeline
 from .models import baseline_model
 from .splitting import load_policy
 from .top_k import K, evaluate_top_k
-from .training import _dataset_hashes, _load_window, train
+from .training import dataset_hashes, load_window, train
 
 MODEL_NAME = "packaged-pipeline-reload"
 FEATURE_GROUP = "order_log"
@@ -24,13 +24,14 @@ ORDER_KEYS = ["country_code", "order_id"]
 
 
 def verify(data_dir: Path, registry_dir: Path) -> dict:
+    """Return validation parity evidence from a fresh, isolated MLflow registry."""
     policy = load_policy()
     if not policy.test_locked or policy.final_evaluation_enabled:
         raise ValueError(
             "Lock the test window and disable final evaluation before running."
         )
 
-    input_hashes = _dataset_hashes(data_dir)
+    input_hashes = dataset_hashes(data_dir)
     registry_dir = registry_dir.resolve()
     registry_dir.mkdir(mode=0o700, exist_ok=False)
     uri = f"sqlite:///{registry_dir / 'mlflow.db'}"
@@ -50,7 +51,7 @@ def verify(data_dir: Path, registry_dir: Path) -> dict:
         seed=SEED,
         tags={"evidence_scope": "local_pipeline_reload", "champion_eligible": "False"},
     )
-    keys, raw = _load_window(data_dir, "validation", exploratory=False)
+    keys, raw = load_window(data_dir, "validation", exploratory=False)
     if (
         keys.empty
         or keys[ORDER_KEYS].duplicated().any()
@@ -105,13 +106,11 @@ def verify(data_dir: Path, registry_dir: Path) -> dict:
         or loaded.named_steps["features"].group != FEATURE_GROUP
     ):
         raise RuntimeError("The registered model is missing the order feature group.")
-    reloaded_keys, reloaded_raw = _load_window(
-        data_dir, "validation", exploratory=False
-    )
+    reloaded_keys, reloaded_raw = load_window(data_dir, "validation", exploratory=False)
     if (
         not reloaded_keys.equals(keys)
         or not reloaded_raw.equals(raw)
-        or _dataset_hashes(data_dir) != input_hashes
+        or dataset_hashes(data_dir) != input_hashes
     ):
         raise RuntimeError("The ordered validation inputs changed during reload.")
     after = loaded.predict_proba(reloaded_raw)
@@ -158,6 +157,7 @@ def verify(data_dir: Path, registry_dir: Path) -> dict:
 
 
 def main() -> None:
+    """Write the verification evidence as JSON or report an existing registry."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--data-dir", required=True, type=Path, help="Approved base CSVs."
@@ -166,7 +166,16 @@ def main() -> None:
         "--registry-dir", required=True, type=Path, help="A new private directory."
     )
     args = parser.parse_args()
-    print(json.dumps(verify(args.data_dir, args.registry_dir), indent=2))  # noqa: T201
+    try:
+        evidence = verify(args.data_dir, args.registry_dir)
+    except FileExistsError:
+        parser.exit(
+            1,
+            f"{parser.prog}: Registry directory already exists: {args.registry_dir}\n",
+        )
+
+    # JSON on stdout is the CLI's machine-readable output.
+    print(json.dumps(evidence, indent=2))  # noqa: T201
 
 
 if __name__ == "__main__":

@@ -22,12 +22,12 @@ from mlops_fraud_prediction_ca1.models import (
 )
 from mlops_fraud_prediction_ca1.top_k import K
 from mlops_fraud_prediction_ca1.training import (
-    _load_window,
     check_feature_columns,
     check_label_history,
     compare_customer_columns,
     compare_groups,
     fit_and_score,
+    load_window,
     main,
     rerun,
     score_labelled_rows,
@@ -116,7 +116,7 @@ class _Recorder(ClassifierMixin, BaseEstimator):
 @pytest.mark.parametrize("exploratory", [False, True])
 def test_no_test_window_row_reaches_training_or_validation(data_dir, exploratory):
     for purpose in ("train", "validation"):
-        keys, _ = _load_window(data_dir, purpose, exploratory)
+        keys, _ = load_window(data_dir, purpose, exploratory)
         assert not keys.order_id.str.startswith("test").any()
         assert keys.order_id.str.startswith(purpose).all()
     model = _Recorder()
@@ -161,15 +161,15 @@ def test_labelled_rows_from_the_database_score_like_the_base_files(data_dir):
 
 
 def test_exploratory_runs_add_customer_columns_only_on_request(data_dir):
-    _, order_only = _load_window(data_dir, "train", exploratory=False)
-    _, with_customers = _load_window(data_dir, "train", exploratory=True)
+    _, order_only = load_window(data_dir, "train", exploratory=False)
+    _, with_customers = load_window(data_dir, "train", exploratory=True)
     assert list(order_only) == [
         "collect_type",
         "payment_method",
         "order_value",
         "num_items_ordered",
     ]
-    keys, _ = _load_window(data_dir, "train", exploratory=True)
+    keys, _ = load_window(data_dir, "train", exploratory=True)
     withheld = keys.customer_id.eq("c0").to_numpy()
     assert withheld.any()
     assert with_customers.loc[withheld, "mobile_verified"].isna().all()
@@ -578,6 +578,8 @@ def test_forest_candidates_log_both_runs_and_rerun(
 
 
 def test_packaged_pipeline_replay_uses_an_isolated_registry(data_dir, monkeypatch):
+    # Keep optional MLflow agent diagnostics out of the CLI stderr assertion.
+    monkeypatch.setenv("MLFLOW_DISABLE_AGENT_HINT", "1")
     configured_tracking = data_dir / "configured-tracking.db"
     configured_registry = data_dir / "configured-registry.db"
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{configured_tracking}")
@@ -593,12 +595,17 @@ def test_packaged_pipeline_replay_uses_an_isolated_registry(data_dir, monkeypatc
         str(registry),
     ]
 
-    run = subprocess.run(command, capture_output=True, text=True, check=True)
+    resolved_registry = registry.resolve()
+    run = subprocess.run(
+        command, capture_output=True, text=True, check=True, timeout=120
+    )
     evidence = json.loads(run.stdout)
-    assert evidence["tracking_uri"] == f"sqlite:///{registry / 'mlflow.db'}"
+    assert evidence["tracking_uri"] == f"sqlite:///{resolved_registry / 'mlflow.db'}"
     assert evidence["registered_model_uri"] == "models:/packaged-pipeline-reload/1"
     assert evidence["registered_status"] == "READY"
-    assert evidence["registered_source"].startswith((registry / "artifacts").as_uri())
+    assert evidence["registered_source"].startswith(
+        (resolved_registry / "artifacts").as_uri()
+    )
     assert evidence["feature_group"] == "order_log"
     assert evidence["train_rows"] == WINDOWS["train"][1]
     assert evidence["validation_rows"] == WINDOWS["validation"][1]
@@ -608,6 +615,11 @@ def test_packaged_pipeline_replay_uses_an_isolated_registry(data_dir, monkeypatc
     assert evidence["max_probability_abs_delta"] == 0
     assert not configured_tracking.exists() and not configured_registry.exists()
 
-    retry = subprocess.run(command, capture_output=True, text=True, check=False)
-    assert retry.returncode != 0
-    assert "FileExistsError" in retry.stderr
+    retry = subprocess.run(
+        command, capture_output=True, text=True, check=False, timeout=120
+    )
+    assert retry.returncode == 1
+    assert retry.stdout == ""
+    assert retry.stderr.splitlines() == [
+        f"verify_packaged_pipeline.py: Registry directory already exists: {registry}"
+    ]

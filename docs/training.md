@@ -66,8 +66,10 @@ be filled by a step fitted inside the pipeline, so only the training window is u
 
 ## Comparing training class weights
 
-Both commands default to the estimator's unweighted fit. Add
-`--weighting balanced` to opt in, or pass `class_weight="balanced"` to
+The five fitting subcommands default to the estimator's unweighted fit:
+`baseline`, `boosted-trees`, `random-forest`, `extra-trees` and
+`compare-feature-groups`. Each accepts `--weighting balanced`. In Python,
+pass `class_weight="balanced"` to
 `baseline_model()`, `boosted_trees_model()`, `random_forest_model()` or
 `extra_trees_model()` before calling `train()`.
 For `train compare-feature-groups`, the option applies to both feature groups.
@@ -79,7 +81,8 @@ for both calls.
 The classifier derives weights from training labels during fit. The validation
 report uses the original orders and fraud rate. MLflow records the final
 classifier's `class_weight` parameter, and rerun restores it from the logged
-model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting).
+model. See [D17-01](decision-log.md#d17-01--training-only-class-weighting) for
+the measured validation results, including Random Forest and Extra Trees.
 
 ## What each run records
 

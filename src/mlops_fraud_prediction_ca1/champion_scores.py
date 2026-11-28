@@ -17,10 +17,10 @@ import pandas as pd
 from mlops_fraud_prediction_ca1.models import boosted_trees_model
 from mlops_fraud_prediction_ca1.training import (
     K,
-    _dataset_hashes,
     _git,
-    _load_window,
+    dataset_hashes,
     fit_and_score,
+    load_window,
 )
 
 CHAMPION_RUN_ID = "9c3a59771cf8499d92972f5c7873e280"
@@ -34,8 +34,8 @@ EXPECTED_AVERAGE_PRECISION = 0.3716
 def rescore(data_dir, *, k: int = K, seed: int = 0) -> pd.DataFrame:
     """One row per labelled validation order, with provenance on every row."""
     result = fit_and_score(boosted_trees_model(), data_dir, k=k, seed=seed)
-    keys, features = _load_window(data_dir, "validation", False)
-    hashes = _dataset_hashes(data_dir)
+    keys, features = load_window(data_dir, "validation", False)
+    hashes = dataset_hashes(data_dir)
     rows = keys[["order_date", "country_code", "order_id"]].astype(str)
     rows["score"] = result.model.predict_proba(features)[:, 1]
     rows["model_name"] = MODEL_NAME

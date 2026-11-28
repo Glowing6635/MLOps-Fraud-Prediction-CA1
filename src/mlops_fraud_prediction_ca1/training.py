@@ -124,10 +124,10 @@ def _date_text(dates: pd.Series) -> pd.Series:
     return dates
 
 
-def _load_window(
+def load_window(
     data_dir: str | Path, purpose: str, exploratory: bool
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """The labelled orders of one window: their keys and label, and their features."""
+    """Load the order keys, labels and model inputs for one policy-scoped window."""
     frames = load_base_data(data_dir, purpose=purpose, raw_strings=True)
     raw = dict(zip(TABLES, frames, strict=True))
     # clean_frame adds raw_<column> copies; the harness keeps only the cleaned columns.
@@ -231,7 +231,7 @@ def fit_and_score(
         map(_labelled_inputs, labelled_windows)
         if labelled_windows is not None
         else (
-            _load_window(data_dir, purpose, exploratory)
+            load_window(data_dir, purpose, exploratory)
             for purpose in ("train", "validation")
         )
     )
@@ -301,7 +301,7 @@ def train(
         labelled_windows=labelled_windows,
     )
     data = (
-        _dataset_hashes(data_dir)
+        dataset_hashes(data_dir)
         if labelled_windows is None
         else {"data_source": "labelled_windows"}
     )
@@ -460,7 +460,7 @@ def rerun(run_id: str, data_dir: str | Path) -> dict:
         )
     changed = [
         name
-        for name, digest in _dataset_hashes(data_dir).items()
+        for name, digest in dataset_hashes(data_dir).items()
         if params[name] != digest
     ]
     if changed:
@@ -504,7 +504,8 @@ def _use_experiment() -> None:
     mlflow.set_experiment(experiment)
 
 
-def _dataset_hashes(data_dir: str | Path) -> dict[str, str]:
+def dataset_hashes(data_dir: str | Path) -> dict[str, str]:
+    """Return the SHA-256 provenance tags for the three base CSV files."""
     hashes = {}
     for name in TABLES:
         with Path(data_dir, f"{name}_base.csv").open("rb") as file:
