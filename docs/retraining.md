@@ -43,7 +43,7 @@ The shared [D27-01 train-and-log target](decision-log.md#d27-01-wall-clock-budge
 is **85 seconds** across all candidates, including scoring, serialization, and
 MLflow artifact uploads. The command reports the stage's elapsed wall time.
 The real input factory, live #24 rehearsal and demo-machine timing remain
-partial. Release mode depends on #23's final evaluation.
+partial. Release mode depends on #23's [final evaluation](final-test.md) being run.
 
 ## Shared training harness
 

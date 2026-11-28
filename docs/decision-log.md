@@ -902,3 +902,30 @@ local result. Still open as listed above: the team-server log, the #15 review an
   (2) The PR closes #18 only if the reviewer accepts the proxy X and
   the D5-01 K assumption as satisfying criteria 1 and 4 (deciding owner: Product
   Owner). The deployed X and capacity are unobtainable (D18-04).
+
+## D23-01: The final test-window scoring is frozen by a commit and runs once
+
+- Recorded: 2026-11-26. Accountable engineer: Glowing6635. Affected PBIs: #23,
+  #25 (release mode). No test-window row was read for this entry.
+- Decision: `uv run final-test` scores the model version and the rule set in
+  `config/final_test.toml` on the D6-01 test window. That file holds K, X, the
+  loyal count and whether the model is scored as trained or refit on training
+  plus validation rows. It runs only from a clean git tree, with K and the loyal
+  count equal to the code's and `final_evaluation_enabled = true`. Test rows come
+  from the base CSV files through the `final_evaluation` route. Every check that
+  reads no test row runs first; the run tagged `final_test = true` is created
+  just before the first test row is read, and any earlier such run in the
+  MLflow store, in any experiment and failed or deleted included, stops a
+  second attempt.
+- Reason: a commit records the frozen values and the as-trained or refit choice
+  before any test result exists. Counting a failed attempt keeps a crash after
+  the test rows were seen from turning into a quiet second try, and creating the
+  tagged run late lets a mistake found before then be fixed. The CSV files are
+  what the champion and the rule were fitted on, and the rule needs customers'
+  first-order dates and loyalty history.
+- Alternatives not taken: reading test rows from RDS (needs the live server and
+  adds a second source); the moving `champion` alias (the file names a version);
+  an override flag for a second run (a rerun needs a new entry here saying
+  why, and then the old run's `final_test` tag changed by hand).
+- Limit: "once" holds within one MLflow store, so the real run goes to the
+  team's server only ([final-test.md](final-test.md)).

@@ -92,6 +92,10 @@ It then prints the rows added, already stored and rejected per table. Loading th
 
 `docs/data-dictionary.md` explains every table and column. The schema is frozen before data loading (issue #20) starts: after that, any change to `schema.sql` needs the team's agreement first.
 
+## Final test-window scoring
+
+The final champion and the rule are scored once, by the team, with `uv run final-test`. Before it, commit `config/final_test.toml` and `final_evaluation_enabled = true`; afterwards, commit `final_evaluation_enabled = false`. Run it only with `.env` pointing at the team's MLflow server, since a run anywhere else would not count as the one scoring. The steps are in `docs/final-test.md` under "Run it".
+
 ## Running a batch
 
 `uv run run-batch` loads a batch from three URLs, retrains and reports, as the README's "Batch command" says.

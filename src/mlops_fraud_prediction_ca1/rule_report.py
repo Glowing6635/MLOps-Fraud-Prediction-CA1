@@ -30,9 +30,11 @@ from mlops_fraud_prediction_ca1.temporal import parse_date_rows
 _TABLES = ("customers", "orders", "labels")
 
 
-def _clean(data_dir, purpose):
+def clean_window(data_dir, purpose, *, config_path=None) -> dict:
+    """The cleaned customers, orders and labels of one window, as `load_base_data`
+    reads them for `purpose`, with the raw first-order timestamp kept."""
     customers, orders, labels = load_base_data(
-        data_dir, purpose=purpose, raw_strings=True
+        data_dir, purpose=purpose, config_path=config_path, raw_strings=True
     )
     raw_column_names(customers.columns)
     first_order = customers["first_order_datetime"]
@@ -53,36 +55,53 @@ TRAINING_QUANTILES = (0.90, 0.95, 0.99, 0.995, 0.999, 0.9999)
 
 def training_quantile_grid(data_dir) -> tuple[float, ...]:
     """The D18-03 grid: quantiles of the training window's order_value, no labels."""
-    value = pd.to_numeric(_clean(data_dir, "train")["orders"]["order_value"])
+    value = pd.to_numeric(clean_window(data_dir, "train")["orders"]["order_value"])
     grid = value.dropna().quantile(list(TRAINING_QUANTILES)).round(2)
     return tuple(sorted(set(grid.tolist())))
 
 
 def validation_inputs(data_dir) -> dict:
     """Labelled validation orders with account age and loyalty, ready to compare."""
-    train, validation = _clean(data_dir, "train"), _clean(data_dir, "validation")
+    train = clean_window(data_dir, "train")
+    validation = clean_window(data_dir, "validation")
+    return window_inputs([train, validation], validation)
+
+
+def labelled_orders(window: dict) -> pd.DataFrame:
+    """A `clean_window` result's orders that have a valid label, joined to their label
+    and customer, with `is_fraud` as 0 or 1."""
     joined, _ = link_orders_customers(
-        validation["orders"], validation["labels"], validation["customers"]
+        window["orders"], window["labels"], window["customers"]
     )
     joined = joined.loc[
         joined.label_link.eq("both") & joined.is_fraud.notna()
     ].reset_index(drop=True)
     joined["is_fraud"] = joined["is_fraud"].astype(int)
+    return joined
+
+
+def window_inputs(history: list[dict], window: dict) -> dict:
+    """Labelled orders of `window` with account age and loyalty, ready to compare.
+
+    `window` and each item of `history` are `clean_window` results. Loyalty counts the
+    earlier orders in `history`, which includes `window` itself.
+    """
+    joined = labelled_orders(window)
     age = account_age_days(
         joined["order_date"],
         joined["first_order_datetime"],
         raw_order_date=joined.get("raw_order_date"),
         raw_first_order_datetime=joined.get("raw_first_order_datetime"),
     )
-    both = {
-        name: pd.concat([train[name], validation[name]], ignore_index=True)
+    every = {
+        name: pd.concat([part[name] for part in history], ignore_index=True)
         for name in _TABLES
     }
     loyal = loyalty_status(
-        both["orders"],
-        joined[validation["orders"].columns],
-        both["labels"],
-        both["customers"],
+        every["orders"],
+        joined[window["orders"].columns],
+        every["labels"],
+        every["customers"],
     )
     return {
         "orders": joined,

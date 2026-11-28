@@ -31,6 +31,7 @@ restart-drill = "mlops_fraud_prediction_ca1.restart_drill:main"
 retrain-batch = "mlops_fraud_prediction_ca1.retrain:main"
 rule-report = "mlops_fraud_prediction_ca1.rule_report:main"
 champion-scores = "mlops_fraud_prediction_ca1.champion_scores:main"
+final-test = "mlops_fraud_prediction_ca1.final_test:main"
 
 [build-system]
 requires = ["uv_build>=0.12.4,<0.13.0"]

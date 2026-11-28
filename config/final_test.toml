@@ -1,0 +1,13 @@
+# Issue #23: the settings for the one final test-window scoring (docs/final-test.md).
+# Commit these, then turn on final_evaluation_enabled in time_split.toml, before scoring.
+model_name = "fraud-candidate"
+model_version = "5"
+# "as_trained" scores the model as it was trained, on rows before the validation
+# window. "refit" first refits it, with its stored hyperparameters and seed, on the
+# training and validation rows.
+mode = "as_trained"
+# These must equal the code's K (D5-01) and LOYAL_MIN_PRIOR_ORDERS (D18-01).
+k = 250
+loyal_min_prior_orders = 2
+# The rule's order-value threshold X in SGD, the validation-tuned proxy of D18-04.
+threshold_x = 13.36

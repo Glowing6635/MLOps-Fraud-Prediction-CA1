@@ -113,7 +113,8 @@ def retrain(
         caught = result.report.at_k.fraud_caught
         ap = result.report.average_precision
         return {
-            **counts,
+            # The harness logs train_orders itself, with the same count.
+            **{name: value for name, value in counts.items() if name != "train_orders"},
             "champion_fraud_caught_at_k": champion_caught,
             "champion_average_precision": champion_ap,
             "fraud_caught_at_k_delta": caught - champion_caught,
