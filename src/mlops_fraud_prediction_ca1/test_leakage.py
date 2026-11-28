@@ -57,6 +57,11 @@ class LeakageTests(unittest.TestCase):
         report = availability_inventory(*frames, reviewed_on="2026-11-15")
         self.assertEqual(len(report), sum(len(f.columns) for f in frames))
         self.assertEqual(report.column.eq("country_code").sum(), 3)
+        country_use = report.loc[
+            report.column.eq("country_code"), ["source", "proposed_use"]
+        ].set_index("source")
+        self.assertIn("D22-03", country_use.proposed_use["orders"])
+        self.assertNotIn("D22-03", country_use.proposed_use["customers"])
         self.assertTrue(report.status.eq("unconfirmed").all())
         self.assertEqual(
             report.loc[report.column.eq("refund_value"), "role"].item(),

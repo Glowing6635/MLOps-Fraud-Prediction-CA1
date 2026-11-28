@@ -116,6 +116,8 @@ def availability_inventory(
                 scope = "Customer snapshot anchor/order unknown, including later orders"
             if column in {"country_code", "customer_id", "order_id"}:
                 role, use = "key", "Link/group only; not a proposed model input"
+                if column == "country_code" and source == "orders":
+                    use = "Link/group; a model input only in runs that add it (D22-03)"
                 timing = "Identity at order placement assumed; source availability unconfirmed"
             elif source == "customers":
                 use = "Unconfirmed customer group: #14 exploratory comparison only"

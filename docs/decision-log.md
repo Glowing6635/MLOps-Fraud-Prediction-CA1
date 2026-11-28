@@ -34,6 +34,8 @@ and the unconfirmed/#14 fallback.
   date derivations; it is not a direct input from this selector.
   Keys (`country_code`, `customer_id`, `order_id`), `refund_value`, `is_fraud`,
   and unknown columns are excluded, even if present in the wrong source.
+  The selector still excludes `country_code`; since D22-03 the harness adds the
+  order's country itself for a run that asks for it.
   `refund_value` is evaluation-only, because a later refund is not established
   pre-shipping information. `is_fraud` is target-only for the current order.
 - Code: `src/mlops_fraud_prediction_ca1/leakage.py`; audit inventory remains
@@ -50,7 +52,8 @@ and the unconfirmed/#14 fallback.
 - Per-field evidence and required follow-up:
   - `country_code`: The supplied field definitions describe country identity; normalized linkage checks
     support historical matching only. Placement-time customer record/version
-    remains unconfirmed. Link/group only, never a feature.
+    remains unconfirmed. Link/group only, never a feature. Separately, the order's own
+    `country_code` is a model input where D22-03 adds it.
   - `customer_id`: The supplied field definitions describe customer identity; composite-key/label-bridge
     checks support historical identity only. The scoring-time order-to-customer
     mapping is unconfirmed. Link/group only, never a feature.
@@ -608,6 +611,118 @@ The current protected test fraud rate remains unmeasured.
 Balancing reduced fraud caught at K and average precision for both forest
 families. Extra trees caught 74 more fraud orders at 2K. These results support
 keeping the unweighted default while production weighting remains open.
+
+## D22-01 — Customer-history counts for the v2 candidate
+
+- Recorded: 2026-11-26. Owner: SpiralSky (Glowing6635 to review). Affected PBIs: #22, #15, #25, #16.
+- Decision: The SpiralSky v2 candidate adds three counts to the boosted-trees model, built by
+  `customer_history.customer_history_features` for the customer `country_code` + `customer_id`:
+  `n_prior_orders` (labelled orders dated strictly before the order), `n_prior_labelled_30d` (those
+  dated more than 30 days before) and `n_prior_fraud_30d` (how many of those are fraud). The 30-day
+  delay is `leakage.ASSUMED_LABEL_DELAY_DAYS`, the explicit-delay experiment D4-04 allows. The
+  customer ID stays out of the model (D4-02); only the derived counts enter, so D4-01's four order
+  columns are extended by these three. Orders without a customer ID get zeros.
+- Reason: v1 ranks fraud mainly by country and payment prior, and order-only variants did not
+  help. Offline on the validation window (refit, not logged) the three counts raised fraud
+  caught at K from 2893 to 3042 and average precision from 0.3716 to 0.4239 (the two delayed
+  counts alone reached 3042 and 0.4186). See
+  [model-v2-diagnosis.md](model-v2-diagnosis.md).
+- Alternatives: Class weighting (D17-01) is a separate change. Per-country calibration cannot add
+  within-country signal. History without the delay would read labels not yet known at scoring.
+- Settled: the feature definitions, the strict-date rule, the 30-day assumed delay and the code.
+- Open: (1) whether the team accepts v2 as a challenger (owner: SpiralSky with Glowing6635);
+  (2) logging the v2 run to MLflow, repeating the #15 review and the #25 roster entry need the
+  team server; (3) the delay is unconfirmed with Operations (D4-05); (4) scoring-time history from
+  the batch and RDS readers (#20, #25) and the packaged model (#16) are not built; (5) the fit
+  time against the 85 s #25 budget is unmeasured.
+
+### D22-01 follow-up: package run
+
+`train boosted-trees-v2` now fits v1 and v2 under one parent run and reproduces the
+offline result through the package: 2893 to 3042 fraud caught at K = 250, average
+precision 0.3716 to 0.4239 ([model-v2-run.md](model-v2-run.md)). Settled: the wiring and the
+local result. Still open as listed above: the team-server log, the #15 review and the
+#25 roster entry. The fit took about 1.6 s, which narrows open item (5) to the timed run.
+
+### D22-02 — Diagnostics logged by the shared harness
+
+- Recorded: 2026-11-26. Owner: SpiralSky. Affected PBIs: #22 (AC2).
+- Decision: `training.train` logs, for every run (v1, v2 and all other candidates), a
+  precision-recall curve, a confusion matrix at K and errors by country, payment method and
+  order-value band as MLflow table artifacts under `diagnostics/`
+  (`diagnostics.py`). Bands are `[0,3)`, `[3,5)`, `[5,8)`, `[8,13)`, `[13,30)`, `[30,∞)` and
+  `missing`, the ones in model-v2-diagnosis.md, stated in the `order_value_bands` tag.
+- Reason: AC2 needs both versions to log the same evidence; one code path keeps v1 and v2
+  comparable. Slices use the daily top-K selection, so they add up to `fraud_caught_at_k`.
+- Alternatives: a separate v2-only logger (drifts from v1); PNG figures (matplotlib is a dev
+  dependency only, and tables stay machine-readable). Payment slices list every method, not
+  only those with at least 1,000 orders.
+- Impact: runs upload five small extra artifacts; the PR curve is thinned to 500 points.
+- Settled: table form, bands, thinning. Open: whether the team wants a figure rendering in a
+  notebook (needs the owner's preview approval).
+
+## D22-03 — The order's country and training-only recency weighting
+
+- Recorded: 2026-11-26. Updated: 2026-11-28. Owner: Glowing6635 (SpiralSky to review). Affected PBIs: #22, #15,
+  #25. Amends D4-01 and D4-02, which keep `country_code` as a key only.
+- Decision: version 2 of the boosted-trees candidate (#14, #142) gives the model the order's
+  `country_code` as a fifth input, beside D4-01's four order columns, and applies training-only
+  14-day exponential recency decay weights (`0.5 ** (age_days / 14)` from the latest training
+  `order_date`). The harness adds both only when requested (`country_input=True`,
+  `recency_half_life_days=14`, via `training.compare_country` and `uv run train
+  boosted-trees-country`), so v1, the baseline and every other candidate keep the four columns
+  and uniform training weights, and their logged runs still reproduce. Validation orders are
+  never weighted. The customer table's `country_code` stays a key.
+- Reason:
+  1. **Country input.** Like D4-01's four columns, this rests on an **engineering assumption**,
+     not Operations confirmation: the order's country is known when the order is placed, because
+     it is the marketplace the order is placed in. Without it, v1 can't tell a risky order in
+     Pakistan from the same order in the Philippines, and payment method can't stand in for
+     country: payment on delivery (42% of all fraud) and credit card are used in all five
+     countries. On the validation window (K = 250 a day, seed 0), the Philippines (5.9% fraud)
+     took 649 of v1's 5,250 places and v1 caught 83 fraud with them, precision 0.13; Pakistan's
+     precision was 0.68. Two changes on the four columns caught less than v1: native category
+     splits 2,884 and 300 trees at learning rate 0.05 2,876, against v1's 2,893.
+  2. **Training-only recency weighting.** Kickoff EDA (#3) found a sharp fraud surge from mid-March
+     2023 onward, concentrated in Pakistan (21.1% before 13 March to 38.1% from 13 March inside
+     the training window) and Bangladesh (25.6% to 37.8%), while the Philippines fell (9.3% to
+     7.3%). Uniform training weights average 4.5 months together and under-weight the current
+     regime. Chosen strictly inside the training window using an inner temporal holdout
+     (train `[2022-11-12, 2023-03-06)` -> inner validation `[2023-03-06, 2023-03-27)`, K = 250),
+     exponential decay raised inner-validation fraud caught from 2,939 (uniform, AP 0.4143) to
+     2,990 (30-day half-life), 3,031 (21-day) and 3,058 (14-day, +119, AP 0.4297). A 14-day
+     half-life matches the two-week post-surge horizon while keeping enough effective sample
+     weight across earlier months.
+- Validation ablation (frozen validation window, K = 250 a day, seed 0, 101,190 orders, 13,066 fraud):
+
+| Variant | Fraud caught at K | Fraud caught at 2K | Average precision | Saved size |
+| --- | ---: | ---: | ---: | ---: |
+| v1: 4 order columns, uniform | 2,893 | 4,370 | 0.3716 | 1.03 MB |
+| v2a: + `country_code`, uniform | 3,272 (+379) | 5,476 | 0.4663 | 1.04 MB |
+| v2b: + `country_code` + 14-day recency | 3,403 (+510) | 5,550 | 0.4899 | 1.04 MB |
+
+- Cost: under one shared K (D5-01), v2b gives the Philippines 35 places (14 fraud caught,
+  precision 0.40) instead of v1's 649 (83 caught, precision 0.13), because one shared K favours
+  Pakistan (3,639 places, 2,497 caught, precision 0.69) and Bangladesh (1,260 places, 720 caught,
+  precision 0.57), where fraud is densest. Malaysia (175 places, 95 caught, precision 0.54) and
+  Thailand (141 places, 77 caught, precision 0.55) also get fewer but higher-precision places.
+  A 14-day half-life adapts faster to shifts, but if a short spike reverses, recent weights can
+  overshoot until new batches arrive.
+- Alternatives: a K per country (outside #22; D5-01 rejected it); customer-history counts
+  (D22-01), which are SpiralSky's change for his own candidate and depend on unconfirmed
+  customer linkage and 30-day label delay (D4-02, D4-04); extra engineered ratios and frequency
+  encodings on the five placement-time columns (offline validation caught 3,392, below the
+  simpler one-hot pipeline's 3,403).
+- Scoring: `training.score_labelled_rows` gives `country_code` to any model fitted with it,
+  so per-batch retraining (#25) can score v2 as the champion. Recency weights apply during
+  training only, so scoring needs no extra inputs or date logic.
+- Logged evidence (commit `7311e9c4a372b3663148899a4225ad7db3adafa6`, `git_dirty=False`, team MLflow `fraud-prediction` experiment):
+  - Parent run: `40595dfd5d4c464288338d95ec2312cf`
+  - `v1 order columns`: `6df17fe9a7264709a77dcf8e9bafe09a` (`2,893` caught at K, `4,370` at 2K, AP `0.3716`, `1,034,178` bytes)
+  - `v2 country input`: `12211efba1a9439894aba6b331ac7bae` (`3,272` caught at K, `5,476` at 2K, AP `0.4663`, `8.39` s fit, `1,045,485` bytes)
+  - `v2 country input + 14d recency`: `b2bd3d5fa09c40eb8a0dc25494615377` (`3,403` caught at K, `5,550` at 2K, AP `0.4899`, `7.59` s fit, `1,046,058` bytes)
+  - All three children have `champion_eligible=True` and all five `diagnostics/` tables uploaded. `uv run train rerun b2bd3d5fa09c40eb8a0dc25494615377 --data-dir data` passed (`fraud_caught_at_k=3403`, `average_precision=0.48989026476714387`, `same_commit=True`, `reproduced=True`).
+- Open: (1) training v2 as a #25 candidate needs `ModelSpec` fields for `country_input` and `recency_half_life_days` and `retrain.py` passing them to `train`; (2) the #27 timed run and the #15 second review.
 
 ## D18-01 — Baseline rule, account age, loyalty and the threshold selection procedure
 
