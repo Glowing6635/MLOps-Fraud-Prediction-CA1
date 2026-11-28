@@ -38,13 +38,11 @@ tables, recreates them (`rds_schema.create_tables`), loads the three base CSV fi
 with the #20 loader and marks the runs in the rehearsal MLflow experiment as deleted (MLflow `delete_run` only
 hides them: their files stay in the artifact bucket until the MLflow server's garbage collection).
 
-- **Selection:** `.env` (#2 settings) points `DB_NAME` and `MLFLOW_EXPERIMENT_NAME`
-  at the rehearsal resources. Each engineer's existing read-only user
-  (`<name>_reader`, created once with `uv run rds-schema reader <name>`, see
-  `docs/runbook.md`) gets access to this database with a plain
-  `GRANT SELECT ON rehearsal.* TO '<name>_reader'@'%'`. Do not rerun
-  `rds-schema reader` for this: MySQL users are server-wide, so it would reset that
-  user's password on the team database too.
+- **Selection:** Set `DB_NAME`, `MLFLOW_TRACKING_URI` and
+  `MLFLOW_EXPERIMENT_NAME` in the environment or your git-ignored `.env`
+  using [the #2 settings template](../.env.example). Use the `READERS` option
+  below to give existing read-only users rehearsal access. Keep their existing
+  passwords and team access when setting up rehearsal.
 - **Refusal:** before touching anything, both names must start with `rehearsal`, and
   neither may equal `TEAM_DB_NAME` / `TEAM_MLFLOW_EXPERIMENT_NAME` when set. Set those
   two to the team names in the operator's `.env` for a second line of defence.
@@ -78,3 +76,53 @@ the bucket already exists.
 `--expires` / `PRESIGN_EXPIRES` sets the link lifetime in seconds (default 3600, enough for
 a 3-minute batch run; use more for a longer demo). Links are valid only while the session
 credentials that signed them are, so generate them in the demo session.
+
+## Acceptance evidence for #24
+
+### AC1 · Rehearsal configuration and reader access
+
+The 26 November 2026 reset receipt records `DB_NAME=rehearsal` and
+`MLFLOW_EXPERIMENT_NAME=rehearsal` through #2. A separate authenticated
+MLflow readback at 13:23 UTC identified experiment `rehearsal`, ID `3`,
+on the `sp-buy-mlflow` deployment. It was active and had zero active runs
+(live receipt 4, `60e3df4`). The 27 November cleanup receipt records a
+successful reset under the same database and experiment names, with zero
+runs deleted and no remaining rehearsal buckets (`d81a156`).
+
+| Reader | Redacted evidence from 28 November 2026 |
+| --- | --- |
+| SpiralSky | The 07:34 UTC receipt for draft head `4602406e` records a personal read-only connection to `rehearsal`, visibility of `batches`, `customers`, `labels` and `orders`, and a successful read from `batches`. |
+| Glowing6635 | In the receipt relayed by SpiralSky at 15:01 UTC, Glowing6635 reported a successful `uv run rds-schema check` and SELECT using a separate read-only account on `rehearsal`. The same four tables were visible. The reported counts were 1 batch and 949,889 orders. The relay gives no source commit, and the check has not been independently rerun. |
+
+The receipts support the two personal database reads. `rds-schema check`
+checks SQL table visibility and permissions. It loads the tracking settings
+without contacting MLflow. The earlier reset and readback establish
+historical tracking selection. Both reader receipts leave the effective
+tracking target unverified. For AC1 review, SpiralSky can supply a dated,
+redacted record that ties the effective #2 settings to an authenticated
+lookup of the rehearsal experiment name and ID. An existing record from
+the authorized rehearsal context can provide this evidence without
+repeating the teammate's SQL check.
+
+### AC2–AC4 · Reset, synthetic batches and private delivery
+
+- **AC2.** The 26 November live `uv run rehearsal-reset --data-dir data`
+  completed against the rehearsal database and experiment. It rebuilt the four
+  tables from three base CSVs and loaded 901,312 customers, 949,889 orders and
+  949,872 labels (live receipt 5, `8f09a48`). Draft `4602406e` has
+  regression tests for refusal of both team targets before database or
+  MLflow operations.
+- **AC3.** The 26 November live loader accepted 40 customers, 120 orders and
+  120 labels from each of the two regular synthetic batches. The edge batch
+  included the unseen payment category and loaded 4 customers, 11 orders and
+  10 labels. It rejected one label for a missing customer and two for
+  missing orders.
+- **AC4.** The 26 November rehearsal generated and consumed all nine CSV
+  links in the same sandbox session and removed the temporary bucket afterward.
+  The separate 27 November verification (receipt `da6b9ad8`, source
+  `29d27a0`) confirmed all four S3 public-access blocks, nine signed GETs
+  returning HTTP 200 and all nine unsigned GETs returning HTTP 403. The signed
+  links had a five-minute TTL, and cleanup verified bucket removal and
+  unchanged ingress. Boto3 used the sandbox's temporary AWS session credentials.
+  These are historical results. The live check used the recorded source, and
+  the later draft has offline coverage for the revised cleanup logic.
