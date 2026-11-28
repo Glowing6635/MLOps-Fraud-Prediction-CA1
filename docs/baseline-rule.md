@@ -3,8 +3,8 @@
 Today's rule, as the spec describes it (spec.txt:134-137), is "flag if order
 value > $X and account is less than 1 day old". Account age is criterion 2 and the loyal-customer
 definition is criterion 3 (see [Loyal customer](#loyal-customer-criterion-3)). X
-is not yet known; see
-[Threshold X](#threshold-x-candidate-grid-and-selection-protocol).
+for the deployed rule is unknown. The comparison uses a validation-tuned
+proxy. See [Threshold X](#threshold-x-candidate-grid-and-selection-protocol).
 
 ## Rule function
 
@@ -247,9 +247,9 @@ flags. The rule flagged zero orders at X = 100 SGD or higher.
 [#15 champion](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/pull/161),
 `fraud-candidate` v1, run `9c3a59771cf8499d92972f5c7873e280` (D18-06, D18-07):
 the rule caught 73 fraud orders in 132 flags, the model caught 102 at the same
-132 flags and 2,893 at K. The re-score is not row-compared with the registered
-champion artifact, which needs team-server access; see the comparison section
-below.
+132 flags and 2,893 at K. A protected read verified parity with historical
+champion v1. Parity for the accepted team binding remains open. See the
+[validation result](#result-rule-versus-the-15-champion-re-score-validation-window).
 
 ## Comparison with a model (criteria 4 to 6)
 
@@ -308,7 +308,12 @@ Candidate X values tested on validation: 13.36 (132 flags, 73 fraud), 17.72
 A later offline replay reproduced all 15 comparison values on the same
 101,190 labelled validation orders. It used the D18-06 re-score with
 `--k 250 --threshold 13.36 --threshold-source 'D18-04 validation-tuned proxy (frozen)'`.
-Registered artifact parity for the accepted target binding remains open.
+On 2026-11-28, a separate protected read resolved historical champion v1
+(run `9c3a59771cf8499d92972f5c7873e280`) to logged artifact
+`m-34712ed5add845fe838835bd2107ec47`. All 101,190 ordered scores matched
+with a maximum delta of 0, and all 15 aggregates matched. The later shared-trial
+lookup could not resolve the required binding. Registered artifact parity for
+the accepted team binding remains open (D18-07, PR #171).
 
 Population: 101,190 labelled validation orders; account-age status `valid`
 101,109, `unusable_first_order` 71, `negative` 10; rule status `flagged` 132,

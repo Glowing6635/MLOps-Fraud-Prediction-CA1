@@ -68,7 +68,10 @@ previous-champion tags 2/1. At 03:58 UTC on 2026-11-28, SpiralSky gave a
 shared-trial instruction to preserve those aliases and tags and permit one
 attempt before 04:15 UTC to register Extra Trees as an unaliased candidate.
 That direction was limited to the trial. In the 12:42 UTC PR #171 review,
-Glowing6635 reiterated the recommendation to register Extra Trees under D15-03.
+Glowing6635 reiterated the recommendation to register Extra Trees under
+D15-03. SpiralSky directed the temporary retention of the historical
+versions for the trial. The local SQLite procedure in D15-05 rehearses
+registration and rollback before work on the team registry.
 
 A READY Extra Trees version on the team registry and verified alias and rollback
 evidence for the elected pair remain outstanding. The team MLflow custodian
