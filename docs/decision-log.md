@@ -246,3 +246,24 @@ target and measure the whole command from invocation to exit. Record the input
 row counts for all three files with each result so the timing has a batch size.
 These allocations are planning assumptions. Verification requires three runs on
 the demo machine and network, each starting from a rebuilt rehearsal database.
+
+## D15-06 — Retained-trial pair and rollback scope
+
+- Settled: 2026-11-28 at 03:58Z by the Product Owner (SpiralSky) for the
+  retained trial. Keep HistGradientBoostingClassifier v1 as `champion` and
+  the historical RandomForestClassifier v2 as `challenger`. This is the
+  approved trial fallback. ExtraTreesClassifier (run
+  `8af9db9f95e543cfbfebdef82545322c`) remained an unlanded candidate.
+- The [recorded K=250 comparison](https://github.com/Glowing6635/MLOps-Fraud-Prediction-CA1/blob/205b3098ac7e644bd4458ffb84e10b33449063bd/docs/evidence/15-champion-pick-k250.md)
+  (ID `81dbb7f314e29c815c09a468c85f32a8f3079a452f6d9aa5f75614f7c85eb965`)
+  ranks HistGB first, historical RF second and Extra Trees third. Under
+  its recorded 50,000,000-byte qualification rule, HistGB (1,032,894 bytes)
+  and Extra Trees (23,109,193 bytes) are the elected pair. Historical RF
+  was passed over at 187,236,750 bytes in the harness. The trial decision
+  leaves that ranking and qualification intact.
+- The [retained-trial readback](runbook.md#verified-retained-trial-rollback)
+  verifies the authorized exact-pair move and restoration, reciprocal tags,
+  numeric READY source bindings and cleanup of the owned session. Its
+  authenticated reads cover the retained trial. Independent verification of
+  the protected RF package provenance and the formal review record, including
+  early Sprint 2 timing, remain open.
