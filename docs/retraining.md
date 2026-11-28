@@ -5,8 +5,9 @@ Configure the database and MLflow connection with the variables in `.env.example
 and use a database account with read access to the loaded tables. The command
 uses the configured MLflow experiment. A pipeline caller can pass
 `--etl-run-id ID` or call `run_evaluation_mode(..., etl_run_id=ID)` with its
-invocation ID. Supply a fresh ID per invocation. The command generates one when
-omitted. Run names have the form `<model>-<batch_id>-<etl_run_id>`.
+invocation ID. The caller is responsible for choosing a fresh ID per invocation.
+Retraining uses a supplied ID as-is and generates a UUID when the ID is omitted.
+Run names have the form `<model>-<batch_id>-<etl_run_id>`.
 
 The trusted, importable input factory returns `EvaluationInputs` with the
 expected engineer roster, the candidate manifest, the frozen #6 validation

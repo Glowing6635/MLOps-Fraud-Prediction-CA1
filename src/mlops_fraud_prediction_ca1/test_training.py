@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.utils.class_weight import compute_class_weight
 
 from mlops_fraud_prediction_ca1 import training
 from mlops_fraud_prediction_ca1.models import (
@@ -25,6 +26,7 @@ from mlops_fraud_prediction_ca1.training import (
     check_feature_columns,
     check_label_history,
     compare_customer_columns,
+    compare_groups,
     fit_and_score,
     main,
     rerun,
@@ -422,6 +424,83 @@ def test_the_train_command_needs_a_k_status_for_another_k(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         main()
     assert "--k-status" in capsys.readouterr().err
+
+
+def test_balanced_fit_matches_explicit_weights_computed_from_training_labels(data_dir):
+    train_rows, validation_rows = _database_rows(data_dir)
+    train_rows = train_rows.assign(
+        is_fraud=lambda rows: (rows.index % 5 == 0).astype(int)
+    )
+    validation_rows = validation_rows.assign(
+        is_fraud=lambda rows: (rows.index % 5 != 0).astype(int)
+    )
+    classes = np.array([0, 1])
+    train_weights = compute_class_weight(
+        "balanced", classes=classes, y=train_rows.is_fraud
+    )
+    pooled_weights = compute_class_weight(
+        "balanced",
+        classes=classes,
+        y=pd.concat([train_rows.is_fraud, validation_rows.is_fraud]),
+    )
+    assert train_weights == pytest.approx([0.625, 2.5])
+
+    # Fit the references directly so a regression in the harness cannot change them.
+    train_keys, train_x = training._labelled_inputs(train_rows)
+    _, validation_x = training._labelled_inputs(validation_rows)
+    train_only = baseline_model(
+        class_weight=dict(zip(classes, train_weights, strict=True))
+    ).fit(train_x, train_keys.is_fraud)
+    pooled = baseline_model(
+        class_weight=dict(zip(classes, pooled_weights, strict=True))
+    ).fit(train_x, train_keys.is_fraud)
+    result = fit_and_score(
+        baseline_model(class_weight="balanced"),
+        k=K,
+        seed=0,
+        labelled_windows=(train_rows, validation_rows),
+    )
+    assert result.validation_orders == len(validation_rows)
+    expected = train_only.predict_proba(validation_x)
+    assert not np.allclose(expected, pooled.predict_proba(validation_x))
+    np.testing.assert_allclose(result.model.predict_proba(validation_x), expected)
+
+
+def test_compare_groups_imputes_from_training_with_validation_present(
+    data_dir, monkeypatch
+):
+    orders_path = data_dir / "orders_base.csv"
+    orders = pd.read_csv(orders_path)
+    train_mask = orders.order_id.str.startswith("train")
+    validation_mask = orders.order_id.str.startswith("validation")
+    orders.loc[train_mask, "order_value"] = np.tile([10, 20, 30], train_mask.sum() // 3)
+    orders.loc[validation_mask, "order_value"] = 1000
+    orders.loc[orders.order_id.isin(["train0", "validation0"]), "order_value"] = np.nan
+    orders.to_csv(orders_path, index=False)
+    assert orders.loc[train_mask, "order_value"].median() == 20
+    assert orders.loc[train_mask | validation_mask, "order_value"].median() == 30
+
+    def fit_without_logging(estimator, data_dir, *, k, seed):
+        result = fit_and_score(estimator, data_dir, k=k, seed=seed)
+        assert result.train_orders == train_mask.sum()
+        assert result.validation_orders == validation_mask.sum()
+        preprocessor = result.model.named_steps["model"].named_steps[
+            "columntransformer"
+        ]
+        _, numeric_steps, numeric_columns = preprocessor.transformers_[0]
+        medians = dict(
+            zip(
+                numeric_columns, numeric_steps["simpleimputer"].statistics_, strict=True
+            )
+        )
+        assert medians["order_value"] == 20
+        group = result.model.named_steps["features"].group
+        if group == "order_log":
+            assert medians["order_value_log1p"] == pytest.approx(np.log1p(20))
+        return group, result
+
+    monkeypatch.setattr(training, "train", fit_without_logging)
+    assert set(compare_groups(data_dir, k=K).group) == {"order_raw", "order_log"}
 
 
 def test_balanced_weighting_leaves_the_validation_fraud_rate_natural(data_dir):
